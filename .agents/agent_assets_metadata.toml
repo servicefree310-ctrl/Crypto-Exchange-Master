@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "Wdd4RetI-Jl1mLRkF9tN4"
+uri = "file://artifacts/crypto-exchange/assets/images/icon.png"
+type = "image"
+title = "crypto exchange app icon"
