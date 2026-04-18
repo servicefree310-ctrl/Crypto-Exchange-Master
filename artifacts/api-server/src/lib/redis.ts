@@ -116,6 +116,10 @@ export async function rZrange(key: string, start = 0, stop = -1, withScores = fa
       : await pub.zrange(key, start, stop);
   } catch { return []; }
 }
+export async function rDel(...keys: string[]) {
+  if (!ready || !pub || keys.length === 0) return 0;
+  try { return await pub.del(...keys); } catch { return 0; }
+}
 export async function rLpush(key: string, ...values: string[]) {
   if (!ready || !pub) return;
   try { await pub.lpush(key, ...values); await pub.ltrim(key, 0, 999); } catch {}

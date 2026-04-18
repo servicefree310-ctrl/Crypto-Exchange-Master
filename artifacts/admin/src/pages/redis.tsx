@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Database, RefreshCw, Trash2, Search, Activity, HardDrive, Server, Zap } from "lucide-react";
+import { Database, RefreshCw, Trash2, Search, Activity, HardDrive, Server, Zap, Cpu, Play, Pause, RotateCcw, Flame } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -72,6 +72,36 @@ export default function RedisPage() {
     mutationFn: () => post("/admin/redis/configs/reseed", {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["redis-configs"] }),
   });
+  const warmNow = useMutation({
+    mutationFn: () => post("/admin/redis/warm", {}),
+    onSuccess: (r: any) => toast({ title: "Cache warmed", description: JSON.stringify(r.stats) }),
+  });
+
+  // ── Matching engine ──
+  const { data: meStatus } = useQuery<any>({
+    queryKey: ["matching-status"],
+    queryFn: () => get("/admin/matching/status"),
+    refetchInterval: 2000,
+  });
+  const toggleEngine = useMutation({
+    mutationFn: (enabled: boolean) => post("/admin/matching/toggle", { enabled }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["matching-status"] }); toast({ title: "Engine toggled" }); },
+  });
+  const resetEngine = useMutation({
+    mutationFn: () => post("/admin/matching/reset-stats", {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["matching-status"] }),
+  });
+  const sweepEngine = useMutation({
+    mutationFn: (symbol: string) => post("/admin/matching/sweep", symbol ? { symbol } : {}),
+    onSuccess: (r: any) => toast({ title: `Swept ${r.scanned} orders`, description: `${r.totalTrades} trades` }),
+  });
+  const [depthSym, setDepthSym] = useState("BTCINR");
+  const [sweepSym, setSweepSym] = useState("");
+  const { data: depth, refetch: refetchDepth } = useQuery<{ bids: [number, number][]; asks: [number, number][] }>({
+    queryKey: ["matching-depth", depthSym],
+    queryFn: () => get(`/admin/matching/depth/${depthSym}?levels=15`),
+    enabled: false,
+  });
 
   const grouped = configs.reduce<Record<string, Cfg[]>>((acc, c) => {
     (acc[c.category] ||= []).push(c); return acc;
@@ -105,8 +135,9 @@ export default function RedisPage() {
         </Card>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={() => refetchStatus()}><RefreshCw className="w-3 h-3 mr-1" /> Refresh</Button>
+        <Button size="sm" variant="outline" onClick={() => warmNow.mutate()}><Flame className="w-3 h-3 mr-1" /> Warm Cache Now</Button>
         <Button size="sm" variant="outline" onClick={() => reseed.mutate()}>Re-seed default configs</Button>
         <Button size="sm" variant="destructive" onClick={() => { if (confirm("Flush ALL Redis cache? This cannot be undone.")) flushAll.mutate(); }}>
           <Trash2 className="w-3 h-3 mr-1" /> Flush All Cache
@@ -116,6 +147,7 @@ export default function RedisPage() {
       <Tabs defaultValue="configs">
         <TabsList>
           <TabsTrigger value="configs">Cache Configs ({configs.length})</TabsTrigger>
+          <TabsTrigger value="matching"><Cpu className="w-3 h-3 mr-1" /> Matching Engine</TabsTrigger>
           <TabsTrigger value="explorer">Key Explorer</TabsTrigger>
           <TabsTrigger value="info">Server Info</TabsTrigger>
         </TabsList>
@@ -163,6 +195,102 @@ export default function RedisPage() {
               </Table>
             </Card>
           ))}
+        </TabsContent>
+
+        <TabsContent value="matching">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <Card className="p-4">
+              <div className="text-xs text-muted-foreground mb-1">Engine</div>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${meStatus?.enabled ? "bg-green-500" : "bg-red-500"}`} />
+                <span className="font-bold">{meStatus?.enabled ? "Running" : "Paused"}</span>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-xs text-muted-foreground mb-1">Trades Executed</div>
+              <div className="font-bold text-lg">{meStatus?.tradesExecuted?.toLocaleString() ?? 0}</div>
+              <div className="text-xs text-muted-foreground">{meStatus?.matchesAttempted ?? 0} attempts</div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-xs text-muted-foreground mb-1">Volume (quote)</div>
+              <div className="font-bold text-lg">{(meStatus?.totalVolumeQuote ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-xs text-muted-foreground mb-1">Last Match</div>
+              <div className="font-bold">{meStatus?.lastMatchAt ? new Date(meStatus.lastMatchAt).toLocaleTimeString() : "—"}</div>
+              {meStatus?.lastError && <div className="text-[10px] text-red-500 truncate" title={meStatus.lastError}>{meStatus.lastError}</div>}
+            </Card>
+          </div>
+
+          <Card className="p-4 mb-3">
+            <div className="flex flex-wrap gap-2 items-center">
+              {meStatus?.enabled
+                ? <Button size="sm" variant="destructive" onClick={() => toggleEngine.mutate(false)}><Pause className="w-3 h-3 mr-1" /> Pause Engine</Button>
+                : <Button size="sm" onClick={() => toggleEngine.mutate(true)}><Play className="w-3 h-3 mr-1" /> Resume Engine</Button>}
+              <Button size="sm" variant="outline" onClick={() => resetEngine.mutate()}><RotateCcw className="w-3 h-3 mr-1" /> Reset Stats</Button>
+              <div className="flex gap-1 ml-2">
+                <Input placeholder="Symbol (blank = all)" value={sweepSym} onChange={(e) => setSweepSym(e.target.value.toUpperCase())} className="h-8 w-40" />
+                <Button size="sm" variant="secondary" onClick={() => sweepEngine.mutate(sweepSym)}>Force Sweep</Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex gap-2 mb-3 items-center">
+              <Label className="text-xs">Depth viewer</Label>
+              <Input value={depthSym} onChange={(e) => setDepthSym(e.target.value.toUpperCase())} className="h-8 w-32" />
+              <Button size="sm" onClick={() => refetchDepth()}>Load</Button>
+            </div>
+            {depth && (
+              <div className="grid grid-cols-2 gap-4 text-xs font-mono">
+                <div>
+                  <div className="font-semibold text-green-500 mb-1">BIDS</div>
+                  {depth.bids.map(([p, q]) => (
+                    <div key={`b${p}`} className="flex justify-between border-b py-0.5">
+                      <span className="text-green-500">{p.toFixed(2)}</span>
+                      <span>{q.toFixed(6)}</span>
+                    </div>
+                  ))}
+                  {depth.bids.length === 0 && <div className="text-muted-foreground">empty</div>}
+                </div>
+                <div>
+                  <div className="font-semibold text-red-500 mb-1">ASKS</div>
+                  {depth.asks.map(([p, q]) => (
+                    <div key={`a${p}`} className="flex justify-between border-b py-0.5">
+                      <span className="text-red-500">{p.toFixed(2)}</span>
+                      <span>{q.toFixed(6)}</span>
+                    </div>
+                  ))}
+                  {depth.asks.length === 0 && <div className="text-muted-foreground">empty</div>}
+                </div>
+              </div>
+            )}
+            {meStatus?.perSymbol && Object.keys(meStatus.perSymbol).length > 0 && (
+              <div className="mt-4">
+                <div className="text-xs font-semibold mb-1">Per-symbol activity</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Symbol</TableHead>
+                      <TableHead>Trades</TableHead>
+                      <TableHead>Volume</TableHead>
+                      <TableHead>Last</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(meStatus.perSymbol as Record<string, any>).map(([sym, s]) => (
+                      <TableRow key={sym}>
+                        <TableCell className="font-mono">{sym}</TableCell>
+                        <TableCell>{s.trades}</TableCell>
+                        <TableCell>{s.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-xs">{s.lastTs ? new Date(s.lastTs).toLocaleTimeString() : "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </Card>
         </TabsContent>
 
         <TabsContent value="explorer">

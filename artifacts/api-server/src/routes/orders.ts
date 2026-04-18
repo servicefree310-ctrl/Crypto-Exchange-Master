@@ -3,6 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { rZadd, rZrem, rPublish, rLpush, rSet } from "../lib/redis";
+import { tryMatch, getDepth, getRecentTrades } from "../lib/matching-engine";
 
 async function pushOrderToRedis(o: any, pair: any, action: "new" | "cancel" | "fill") {
   const symbol = pair?.symbol ?? `pair-${o.pairId}`;
@@ -180,8 +181,24 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
     if (order.status === "filled") {
       await pushOrderToRedis(order, pair, "fill");
       if (trade) await pushTradeToRedis(trade, pair);
-    } else {
-      await pushOrderToRedis(order, pair, "new");
+      res.status(201).json(order); return;
+    }
+    // Add limit order to book then run matching against existing book
+    await pushOrderToRedis(order, pair, "new");
+    const matchRes = await tryMatch(order.id, { takerVipTier: vipTier });
+    if (matchRes.trades > 0) {
+      const [refreshed] = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
+      if (refreshed && refreshed.status === "filled") {
+        await pushOrderToRedis(refreshed, pair, "fill");
+      } else if (refreshed) {
+        // Update redis member to reflect partial fill
+        await rSet(`orderbook:${pair.symbol}:order:${refreshed.id}`, JSON.stringify({
+          id: refreshed.id, userId: refreshed.userId, side: refreshed.side, type: refreshed.type,
+          price: Number(refreshed.price), qty: Number(refreshed.qty),
+          filledQty: Number(refreshed.filledQty ?? 0), status: refreshed.status, ts: Date.now(),
+        }), 86400);
+      }
+      res.status(201).json({ ...(refreshed ?? order), matched: matchRes.trades }); return;
     }
     res.status(201).json(order);
   } catch (e: any) {
@@ -230,6 +247,23 @@ router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> =
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
     throw e;
   }
+});
+
+// ====== Public orderbook + recent trades from Redis ======
+router.get("/orderbook/:symbol", async (req, res): Promise<void> => {
+  const symbol = String(req.params.symbol || "").toUpperCase();
+  const levels = Math.min(100, Math.max(5, Number(req.query.levels) || 20));
+  const depth = await getDepth(symbol, levels);
+  res.setHeader("X-Cache", "REDIS");
+  res.json({ symbol, ...depth, ts: Date.now() });
+});
+
+router.get("/trades/:symbol/recent", async (req, res): Promise<void> => {
+  const symbol = String(req.params.symbol || "").toUpperCase();
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  const trades = await getRecentTrades(symbol, limit);
+  res.setHeader("X-Cache", "REDIS");
+  res.json({ symbol, trades, ts: Date.now() });
 });
 
 void coinsTable;

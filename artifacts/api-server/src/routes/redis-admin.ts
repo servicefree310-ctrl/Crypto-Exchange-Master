@@ -189,6 +189,55 @@ router.post("/redis/warm", requireAuth, requireRole("admin", "superadmin"), asyn
   res.json({ ok: true, stats });
 });
 
+// ====== Matching engine admin ======
+router.get("/matching/status", requireAuth, requireRole("admin", "superadmin", "support"), async (_req, res) => {
+  const { getEngineStats } = await import("../lib/matching-engine");
+  res.json(getEngineStats());
+});
+router.post("/matching/toggle", requireAuth, requireRole("admin", "superadmin"), async (req, res) => {
+  const { setEngineEnabled, getEngineStats } = await import("../lib/matching-engine");
+  setEngineEnabled(!!req.body?.enabled);
+  res.json(getEngineStats());
+});
+router.post("/matching/reset-stats", requireAuth, requireRole("admin", "superadmin"), async (_req, res) => {
+  const { resetEngineStats, getEngineStats } = await import("../lib/matching-engine");
+  resetEngineStats();
+  res.json(getEngineStats());
+});
+router.post("/matching/run/:orderId", requireAuth, requireRole("admin", "superadmin"), async (req, res) => {
+  const { tryMatch } = await import("../lib/matching-engine");
+  const id = Number(req.params.orderId);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "bad orderId" }); return; }
+  const r = await tryMatch(id);
+  res.json(r);
+});
+router.post("/matching/sweep", requireAuth, requireRole("admin", "superadmin"), async (req, res) => {
+  const { tryMatch } = await import("../lib/matching-engine");
+  const { db: ddb, ordersTable: ot, pairsTable: pt } = await import("@workspace/db");
+  const { eq: eq2, and: and2, or: or2, desc: desc2 } = await import("drizzle-orm");
+  const symbol = req.body?.symbol ? String(req.body.symbol).toUpperCase() : null;
+  let pairIds: number[] | null = null;
+  if (symbol) {
+    const pair = await ddb.select().from(pt).where(eq2(pt.symbol, symbol)).limit(1);
+    if (!pair[0]) { res.status(404).json({ error: "pair not found" }); return; }
+    pairIds = [pair[0].id];
+  }
+  const open = await ddb.select().from(ot)
+    .where(and2(or2(eq2(ot.status, "open"), eq2(ot.status, "partial"))!, ...(pairIds ? [eq2(ot.pairId, pairIds[0])] : []) as any))
+    .orderBy(desc2(ot.createdAt)).limit(500);
+  let totalTrades = 0;
+  for (const o of open) {
+    const r = await tryMatch(o.id);
+    totalTrades += r.trades;
+  }
+  res.json({ scanned: open.length, totalTrades });
+});
+router.get("/matching/depth/:symbol", requireAuth, requireRole("admin", "superadmin", "support"), async (req, res) => {
+  const { getDepth } = await import("../lib/matching-engine");
+  const depth = await getDepth(String(req.params.symbol).toUpperCase(), Number(req.query.levels) || 30);
+  res.json(depth);
+});
+
 // Public: tells mobile/web what to cache locally
 router.get("/cache/config", async (req, res) => {
   const platform = String((req as any).query?.platform || "mobile");
