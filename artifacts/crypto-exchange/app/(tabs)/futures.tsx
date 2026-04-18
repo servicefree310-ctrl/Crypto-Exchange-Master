@@ -121,7 +121,7 @@ const FUNDING_HISTORY: { time:string; rate:string; cost:string; color:string }[]
 export default function FuturesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { apiPairs, apiCoins } = useApp();
+  const { apiPairs, apiCoins, apiWallets } = useApp();
   const futPairs = useMemo(() => {
     const coinById = new Map<number, any>();
     (apiCoins || []).forEach((c: any) => coinById.set(c.id, c));
@@ -210,7 +210,12 @@ export default function FuturesScreen() {
   const reqMargin = posValue !== "0.00" ? (parseFloat(posValue) / leverage).toFixed(2) : "0.00";
   const estLiq = price && amount && reqMargin !== "0.00"
     ? (parseFloat(price) * (1 - 1/leverage * 0.88)).toFixed(2) : "—";
-  const maxOpen = (1240.50 * leverage).toFixed(2);
+  const futuresMargin = useMemo(() => {
+    const quoteSym = (selectedPair?.label || "").split("/")[1] || "USDT";
+    const w = (apiWallets || []).find((x: any) => x.walletType === "futures" && x.symbol === quoteSym);
+    return Number(w?.available ?? 0);
+  }, [apiWallets, selectedPair]);
+  const maxOpen = (futuresMargin * leverage).toFixed(2);
 
   const handlePct = useCallback((p:number) => {
     setPct(p);
@@ -320,8 +325,8 @@ export default function FuturesScreen() {
           {/* Info row */}
           <View style={[styles.infoRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
             {[
-              { l:"Avail Margin", v:"1,240.50 USDT" },
-              { l:"Max Open", v:`${maxOpen} USDT` },
+              { l:"Avail Margin", v:`${futuresMargin.toLocaleString(futQuote==="INR"?"en-IN":"en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} ${futQuote}` },
+              { l:"Max Open", v:`${Number(maxOpen).toLocaleString(futQuote==="INR"?"en-IN":"en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} ${futQuote}` },
             ].map(r => (
               <View key={r.l} style={styles.infoItem}>
                 <Text style={[styles.infoL, { color: colors.mutedForeground }]}>{r.l}</Text>
