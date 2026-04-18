@@ -100,7 +100,7 @@ export default function DepositInr() {
           </View>
         )}
 
-        {amount && parseFloat(amount) > 0 && (
+        {parseFloat(amount || '0') > 0 && (
           <View style={s.summary}>
             <View style={s.sumRow}><Text style={s.sumLbl}>Amount</Text><Text style={s.sumVal}>₹{parseFloat(amount).toLocaleString('en-IN')}</Text></View>
             <View style={s.sumRow}><Text style={s.sumLbl}>Fee</Text><Text style={s.sumVal}>₹{selected.fee}</Text></View>

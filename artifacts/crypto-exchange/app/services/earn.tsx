@@ -211,7 +211,7 @@ export default function Earn() {
               </View>
             )}
 
-            {stakeAmount && parseFloat(stakeAmount) > 0 && (
+            {parseFloat(stakeAmount || '0') > 0 && (
               <View style={s.estBox}>
                 <View style={s.estRow}>
                   <Text style={s.estLbl}>Daily</Text>

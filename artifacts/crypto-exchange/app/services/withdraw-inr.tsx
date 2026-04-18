@@ -71,7 +71,9 @@ export default function WithdrawInr() {
         <View style={s.inputBox}>
           <Text style={s.currency}>₹</Text>
           <TextInput style={s.input} placeholder="0.00" placeholderTextColor={colors.mutedForeground} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
-          <TouchableOpacity onPress={() => setAmount(String(inrBal))}><Text style={[s.maxBtn, { color: colors.primary }]}>MAX</Text></TouchableOpacity>
+          <TouchableOpacity style={s.maxWrap} onPress={() => setAmount(String(inrBal))}>
+            <Text style={[s.maxBtn, { color: colors.primary }]}>MAX</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={s.quickRow}>
@@ -121,7 +123,8 @@ const styles = (c: ReturnType<typeof useColors>) => StyleSheet.create({
   bankAcc: { fontSize: 11, color: c.mutedForeground, fontFamily: 'Inter_400Regular', marginTop: 2 },
   inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.card, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: c.border, marginTop: 8, marginBottom: 10 },
   currency: { fontSize: 22, color: c.mutedForeground, fontFamily: 'Inter_500Medium', marginRight: 8 },
-  input: { flex: 1, fontSize: 22, color: c.foreground, fontFamily: 'Inter_700Bold' },
+  input: { flex: 1, fontSize: 20, color: c.foreground, fontFamily: 'Inter_700Bold', minWidth: 0 },
+  maxWrap: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: c.primary + '22' },
   maxBtn: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   quickRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
   quickBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, backgroundColor: c.secondary, borderRadius: 8, borderWidth: 1, borderColor: c.border },

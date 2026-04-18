@@ -95,7 +95,9 @@ export default function Transfer() {
         <View style={s.inputBox}>
           <TextInput style={s.input} placeholder="0.00" placeholderTextColor={colors.mutedForeground} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
           <Text style={s.unit}>{coin}</Text>
-          <TouchableOpacity onPress={() => setAmount(String(fromBal))}><Text style={[s.maxBtn, { color: colors.primary }]}>MAX</Text></TouchableOpacity>
+          <TouchableOpacity style={s.maxWrap} onPress={() => setAmount(String(fromBal))}>
+            <Text style={[s.maxBtn, { color: colors.primary }]}>MAX</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={s.note}>
@@ -130,6 +132,7 @@ const styles = (c: ReturnType<typeof useColors>) => StyleSheet.create({
   inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.card, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: c.border, gap: 8, marginBottom: 14 },
   input: { flex: 1, fontSize: 18, color: c.foreground, fontFamily: 'Inter_700Bold' },
   unit: { fontSize: 13, color: c.mutedForeground, fontFamily: 'Inter_600SemiBold' },
+  maxWrap: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: c.primary + '22' },
   maxBtn: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   note: { flexDirection: 'row', gap: 8, padding: 12, borderRadius: 8, backgroundColor: c.info + '15', marginBottom: 16, alignItems: 'flex-start' },
   noteText: { flex: 1, fontSize: 11, color: c.mutedForeground, fontFamily: 'Inter_400Regular', lineHeight: 16 },

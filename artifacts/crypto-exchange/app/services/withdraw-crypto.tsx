@@ -99,7 +99,9 @@ export default function WithdrawCrypto() {
         <View style={s.inputBox}>
           <TextInput style={[s.input, { fontSize: 18, fontFamily: 'Inter_700Bold' }]} placeholder="0.00" placeholderTextColor={colors.mutedForeground} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
           <Text style={s.unit}>{coin}</Text>
-          <TouchableOpacity onPress={() => setAmount(String(balance))}><Text style={[s.maxBtn, { color: colors.primary }]}>MAX</Text></TouchableOpacity>
+          <TouchableOpacity style={s.maxWrap} onPress={() => setAmount(String(balance))}>
+            <Text style={[s.maxBtn, { color: colors.primary }]}>MAX</Text>
+          </TouchableOpacity>
         </View>
 
         {amt > 0 && (
@@ -142,6 +144,7 @@ const styles = (c: ReturnType<typeof useColors>) => StyleSheet.create({
   inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.card, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: c.border, gap: 8 },
   input: { flex: 1, fontSize: 13, color: c.foreground, fontFamily: 'Inter_500Medium', minHeight: 24 },
   unit: { fontSize: 13, color: c.mutedForeground, fontFamily: 'Inter_600SemiBold' },
+  maxWrap: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: c.primary + '22' },
   maxBtn: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   summary: { backgroundColor: c.card, borderRadius: 12, padding: 14, marginTop: 14, borderWidth: 1, borderColor: c.border, gap: 8 },
   sumRow: { flexDirection: 'row', justifyContent: 'space-between' },
