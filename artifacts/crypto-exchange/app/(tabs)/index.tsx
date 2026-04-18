@@ -106,17 +106,19 @@ export default function HomeScreen() {
     }));
   }, [promotionsData]);
 
-  // Auto-rotate banners
+  // Auto-rotate banners (guarded against empty list & scroll failures)
   useEffect(() => {
+    if (!BANNERS.length) return;
+    const len = BANNERS.length;
     const id = setInterval(() => {
       setBannerIdx(i => {
-        const next = (i + 1) % BANNERS.length;
-        bannerRef.current?.scrollToIndex({ index: next, animated: true });
+        const next = (i + 1) % len;
+        try { bannerRef.current?.scrollToIndex({ index: next, animated: true }); } catch {}
         return next;
       });
     }, 4500);
     return () => clearInterval(id);
-  }, []);
+  }, [BANNERS.length]);
 
   const totalInr = useMemo(() => {
     if (!user?.isLoggedIn) return 0;
@@ -372,6 +374,11 @@ export default function HomeScreen() {
           contentContainerStyle={styles.bannerList}
           snapToInterval={290}
           decelerationRate="fast"
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              bannerRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+            }, 100);
+          }}
           renderItem={({ item }: any) => (
             <TouchableOpacity
               activeOpacity={0.85}
