@@ -25,15 +25,31 @@ function BotForm({ initial, pairs, takenPairIds, onSubmit }: { initial?: Partial
     enabled: false, spreadBps: 20, levels: 5, priceStepBps: 10,
     orderSize: "0.01", refreshSec: 8, maxOrderAgeSec: 60, fillOnCross: true,
   });
+  const [pairSearch, setPairSearch] = useState("");
   const isEdit = !!initial?.id;
-  const availablePairs = isEdit ? pairs : pairs.filter(p => !takenPairIds.includes(p.id));
+  const basePairs = isEdit ? pairs : pairs.filter(p => !takenPairIds.includes(p.id));
+  const q = pairSearch.trim().toUpperCase();
+  const availablePairs = q ? basePairs.filter(p => p.symbol.toUpperCase().includes(q)) : basePairs;
   return (
     <div className="space-y-3">
       <div><Label>Pair</Label>
+        {!isEdit && (
+          <Input
+            placeholder="Search pair (e.g. BTC, USDT)"
+            value={pairSearch}
+            onChange={(e) => setPairSearch(e.target.value)}
+            className="mb-2"
+          />
+        )}
         <Select value={v.pairId ? String(v.pairId) : ""} onValueChange={(c) => setV({ ...v, pairId: Number(c) })} disabled={isEdit}>
-          <SelectTrigger><SelectValue placeholder="Select trading pair" /></SelectTrigger>
-          <SelectContent>{availablePairs.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.symbol}</SelectItem>)}</SelectContent>
+          <SelectTrigger><SelectValue placeholder={availablePairs.length ? "Select trading pair" : "No matching pair"} /></SelectTrigger>
+          <SelectContent>
+            {availablePairs.length === 0
+              ? <div className="px-3 py-2 text-sm text-muted-foreground">No pairs match "{pairSearch}"</div>
+              : availablePairs.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.symbol}</SelectItem>)}
+          </SelectContent>
         </Select>
+        {!isEdit && <p className="text-xs text-muted-foreground mt-1">{availablePairs.length} of {basePairs.length} available pairs</p>}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="flex items-center gap-2 col-span-2 p-3 border rounded">
