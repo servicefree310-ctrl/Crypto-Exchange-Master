@@ -183,4 +183,23 @@ router.post("/redis/configs/reseed", requireAuth, requireRole("superadmin"), asy
   res.json({ ok: true, count: rows.length });
 });
 
+router.post("/redis/warm", requireAuth, requireRole("admin", "superadmin"), async (_req, res) => {
+  const { warmAllCaches } = await import("../lib/cache-warmup");
+  const stats = await warmAllCaches();
+  res.json({ ok: true, stats });
+});
+
+// Public: tells mobile/web what to cache locally
+router.get("/cache/config", async (req, res) => {
+  const platform = String((req as any).query?.platform || "mobile");
+  const map = await loadConfigs();
+  const out: Record<string, { ttlSec: number; enabled: boolean }> = {};
+  for (const [k, v] of Object.entries(map)) {
+    const allowed = platform === "web" ? (v as any).cacheOnWeb : (v as any).cacheOnMobile;
+    out[k] = { ttlSec: (v as any).ttlSec, enabled: !!((v as any).enabled && allowed) };
+  }
+  res.setHeader("Cache-Control", "public, max-age=30");
+  res.json({ platform, configs: out });
+});
+
 export default router;

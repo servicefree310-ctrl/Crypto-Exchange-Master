@@ -9,6 +9,7 @@ import { startWithdrawalWatcher } from "./lib/withdrawal-watcher";
 import { startFuturesEngine } from "./lib/futures-engine";
 import { initRedis, shutdownRedis } from "./lib/redis";
 import { seedCacheConfigs } from "./routes/redis-admin";
+import { warmAllCaches, startWarmupRefresh } from "./lib/cache-warmup";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -31,6 +32,8 @@ server.listen(port, async () => {
   logger.info({ port }, "Server listening (HTTP + WS /api/ws/prices)");
   await initRedis();
   try { await seedCacheConfigs(); } catch (e: any) { logger.warn({ err: e?.message }, "cache config seed failed"); }
+  try { await warmAllCaches(); } catch (e: any) { logger.warn({ err: e?.message }, "cache warmup failed"); }
+  startWarmupRefresh(60000);
   startPriceService(1000);
   startBotService(3000);
   startDepositSweeper(30000);

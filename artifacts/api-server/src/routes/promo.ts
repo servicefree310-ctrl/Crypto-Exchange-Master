@@ -2,6 +2,9 @@ import { Router, type IRouter } from "express";
 import { and, asc, desc, eq, isNull, lte, gte, or, sql } from "drizzle-orm";
 import { db, bannersTable, promotionsTable } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
+import { rGet, rSet } from "../lib/redis";
+import { invalidate } from "../lib/cache-warmup";
+import { shouldCacheServer, getCacheTtl } from "./redis-admin";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -9,6 +12,11 @@ const adminOnly = requireRole("admin", "superadmin");
 // ============ PUBLIC ============
 router.get("/banners", async (req, res): Promise<void> => {
   const platform = String(req.query.platform || "mobile");
+  const cacheKey = `cache:banners:${platform === "web" ? "web" : "mobile"}`;
+  if (await shouldCacheServer("cms.banners")) {
+    const cached = await rGet(cacheKey);
+    if (cached) { res.setHeader("X-Cache", "HIT"); res.json(JSON.parse(cached)); return; }
+  }
   const now = new Date();
   const rows = await db.select().from(bannersTable)
     .where(and(
@@ -18,10 +26,19 @@ router.get("/banners", async (req, res): Promise<void> => {
       or(isNull(bannersTable.endsAt), gte(bannersTable.endsAt, now))!,
     ))
     .orderBy(asc(bannersTable.position), desc(bannersTable.id));
+  if (await shouldCacheServer("cms.banners")) {
+    await rSet(cacheKey, JSON.stringify(rows), await getCacheTtl("cms.banners", 120));
+  }
+  res.setHeader("X-Cache", "MISS");
   res.json(rows);
 });
 
 router.get("/promotions", async (_req, res): Promise<void> => {
+  const cacheKey = "cache:promotions:mobile";
+  if (await shouldCacheServer("cms.promotions")) {
+    const cached = await rGet(cacheKey);
+    if (cached) { res.setHeader("X-Cache", "HIT"); res.json(JSON.parse(cached)); return; }
+  }
   const now = new Date();
   const rows = await db.select().from(promotionsTable)
     .where(and(
@@ -31,6 +48,10 @@ router.get("/promotions", async (_req, res): Promise<void> => {
       or(isNull(promotionsTable.endsAt), gte(promotionsTable.endsAt, now))!,
     ))
     .orderBy(asc(promotionsTable.position), desc(promotionsTable.id));
+  if (await shouldCacheServer("cms.promotions")) {
+    await rSet(cacheKey, JSON.stringify(rows), await getCacheTtl("cms.promotions", 120));
+  }
+  res.setHeader("X-Cache", "MISS");
   res.json(rows);
 });
 
@@ -59,6 +80,7 @@ router.post("/admin/banners", adminOnly, async (req, res): Promise<void> => {
     startsAt: b.startsAt ? new Date(b.startsAt) : null,
     endsAt: b.endsAt ? new Date(b.endsAt) : null,
   }).returning();
+  await invalidate("cache:banners:*");
   res.status(201).json(row);
 });
 
@@ -77,12 +99,14 @@ router.patch("/admin/banners/:id", adminOnly, async (req, res): Promise<void> =>
   if (b.endsAt !== undefined) upd.endsAt = b.endsAt ? new Date(b.endsAt) : null;
   const [row] = await db.update(bannersTable).set(upd).where(eq(bannersTable.id, id)).returning();
   if (!row) { res.status(404).json({ error: "not found" }); return; }
+  await invalidate("cache:banners:*");
   res.json(row);
 });
 
 router.delete("/admin/banners/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   await db.delete(bannersTable).where(eq(bannersTable.id, id));
+  await invalidate("cache:banners:*");
   res.json({ ok: true });
 });
 
@@ -113,6 +137,7 @@ router.post("/admin/promotions", adminOnly, async (req, res): Promise<void> => {
     startsAt: p.startsAt ? new Date(p.startsAt) : null,
     endsAt: p.endsAt ? new Date(p.endsAt) : null,
   }).returning();
+  await invalidate("cache:promotions:*");
   res.status(201).json(row);
 });
 
@@ -130,12 +155,14 @@ router.patch("/admin/promotions/:id", adminOnly, async (req, res): Promise<void>
   if (p.endsAt !== undefined) upd.endsAt = p.endsAt ? new Date(p.endsAt) : null;
   const [row] = await db.update(promotionsTable).set(upd).where(eq(promotionsTable.id, id)).returning();
   if (!row) { res.status(404).json({ error: "not found" }); return; }
+  await invalidate("cache:promotions:*");
   res.json(row);
 });
 
 router.delete("/admin/promotions/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   await db.delete(promotionsTable).where(eq(promotionsTable.id, id));
+  await invalidate("cache:promotions:*");
   res.json({ ok: true });
 });
 
