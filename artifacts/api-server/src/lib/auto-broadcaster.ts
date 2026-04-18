@@ -145,9 +145,9 @@ export async function broadcastWithdrawal(withdrawalId: number, reviewerId: numb
     throw new BroadcastError(502, `Broadcast failed: ${msg}`);
   }
 
-  logger.info({ withdrawalId, txHash: tx.hash, chain: network.chain }, "Withdrawal broadcast sent");
+  logger.info({ withdrawalId, txHash: tx.hash, chain: network.chain }, "Withdrawal broadcast sent (status=broadcasting, awaiting confirmations)");
 
-  // STEP 3: Settle ledger + mark completed (atomic)
+  // STEP 3: Deduct locked balance + save txHash. Status stays 'broadcasting' until watcher confirms.
   await db.transaction(async (trx) => {
     const [current] = await trx.select().from(cryptoWithdrawalsTable).where(eq(cryptoWithdrawalsTable.id, withdrawalId)).for("update").limit(1);
     if (!current) return;
@@ -164,9 +164,9 @@ export async function broadcastWithdrawal(withdrawalId: number, reviewerId: numb
       updatedAt: new Date(),
     }).where(eq(walletsTable.id, wallet.id));
     await trx.update(cryptoWithdrawalsTable).set({
-      status: "completed",
       txHash: tx.hash,
-      processedAt: new Date(),
+      broadcastedAt: new Date(),
+      confirmations: 0,
     }).where(eq(cryptoWithdrawalsTable.id, withdrawalId));
   });
 

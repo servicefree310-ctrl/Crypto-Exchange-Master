@@ -21,14 +21,16 @@ type W = {
   id: number; uid?: string; userId: number; coinId: number; networkId: number;
   amount: string; fee: string; toAddress: string; memo: string | null;
   txHash: string | null; status: string; rejectReason: string | null;
+  confirmations?: number; broadcastedAt?: string | null;
   createdAt: string; processedAt: string | null;
 };
+type NetMeta = { confirmations?: number };
 type Coin = { id: number; symbol: string; name?: string };
 type Net = {
   id: number; name: string; chain: string; coinId: number;
   autoSendSupported: boolean; hotWalletConfigured: boolean; rpcConfigured: boolean; isEvm: boolean;
   minWithdraw: string; withdrawFee: string; withdrawEnabled: boolean;
-};
+} & NetMeta;
 type Stats = {
   pending: number; completed: number; rejected: number;
   today: number; todayVolume: number; totalLocked: number;
@@ -170,6 +172,7 @@ export default function CryptoWithdrawalsPage() {
                 <SelectContent>
                   <SelectItem value="all">All status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="broadcasting">Broadcasting</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
@@ -240,7 +243,14 @@ export default function CryptoWithdrawalsPage() {
                           ) : <span className="text-xs text-muted-foreground">—</span>}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={w.status === "completed" ? "default" : w.status === "rejected" ? "destructive" : "secondary"}>{w.status}</Badge>
+                          <Badge variant={w.status === "completed" ? "default" : w.status === "rejected" ? "destructive" : w.status === "broadcasting" ? "outline" : "secondary"} className={w.status === "broadcasting" ? "border-primary text-primary" : ""}>
+                            {w.status === "broadcasting" ? <><Zap className="w-3 h-3 mr-1 inline" />broadcasting</> : w.status}
+                          </Badge>
+                          {w.status === "broadcasting" && (
+                            <div className="text-[10px] text-primary mt-1">
+                              {w.confirmations ?? 0} / {net?.confirmations ?? 15} confirms
+                            </div>
+                          )}
                           {w.status === "rejected" && w.rejectReason && (
                             <div className="text-[10px] text-destructive mt-1 max-w-[140px] truncate" title={w.rejectReason}>{w.rejectReason}</div>
                           )}

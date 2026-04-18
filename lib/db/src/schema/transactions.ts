@@ -76,6 +76,8 @@ export const cryptoWithdrawalsTable = pgTable("crypto_withdrawals", {
   status: text("status").notNull().default("pending"),
   rejectReason: text("reject_reason"),
   reviewedBy: integer("reviewed_by"),
+  confirmations: integer("confirmations").notNull().default(0),
+  broadcastedAt: timestamp("broadcasted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
 });
