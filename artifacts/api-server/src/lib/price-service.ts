@@ -1,6 +1,7 @@
 import { db, coinsTable, pairsTable, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { rSet, rPublish, rHset } from "./redis";
 
 type Tick = { symbol: string; usdt: number; inr: number; change24h: number; volume24h: number; ts: number };
 
@@ -91,6 +92,11 @@ async function tick() {
     cache.set(c.symbol, t);
     updates.push(t);
 
+    void rSet(`price:${c.symbol}`, JSON.stringify(t), 60);
+    void rHset(`price:hash:${c.symbol}`, {
+      usdt: String(usdt), inr: String(inr), change24h: String(change), volume24h: String(volume), ts: String(t.ts),
+    });
+
     try {
       await db.update(coinsTable).set({
         currentPrice: String(usdt.toFixed(8)),
@@ -99,6 +105,9 @@ async function tick() {
       }).where(eq(coinsTable.id, c.id));
     } catch {}
   }
+
+  void rSet("price:all", JSON.stringify({ inrRate, ticks: updates, ts: Date.now() }), 30);
+  void rPublish("prices.tick", { inrRate, ticks: updates });
 
   // Update pairs with latest base price (in quote terms — for USDT-quoted pairs use base usdt)
   try {
@@ -120,6 +129,7 @@ async function tick() {
           change24h: String(ch.toFixed(4)),
           volume24h: String(vol.toFixed(8)),
         }).where(eq(pairsTable.id, p.id));
+        void rSet(`pair:${p.symbol}`, JSON.stringify({ symbol: p.symbol, last, change24h: ch, volume24h: vol, ts: Date.now() }), 60);
       }
     }
   } catch {}

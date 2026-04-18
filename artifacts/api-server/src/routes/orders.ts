@@ -2,6 +2,31 @@ import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { rZadd, rZrem, rPublish, rLpush, rSet } from "../lib/redis";
+
+async function pushOrderToRedis(o: any, pair: any, action: "new" | "cancel" | "fill") {
+  const symbol = pair?.symbol ?? `pair-${o.pairId}`;
+  const score = (o.side === "buy" ? -1 : 1) * Number(o.price);
+  const member = JSON.stringify({ id: o.id, userId: o.userId, side: o.side, type: o.type, price: Number(o.price), qty: Number(o.qty), filledQty: Number(o.filledQty ?? 0), status: o.status, ts: Date.now() });
+  if (action === "new" && o.status === "open" && o.type === "limit") {
+    await rZadd(`orderbook:${symbol}:${o.side}`, score, String(o.id));
+    await rSet(`orderbook:${symbol}:order:${o.id}`, member, 86400);
+  }
+  if (action === "cancel" || action === "fill") {
+    await rZrem(`orderbook:${symbol}:${o.side}`, String(o.id));
+  }
+  await rLpush(`orders:user:${o.userId}`, member);
+  await rPublish(`orders.${symbol}`, { action, order: JSON.parse(member) });
+  await rPublish(`orders.user.${o.userId}`, { action, order: JSON.parse(member) });
+}
+
+async function pushTradeToRedis(trade: any, pair: any) {
+  const symbol = pair?.symbol ?? `pair-${trade.pairId}`;
+  const payload = JSON.stringify({ id: trade.id, pairId: trade.pairId, side: trade.side, price: Number(trade.price), qty: Number(trade.qty), fee: Number(trade.fee), userId: trade.userId, ts: Date.now() });
+  await rLpush(`trades:${symbol}`, payload);
+  await rLpush(`trades:user:${trade.userId}`, payload);
+  await rPublish(`trades.${symbol}`, JSON.parse(payload));
+}
 
 const router: IRouter = Router();
 
@@ -147,11 +172,18 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
           status: "filled", filledQty: String(qtyNum), avgPrice: String(effPrice),
           fee: String(fee), updatedAt: new Date(),
         }).where(eq(ordersTable.id, o.id)).returning();
-        return filled;
+        return { order: filled, pair, trade: { orderId: o.id, userId, pairId: pair.id, side, price: effPrice, qty: qtyNum, fee, id: 0 } };
       }
-      return o;
+      return { order: o, pair, trade: null };
     });
-    res.status(201).json(created);
+    const { order, pair, trade } = created as any;
+    if (order.status === "filled") {
+      await pushOrderToRedis(order, pair, "fill");
+      if (trade) await pushTradeToRedis(trade, pair);
+    } else {
+      await pushOrderToRedis(order, pair, "new");
+    }
+    res.status(201).json(order);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
     throw e;
@@ -189,9 +221,11 @@ router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> =
         }).where(eq(walletsTable.id, w.id));
       }
       const [updated] = await tx.update(ordersTable).set({ status: "cancelled", updatedAt: new Date() }).where(eq(ordersTable.id, id)).returning();
-      return updated;
+      return { order: updated, pair };
     });
-    res.json(cancelled);
+    const { order, pair } = cancelled as any;
+    await pushOrderToRedis(order, pair, "cancel");
+    res.json(order);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
     throw e;

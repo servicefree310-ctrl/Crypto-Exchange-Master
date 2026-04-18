@@ -19,6 +19,7 @@
     "drizzle-orm": "catalog:",
     "ethers": "^6.16.0",
     "express": "^5",
+    "ioredis": "^5.10.1",
     "pino": "^9",
     "pino-http": "^10",
     "ulid": "^3.0.2",

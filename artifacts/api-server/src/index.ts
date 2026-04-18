@@ -7,6 +7,7 @@ import { startBotService } from "./lib/bot-service";
 import { startDepositSweeper } from "./lib/deposit-sweeper";
 import { startWithdrawalWatcher } from "./lib/withdrawal-watcher";
 import { startFuturesEngine } from "./lib/futures-engine";
+import { initRedis, shutdownRedis } from "./lib/redis";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -25,11 +26,16 @@ wss.on("connection", (ws) => {
   ws.on("error", () => unsub());
 });
 
-server.listen(port, () => {
+server.listen(port, async () => {
   logger.info({ port }, "Server listening (HTTP + WS /api/ws/prices)");
-  startPriceService(5000);
+  await initRedis();
+  startPriceService(1000);
   startBotService(3000);
   startDepositSweeper(30000);
   startWithdrawalWatcher();
   startFuturesEngine();
 });
+
+const shutdown = async () => { await shutdownRedis(); process.exit(0); };
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
