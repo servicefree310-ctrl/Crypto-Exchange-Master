@@ -410,13 +410,24 @@ router.post("/admin/gateways", adminOnly, async (req, res): Promise<void> => {
 });
 router.patch("/admin/gateways/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const b = { ...req.body };
-  if (b.config && typeof b.config !== "string") b.config = JSON.stringify(b.config);
-  // Treat empty-string secrets as "do not change"
-  for (const k of ["apiKey", "apiSecret", "webhookSecret"]) {
-    if (b[k] === "" || b[k] === undefined) delete b[k];
+  const b = req.body ?? {};
+  const ALLOWED = [
+    "name","type","direction","provider","currency","minAmount","maxAmount",
+    "feeFlat","feePercent","processingTime","isAuto","status",
+    "apiKey","apiSecret","webhookSecret","testMode","logoUrl","config",
+  ] as const;
+  const update: Record<string, unknown> = {};
+  for (const k of ALLOWED) {
+    if (b[k] === undefined) continue;
+    // Empty-string secrets = "do not change"
+    if ((k === "apiKey" || k === "apiSecret" || k === "webhookSecret") && b[k] === "") continue;
+    if (k === "config" && typeof b[k] !== "string") update[k] = JSON.stringify(b[k]);
+    else if (k === "minAmount" || k === "maxAmount" || k === "feeFlat" || k === "feePercent") update[k] = String(b[k]);
+    else update[k] = b[k];
   }
-  const [g] = await db.update(gatewaysTable).set({ ...b, updatedAt: new Date() }).where(eq(gatewaysTable.id, id)).returning();
+  if (Object.keys(update).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
+  update.updatedAt = new Date();
+  const [g] = await db.update(gatewaysTable).set(update).where(eq(gatewaysTable.id, id)).returning();
   if (!g) { res.status(404).json({ error: "Not found" }); return; }
   res.json(g);
 });
