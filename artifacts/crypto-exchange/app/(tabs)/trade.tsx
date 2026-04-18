@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -93,7 +93,8 @@ function apiToUiTrades(raw: any[], pricePrecision: number, qtyPrecision: number)
 function CandleChart({ candles, width, height, showMA, showBB }: {
   candles: Candle[]; width: number; height: number; showMA: boolean; showBB: boolean;
 }) {
-  if (!candles.length || !width) return null;
+  if (!width) return null;
+  if (!candles.length) return null;
   const volH = 36;
   const chartH = height - volH - 4;
   const prices = candles.flatMap(c => [c.high, c.low]);
@@ -434,9 +435,18 @@ export default function TradeScreen() {
         </View>
 
         {/* Chart */}
-        <View style={[styles.chartWrap, { backgroundColor: colors.card }]}
+        <View style={[styles.chartWrap, { backgroundColor: colors.card, minHeight: 214, position: "relative" }]}
           onLayout={e => setChartWidth(e.nativeEvent.layout.width - 8)}>
           <CandleChart candles={candles} width={chartWidth} height={210} showMA={showMA} showBB={showBB} />
+          {/* Empty / loading placeholder so chart area is always visible */}
+          {(!candles.length || !chartWidth) && (
+            <View style={{ height: 210, alignItems: "center", justifyContent: "center" }}>
+              <MaterialCommunityIcons name="chart-line" size={42} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, marginTop: 8, fontSize: 12 }}>
+                Loading chart…
+              </Text>
+            </View>
+          )}
           {/* Y-axis price labels */}
           {chartWidth > 0 && candles.length > 0 && (
             <View style={[StyleSheet.absoluteFill, { right: 0, width: 42, justifyContent:"space-between", paddingVertical: 2 }]} pointerEvents="none">
