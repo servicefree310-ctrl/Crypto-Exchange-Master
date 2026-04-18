@@ -2,6 +2,36 @@ import { db, marketBotsTable, ordersTable, pairsTable, coinsTable, tradesTable, 
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getCache } from "./price-service";
+import { rZadd, rZrem, rSet, rDel, rLpush, rPublish } from "./redis";
+
+// Mirror an order to Redis ZSET orderbook (same shape used by /api/orders)
+async function bookAdd(symbol: string, o: any) {
+  if (o.status !== "open" || o.type !== "limit") return;
+  const score = (o.side === "buy" ? -1 : 1) * Number(o.price);
+  const member = JSON.stringify({
+    id: o.id, userId: o.userId, side: o.side, type: o.type,
+    price: Number(o.price), qty: Number(o.qty), filledQty: Number(o.filledQty ?? 0),
+    status: o.status, ts: Date.now(), bot: true,
+  });
+  await rZadd(`orderbook:${symbol}:${o.side}`, score, String(o.id));
+  await rSet(`orderbook:${symbol}:order:${o.id}`, member, 86400);
+  await rPublish(`orders.${symbol}`, { action: "new", order: JSON.parse(member) });
+}
+
+async function bookRemove(symbol: string, o: { id: number; side: string; userId?: number; price?: any; qty?: any; type?: string; filledQty?: any; status?: string }, action: "cancel" | "fill" = "cancel") {
+  await rZrem(`orderbook:${symbol}:${o.side}`, String(o.id));
+  await rDel(`orderbook:${symbol}:order:${o.id}`);
+  const payload = {
+    action,
+    order: {
+      id: o.id, userId: o.userId, side: o.side, type: o.type ?? "limit",
+      price: Number(o.price ?? 0), qty: Number(o.qty ?? 0),
+      filledQty: Number(o.filledQty ?? 0), status: o.status ?? action,
+      ts: Date.now(), bot: true,
+    },
+  };
+  await rPublish(`orders.${symbol}`, payload);
+}
 
 let started = false;
 let ticking = false;
@@ -43,14 +73,26 @@ async function runBotForPair(bot: any, uid: number) {
     return;
   }
 
-  // 1) Cancel stale bot orders (older than maxOrderAgeSec)
+  // 1) Cancel stale bot orders (older than maxOrderAgeSec) — DB + Redis cleanup
   const ageMs = bot.maxOrderAgeSec * 1000;
   const cutoff = new Date(Date.now() - ageMs);
-  await db.update(ordersTable).set({ status: "cancelled" }).where(and(
+  const stale = await db.select().from(ordersTable).where(and(
     eq(ordersTable.botId, bot.id),
     eq(ordersTable.status, "open"),
     sql`${ordersTable.createdAt} < ${cutoff}`,
   ));
+  if (stale.length) {
+    await db.update(ordersTable).set({ status: "cancelled", updatedAt: new Date() }).where(and(
+      eq(ordersTable.botId, bot.id),
+      eq(ordersTable.status, "open"),
+      sql`${ordersTable.createdAt} < ${cutoff}`,
+    ));
+    for (const s of stale) {
+      try { await bookRemove(pair.symbol, s as any, "cancel"); } catch (e: any) {
+        logger.warn({ err: e?.message, orderId: s.id }, "bot: failed to remove stale from redis");
+      }
+    }
+  }
 
   // 2) Match cross-able open orders against current mid (bot + user)
   if (bot.fillOnCross) {
@@ -67,11 +109,25 @@ async function runBotForPair(bot: any, uid: number) {
         avgPrice: String(mid.toFixed(8)),
         updatedAt: new Date(),
       }).where(eq(ordersTable.id, o.id));
-      await db.insert(tradesTable).values({
+      const [trade] = await db.insert(tradesTable).values({
         orderId: o.id, userId: o.userId, pairId: o.pairId, side: o.side,
         price: String(mid.toFixed(8)), qty: String(qty.toFixed(8)),
         fee: "0",
-      });
+      }).returning();
+      // Remove filled order from Redis book + publish trade tape so UI updates live
+      try {
+        await bookRemove(pair.symbol, { ...o, status: "filled" } as any, "fill");
+        const tradePayload = JSON.stringify({
+          id: trade.id, pairId: o.pairId, side: o.side,
+          price: Number(mid.toFixed(8)), qty: Number(qty.toFixed(8)),
+          ts: Date.now(), bot: true,
+        });
+        await rLpush(`trades:${pair.symbol}`, tradePayload);
+        await rLpush(`trades:user:${o.userId}`, tradePayload);
+        await rPublish(`trades.${pair.symbol}`, JSON.parse(tradePayload));
+      } catch (e: any) {
+        logger.warn({ err: e?.message, orderId: o.id }, "bot: failed to publish fill");
+      }
     }
   }
 
@@ -92,7 +148,14 @@ async function runBotForPair(bot: any, uid: number) {
     const px = mid * (1 + halfSpread + stepFrac * i);
     newOrders.push({ userId: uid, pairId: pair.id, side: "sell", type: "limit", price: String(px.toFixed(8)), qty: String(Number(bot.orderSize).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
   }
-  if (newOrders.length) await db.insert(ordersTable).values(newOrders);
+  if (newOrders.length) {
+    const inserted = await db.insert(ordersTable).values(newOrders).returning();
+    for (const o of inserted) {
+      try { await bookAdd(pair.symbol, o); } catch (e: any) {
+        logger.warn({ err: e?.message, orderId: o.id }, "bot: failed to add to redis book");
+      }
+    }
+  }
 
   await db.update(marketBotsTable).set({
     status: "running", lastError: null, lastRunAt: new Date(),
