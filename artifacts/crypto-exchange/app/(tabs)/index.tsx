@@ -418,53 +418,6 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Wallet breakdown: Spot / Futures / Earn */}
-          <View style={[styles.breakdownRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-            <TouchableOpacity style={styles.breakdownItem} onPress={() => router.push("/(tabs)/wallet" as any)}>
-              <View style={styles.breakdownHead}>
-                <View style={[styles.breakdownDot, { backgroundColor: colors.primary }]} />
-                <Text style={[styles.breakdownLabel, { color: colors.mutedForeground }]}>Spot</Text>
-              </View>
-              <Text style={[styles.breakdownVal, { color: colors.foreground }]} numberOfLines={1}>
-                {hideBalance ? "₹••••" : `₹${portfolioBreakdown.spot.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-              </Text>
-            </TouchableOpacity>
-            <View style={[styles.breakdownSep, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.breakdownItem} onPress={() => router.push("/(tabs)/futures" as any)}>
-              <View style={styles.breakdownHead}>
-                <View style={[styles.breakdownDot, { backgroundColor: colors.destructive }]} />
-                <Text style={[styles.breakdownLabel, { color: colors.mutedForeground }]}>Futures</Text>
-              </View>
-              <Text style={[styles.breakdownVal, { color: colors.foreground }]} numberOfLines={1}>
-                {hideBalance ? "₹••••" : `₹${portfolioBreakdown.futures.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-              </Text>
-            </TouchableOpacity>
-            <View style={[styles.breakdownSep, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.breakdownItem} onPress={() => router.push("/services/earn" as any)}>
-              <View style={styles.breakdownHead}>
-                <View style={[styles.breakdownDot, { backgroundColor: colors.success }]} />
-                <Text style={[styles.breakdownLabel, { color: colors.mutedForeground }]}>Earn</Text>
-              </View>
-              <Text style={[styles.breakdownVal, { color: colors.foreground }]} numberOfLines={1}>
-                {hideBalance ? "₹••••" : `₹${portfolioBreakdown.earn.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.assetActions}>
-            <TouchableOpacity onPress={() => router.push("/services/deposit-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.primary }]}>
-              <Feather name="plus" size={13} color="#000" />
-              <Text style={[styles.assetBtnTxt, { color: "#000" }]}>Deposit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/services/withdraw-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.secondary }]}>
-              <Feather name="arrow-up" size={13} color={colors.foreground} />
-              <Text style={[styles.assetBtnTxt, { color: colors.foreground }]}>Withdraw</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/services/transfer" as any)} style={[styles.assetBtn, { backgroundColor: colors.secondary }]}>
-              <Feather name="repeat" size={13} color={colors.foreground} />
-              <Text style={[styles.assetBtnTxt, { color: colors.foreground }]}>Transfer</Text>
-            </TouchableOpacity>
-          </View>
         </View>
       ) : (
         <TouchableOpacity onPress={goLogin} style={[styles.loginCta, { backgroundColor: colors.primary }]}>
