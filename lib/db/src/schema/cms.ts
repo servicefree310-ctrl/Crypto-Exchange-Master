@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 
 export const legalPagesTable = pgTable("legal_pages", {
   slug: text("slug").primaryKey(),
@@ -51,3 +51,49 @@ export const chatMessagesTable = pgTable("chat_messages", {
 });
 
 export type ChatMessage = typeof chatMessagesTable.$inferSelect;
+
+export const bannersTable = pgTable("home_banners", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  subtitle: text("subtitle").notNull().default(""),
+  bgColor: text("bg_color").notNull().default("#fcd535"),
+  fgColor: text("fg_color").notNull().default("#000000"),
+  icon: text("icon").notNull().default("shield"),
+  imageUrl: text("image_url").notNull().default(""),
+  ctaLabel: text("cta_label").notNull().default(""),
+  ctaUrl: text("cta_url").notNull().default(""),
+  position: integer("position").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  showOnMobile: boolean("show_on_mobile").notNull().default(true),
+  showOnWeb: boolean("show_on_web").notNull().default(true),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type Banner = typeof bannersTable.$inferSelect;
+
+export const promotionsTable = pgTable("home_promotions", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull().default("event"),
+  tag: text("tag").notNull().default("EVENT"),
+  title: text("title").notNull(),
+  subtitle: text("subtitle").notNull().default(""),
+  description: text("description").notNull().default(""),
+  color: text("color").notNull().default("#a06af5"),
+  icon: text("icon").notNull().default("award"),
+  imageUrl: text("image_url").notNull().default(""),
+  ctaLabel: text("cta_label").notNull().default("Learn more"),
+  ctaUrl: text("cta_url").notNull().default(""),
+  prizePool: text("prize_pool").notNull().default(""),
+  position: integer("position").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  showOnMobile: boolean("show_on_mobile").notNull().default(true),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type Promotion = typeof promotionsTable.$inferSelect;

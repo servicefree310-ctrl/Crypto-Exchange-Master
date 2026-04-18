@@ -196,6 +196,15 @@ export const marketApi = {
   },
 };
 
+export const promoApi = {
+  getBanners: async (): Promise<any[]> => {
+    try { return await api.get<any[]>('/banners?platform=mobile'); } catch { return []; }
+  },
+  getPromotions: async (): Promise<any[]> => {
+    try { return await api.get<any[]>('/promotions'); } catch { return []; }
+  },
+};
+
 export const walletApi = {
   getBalances: async (): Promise<{ balances: any[]; totalUsd: number; totalInr: number }> => {
     const wallets = await api.get<ApiWallet[]>('/wallets');

@@ -14,6 +14,7 @@ import earnUserRouter from "./earn-user";
 import feesRouter from "./fees";
 import securityRouter from "./security";
 import klinesRouter from "./klines";
+import promoRouter from "./promo";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(earnUserRouter);
 router.use(feesRouter);
 router.use(securityRouter);
 router.use(klinesRouter);
+router.use(promoRouter);
 
 export default router;

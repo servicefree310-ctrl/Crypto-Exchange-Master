@@ -29,6 +29,8 @@ import ApiKeysPage from "@/pages/api-keys";
 import BotsPage from "@/pages/bots";
 import OrdersPage from "@/pages/orders";
 import UserAddressesPage from "@/pages/user-addresses";
+import BannersPage from "@/pages/banners";
+import PromotionsPage from "@/pages/promotions";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -78,6 +80,8 @@ function Protected() {
         <Route path="/user-addresses" component={UserAddressesPage} />
         <Route path="/crypto-withdrawals" component={CryptoWithdrawalsPage} />
         <Route path="/earn" component={EarnPage} />
+        <Route path="/banners" component={BannersPage} />
+        <Route path="/promotions" component={PromotionsPage} />
         <Route path="/legal" component={LegalPage} />
         <Route path="/chat" component={ChatPage} />
         <Route path="/login-logs" component={LoginLogsPage} />

@@ -11,7 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { marketApi } from "@/lib/api";
+import { marketApi, promoApi } from "@/lib/api";
 
 const COIN_COLORS: Record<string, string> = {
   BTC: "#F7931A", ETH: "#627EEA", BNB: "#F3BA2F", SOL: "#14F195",
@@ -30,12 +30,7 @@ const QUICK_ACTIONS = [
   { label: "More",     icon: "grid",              route: "/(tabs)/account",           color: "#8d96a7", auth: false },
 ];
 
-const BANNERS = [
-  { title: "1% TDS Compliant", sub: "Trade INR pairs with full tax compliance", grad: ["#fcd535", "#f0b90b"], icon: "shield" as const, fg: "#000" },
-  { title: "Refer & Earn",     sub: "Get 20% commission on every trade",        grad: ["#a06af5", "#5b8def"], icon: "gift"   as const, fg: "#fff" },
-  { title: "Earn up to 12% APY", sub: "Stake your crypto, earn passive income", grad: ["#0ecb81", "#00c2ff"], icon: "trending-up" as const, fg: "#000" },
-  { title: "VIP Lower Fees",     sub: "Trade more, pay less. Up to 50% off",    grad: ["#f6465d", "#ff8a3d"], icon: "award"  as const, fg: "#fff" },
-];
+const FALLBACK_BANNERS: any[] = [];
 
 type MarketTab = "Hot" | "Gainers" | "Losers" | "New";
 const MARKET_TABS: MarketTab[] = ["Hot", "Gainers", "Losers", "New"];
@@ -59,6 +54,47 @@ export default function HomeScreen() {
     queryFn: marketApi.getMarkets,
     refetchInterval: 30000,
   });
+
+  const { data: bannersData = [] } = useQuery({
+    queryKey: ["home-banners"],
+    queryFn: promoApi.getBanners,
+    refetchInterval: 60000,
+  });
+
+  const { data: promotionsData = [] } = useQuery({
+    queryKey: ["home-promotions"],
+    queryFn: promoApi.getPromotions,
+    refetchInterval: 60000,
+  });
+
+  const BANNERS = useMemo(() => {
+    if (!bannersData?.length) return FALLBACK_BANNERS;
+    return bannersData.map((b: any) => ({
+      id: b.id,
+      title: b.title,
+      sub: b.subtitle,
+      grad: [b.bgColor, b.bgColor],
+      bg: b.bgColor,
+      icon: b.icon || "shield",
+      fg: b.fgColor || "#000",
+      ctaUrl: b.ctaUrl || "",
+      ctaLabel: b.ctaLabel || "",
+    }));
+  }, [bannersData]);
+
+  const PROMOS = useMemo(() => {
+    return (promotionsData || []).map((p: any) => ({
+      id: p.id,
+      tag: p.tag,
+      title: p.title,
+      sub: p.subtitle,
+      color: p.color,
+      icon: p.icon || "award",
+      ctaLabel: p.ctaLabel || "Learn more",
+      ctaUrl: p.ctaUrl || "",
+      prizePool: p.prizePool || "",
+    }));
+  }, [promotionsData]);
 
   // Auto-rotate banners
   useEffect(() => {
@@ -287,27 +323,38 @@ export default function HomeScreen() {
       </View>
 
       {/* Banner Carousel */}
-      <FlatList
-        ref={bannerRef}
-        horizontal
-        data={BANNERS}
-        keyExtractor={(b) => b.title}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.bannerList}
-        snapToInterval={290}
-        decelerationRate="fast"
-        renderItem={({ item }) => (
-          <View style={[styles.banner, { backgroundColor: item.grad[0] }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.bannerTitle, { color: item.fg }]}>{item.title}</Text>
-              <Text style={[styles.bannerSub, { color: item.fg + "cc" }]}>{item.sub}</Text>
-            </View>
-            <View style={[styles.bannerIcon, { backgroundColor: item.fg + "22" }]}>
-              <Feather name={item.icon} size={22} color={item.fg} />
-            </View>
-          </View>
-        )}
-      />
+      {BANNERS.length > 0 && (
+        <FlatList
+          ref={bannerRef}
+          horizontal
+          data={BANNERS}
+          keyExtractor={(b: any) => String(b.id ?? b.title)}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.bannerList}
+          snapToInterval={290}
+          decelerationRate="fast"
+          renderItem={({ item }: any) => (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => item.ctaUrl ? goAction(item.ctaUrl, !item.ctaUrl.startsWith("/(tabs)")) : null}
+              style={[styles.banner, { backgroundColor: item.bg || item.grad[0] }]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.bannerTitle, { color: item.fg }]} numberOfLines={1}>{item.title}</Text>
+                <Text style={[styles.bannerSub, { color: item.fg + "cc" }]} numberOfLines={2}>{item.sub}</Text>
+                {item.ctaLabel ? (
+                  <View style={[styles.bannerCta, { backgroundColor: item.fg + "22" }]}>
+                    <Text style={[styles.bannerCtaTxt, { color: item.fg }]}>{item.ctaLabel} →</Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={[styles.bannerIcon, { backgroundColor: item.fg + "22" }]}>
+                <Feather name={item.icon as any} size={22} color={item.fg} />
+              </View>
+            </TouchableOpacity>
+          )}
+        />
+      )}
       <View style={styles.dots}>
         {BANNERS.map((_, i) => (
           <View key={i} style={[styles.dot, { backgroundColor: i === bannerIdx ? colors.primary : colors.border, width: i === bannerIdx ? 16 : 6 }]} />
@@ -359,36 +406,42 @@ export default function HomeScreen() {
       </View>
 
       {/* Discover */}
-      <View style={[styles.section, { marginTop: 14 }]}>
-        <View style={styles.sectionHead}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Discover</Text>
-          <TouchableOpacity><Text style={[styles.seeAll, { color: colors.primary }]}>More →</Text></TouchableOpacity>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 10 }}>
-          {[
-            { tag: "NEW LISTING", title: "SOL/INR Now Live",   sub: "Trade Solana with INR · 0.1% fee", color: "#14F195", icon: "zap" },
-            { tag: "TRENDING",    title: "BTC Halving 2028",   sub: "What it means for prices",        color: "#F7931A", icon: "trending-up" },
-            { tag: "GUIDE",       title: "Futures 101",        sub: "Learn leverage trading safely",   color: "#5b8def", icon: "book-open" },
-            { tag: "EVENT",       title: "Trading Contest",    sub: "Win ₹10L · Apr 20-30",            color: "#a06af5", icon: "award" },
-            { tag: "AIRDROP",     title: "Claim XYZ Tokens",   sub: "Free 500 XYZ for verified users", color: "#ff8a3d", icon: "gift" },
-          ].map((d, i) => (
-            <TouchableOpacity key={i} style={[styles.discCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={[styles.discTagRow]}>
-                <View style={[styles.discTag, { backgroundColor: d.color + "22" }]}>
-                  <Text style={[styles.discTagTxt, { color: d.color }]}>{d.tag}</Text>
+      {PROMOS.length > 0 && (
+        <View style={[styles.section, { marginTop: 14 }]}>
+          <View style={styles.sectionHead}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Discover</Text>
+            <TouchableOpacity><Text style={[styles.seeAll, { color: colors.primary }]}>More →</Text></TouchableOpacity>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 10 }}>
+            {PROMOS.map((d: any) => (
+              <TouchableOpacity
+                key={d.id}
+                onPress={() => d.ctaUrl ? goAction(d.ctaUrl, !d.ctaUrl.startsWith("/(tabs)")) : null}
+                style={[styles.discCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <View style={[styles.discTagRow]}>
+                  <View style={[styles.discTag, { backgroundColor: d.color + "22" }]}>
+                    <Text style={[styles.discTagTxt, { color: d.color }]}>{d.tag}</Text>
+                  </View>
+                  <Feather name={d.icon as any} size={14} color={d.color} />
                 </View>
-                <Feather name={d.icon as any} size={14} color={d.color} />
-              </View>
-              <Text style={[styles.discTitle, { color: colors.foreground }]} numberOfLines={2}>{d.title}</Text>
-              <Text style={[styles.discSub, { color: colors.mutedForeground }]} numberOfLines={2}>{d.sub}</Text>
-              <View style={[styles.discFoot]}>
-                <Text style={[styles.discLink, { color: d.color }]}>Read more</Text>
-                <Feather name="arrow-right" size={11} color={d.color} />
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+                <Text style={[styles.discTitle, { color: colors.foreground }]} numberOfLines={2}>{d.title}</Text>
+                <Text style={[styles.discSub, { color: colors.mutedForeground }]} numberOfLines={2}>{d.sub}</Text>
+                {d.prizePool ? (
+                  <View style={[styles.discPrize, { backgroundColor: d.color + "11" }]}>
+                    <Feather name="award" size={11} color={d.color} />
+                    <Text style={[styles.discPrizeTxt, { color: d.color }]} numberOfLines={1}>{d.prizePool}</Text>
+                  </View>
+                ) : null}
+                <View style={[styles.discFoot]}>
+                  <Text style={[styles.discLink, { color: d.color }]}>{d.ctaLabel}</Text>
+                  <Feather name="arrow-right" size={11} color={d.color} />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* News strip */}
       <View style={[styles.section]}>
@@ -539,6 +592,10 @@ const styles = StyleSheet.create({
   discSub: { fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 15 },
   discFoot: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 10 },
   discLink: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  discPrize: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 4, marginTop: 8, alignSelf: "flex-start" },
+  discPrizeTxt: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  bannerCta: { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginTop: 8 },
+  bannerCtaTxt: { fontSize: 10, fontFamily: "Inter_700Bold" },
 
   newsRow: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   newsBullet: { width: 4, height: 4, borderRadius: 2, marginTop: 7 },
