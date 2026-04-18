@@ -210,23 +210,37 @@ export default function TradeScreen() {
     return m;
   }, [apiCoins]);
   const spotPairs = useMemo(() => {
-    return (apiPairs || []).filter((p: any) => p.tradingEnabled !== false && p.status === "active");
-  }, [apiPairs]);
+    return (apiPairs || [])
+      .filter((p: any) => p.tradingEnabled !== false && p.status === "active")
+      .map((p: any) => {
+        const base = coinById.get(p.baseCoinId)?.symbol ?? "";
+        const quote = coinById.get(p.quoteCoinId)?.symbol ?? "";
+        return { ...p, label: base && quote ? `${base}/${quote}` : p.symbol };
+      })
+      .filter((p: any) => p.label.includes("/"));
+  }, [apiPairs, coinById]);
   const livePairs = useMemo(() => {
-    const arr = spotPairs.map((p: any) => p.symbol).filter(Boolean);
+    const arr = spotPairs.map((p: any) => p.label);
     return arr.length ? arr : PAIRS;
   }, [spotPairs]);
   const livePriceMap = useMemo(() => {
     const m: Record<string, number> = {};
-    spotPairs.forEach((p: any) => { m[p.symbol] = Number(p.lastPrice) || 0; });
+    spotPairs.forEach((p: any) => { m[p.label] = Number(p.lastPrice) || 0; });
     return m;
   }, [spotPairs]);
   const liveChangeMap = useMemo(() => {
     const m: Record<string, number> = {};
-    spotPairs.forEach((p: any) => { m[p.symbol] = Number(p.change24h) || 0; });
+    spotPairs.forEach((p: any) => { m[p.label] = Number(p.change24h) || 0; });
     return m;
   }, [spotPairs]);
-  const [pair, setPair] = useState("BTC/USDT");
+  const [pair, setPair] = useState("BTC/INR");
+  const [pairTouched, setPairTouched] = useState(false);
+  useEffect(() => {
+    if (!livePairs.length) return;
+    if (pairTouched && livePairs.includes(pair)) return;
+    const inrFirst = livePairs.find((p: string) => p.endsWith("/INR")) || livePairs[0];
+    setPair(inrFirst);
+  }, [livePairs]);
   const [showPairModal, setShowPairModal] = useState(false);
   const [interval_, setInterval_] = useState("1H");
   const [candles, setCandles] = useState<Candle[]>(() => genCandles(64250));
@@ -712,7 +726,7 @@ export default function TradeScreen() {
             <View style={[styles.handle, { backgroundColor: colors.border }]} />
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Select Pair</Text>
             {livePairs.map((p: string) => (
-              <TouchableOpacity key={p} onPress={() => { setPair(p); setShowPairModal(false); Haptics.selectionAsync(); }}
+              <TouchableOpacity key={p} onPress={() => { setPair(p); setPairTouched(true); setShowPairModal(false); Haptics.selectionAsync(); }}
                 style={[styles.pairOpt, { borderTopColor: colors.border, backgroundColor: pair===p?colors.secondary:"transparent" }]}>
                 {(() => {
                   const lp = livePriceMap[p] || PAIR_BASE[p] || 0;

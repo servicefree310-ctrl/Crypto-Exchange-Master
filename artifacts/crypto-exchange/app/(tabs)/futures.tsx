@@ -116,12 +116,7 @@ function adaptPosition(p: any): Position {
   };
 }
 
-const FUNDING_HISTORY = [
-  { time:"Apr 17 08:00", rate:"0.0102%", cost:"+$0.65", color:"#0ecb81" },
-  { time:"Apr 17 00:00", rate:"0.0087%", cost:"+$0.56", color:"#0ecb81" },
-  { time:"Apr 16 16:00", rate:"-0.0031%", cost:"-$0.20", color:"#f6465d" },
-  { time:"Apr 16 08:00", rate:"0.0095%", cost:"+$0.61", color:"#0ecb81" },
-];
+const FUNDING_HISTORY: { time:string; rate:string; cost:string; color:string }[] = [];
 
 export default function FuturesScreen() {
   const colors = useColors();
@@ -142,10 +137,15 @@ export default function FuturesScreen() {
           color: PERP_PAIRS.find(x => x.label.startsWith(base))?.color || "#888",
         };
       });
-    return list.length ? list : PERP_PAIRS;
+    return list;
   }, [apiPairs, apiCoins]);
-  const [selectedPair, setSelectedPair] = useState(futPairs[0]);
-  useEffect(() => { setSelectedPair(prev => futPairs.find(p => p.label === prev.label) || futPairs[0]); }, [futPairs]);
+  const [selectedPair, setSelectedPair] = useState<any>(futPairs[0] || { label: "", base: 0, change: 0, color: "#888" });
+  useEffect(() => {
+    if (!futPairs.length) return;
+    setSelectedPair((prev: any) => futPairs.find(p => p.label === prev?.label) || futPairs[0]);
+  }, [futPairs]);
+  const futQuote = (selectedPair?.label || "").split("/")[1] || "USDT";
+  const futSym = futQuote === "INR" ? "₹" : "$";
   const [showPairModal, setShowPairModal] = useState(false);
   const [leverage, setLeverage] = useState(10);
   const [showLevModal, setShowLevModal] = useState(false);
@@ -238,10 +238,10 @@ export default function FuturesScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.mainPrice, { color: priceUpRef.current ? colors.success : colors.destructive }]}>
-            {fmt(currentPrice)}
+            {futSym}{fmt(currentPrice)}
           </Text>
-          <Text style={[styles.priceChange, { color: selectedPair.change >= 0 ? colors.success : colors.destructive }]}>
-            {selectedPair.change >= 0 ? "+" : ""}{selectedPair.change}%
+          <Text style={[styles.priceChange, { color: (selectedPair?.change ?? 0) >= 0 ? colors.success : colors.destructive }]}>
+            {(selectedPair?.change ?? 0) >= 0 ? "+" : ""}{selectedPair?.change ?? 0}%
           </Text>
         </View>
         <TouchableOpacity style={[styles.marginModeBtn, { borderColor: colors.border, backgroundColor: colors.secondary }]}
@@ -533,7 +533,12 @@ export default function FuturesScreen() {
                 <View style={[styles.pairOptDot, { backgroundColor: p.color }]} />
                 <View style={{ flex:1 }}>
                   <Text style={[styles.pairOptTxt, { color: selectedPair.label===p.label?colors.primary:colors.foreground }]}>{p.label}</Text>
-                  <Text style={[styles.pairOptPrice, { color: colors.mutedForeground }]}>${p.base.toLocaleString("en-US",{minimumFractionDigits:2})}</Text>
+                  {(() => {
+                    const pq = (p.label || "").split("/")[1] || "USDT";
+                    const ps = pq === "INR" ? "₹" : "$";
+                    const loc = pq === "INR" ? "en-IN" : "en-US";
+                    return <Text style={[styles.pairOptPrice, { color: colors.mutedForeground }]}>{ps}{p.base.toLocaleString(loc,{minimumFractionDigits:2})}</Text>;
+                  })()}
                 </View>
                 <Text style={[styles.pairOptChange, { color: p.change>=0?colors.success:colors.destructive }]}>
                   {p.change>=0?"+":""}{p.change}%
