@@ -135,7 +135,7 @@ async function safeTick() {
   try { await tick(); } catch (e: any) { logger.warn({ err: e?.message }, "tick failed"); }
   finally { ticking = false; }
 }
-export function startPriceService(intervalMs = 5000) {
+export function startPriceService(intervalMs = 1000) {
   if (started) return;
   started = true;
   void safeTick();

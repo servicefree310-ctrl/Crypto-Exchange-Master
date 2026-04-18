@@ -394,20 +394,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCoins(apiCoins
       .filter(c => c.symbol !== 'INR')
       .map(c => {
-        const usdt = Number(c.currentPrice) || 0;
+        const inr = Number(c.priceInr ?? 0) || (Number(c.currentPrice) || 0) * (inrUsdtRate || 84);
         const ch = Number(c.change24h) || 0;
         return {
           symbol: c.symbol,
           name: c.name,
-          price: usdt,
+          price: inr,
           change24h: parseFloat(ch.toFixed(2)),
           volume24h: 0,
-          high24h: usdt,
-          low24h: usdt,
+          high24h: inr,
+          low24h: inr,
           marketCap: 0,
         };
       }));
-  }, [apiCoins]);
+  }, [apiCoins, inrUsdtRate]);
 
   // Derive walletBalances from live apiWallets
   useEffect(() => {

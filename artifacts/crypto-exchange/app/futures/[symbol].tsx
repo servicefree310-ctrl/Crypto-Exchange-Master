@@ -32,10 +32,7 @@ export default function FuturesScreen() {
   const base = baseCoinApi?.symbol || symbol?.replace(/USDT$|INR$/, '') || 'BTC';
   const coin = coins.find(c => c.symbol === base);
 
-  const usdtPrice = useMemo(() => {
-    if (baseCoinApi?.currentPrice) return Number(baseCoinApi.currentPrice);
-    return Number(coin?.price) || 0;
-  }, [baseCoinApi, coin]);
+  const usdtPrice = useMemo(() => Number(baseCoinApi?.currentPrice) || 0, [baseCoinApi]);
   const change24h = Number(baseCoinApi?.change24h ?? coin?.change24h ?? 0);
 
   const pairId = pair?.id ?? null;
