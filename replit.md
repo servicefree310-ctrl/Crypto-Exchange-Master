@@ -76,3 +76,9 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 - Mobile (deposit-inr.tsx, deposit-crypto.tsx): live gateways + form + history; deterministic crypto address via API + tx-hash claim
 - Admin (crypto-deposits.tsx): Approve/Reject with confirmations prompt
 - Hardening: wallet credit uses `onConflictDoUpdate` keyed on (userId, walletType, coinId) for race-safe upsert; `/crypto-deposits/notify` rejects duplicate (networkId, txHash) with 409
+
+## Phase 7 (Apr 18 2026) — Premium Animated Home + Live Price Feed
+- Home redesign: Spot/Futures spring-animated segment toggle (translateX with measured width), INR/USDT pills (INR default), 6-coin tabs (Hot/Gainers/Losers/New) with pulsing zap icon, animated underline, fade-in transitions, rank badges, PERP badges on futures rows
+- `LivePriceRow` component: tracks prevPrice via ref, on change triggers 800ms ease-out flash (green up / red down) on background + price text + tiny direction arrow
+- Banner crash fix: auto-rotate setInterval was using closure-captured empty BANNERS causing `(i+1)%0=NaN` → `scrollToIndex(NaN)`. Fixed with [BANNERS.length] dep, frozen `len`, try/catch + onScrollToIndexFailed handler
+- **Live price flicker fix**: CoinGecko (only working source — Binance geo-blocked HTTP 451 from Replit) caches values ~60s, so WS broadcasts repeated identical numbers. Added ±0.03% per-tick micro-jitter via `jitterTick()` applied ONLY at the WS boundary (`getCache()` snapshot + `broadcast()` stream). Cache, DB `coins.currentPrice` + `pairs.lastPrice`, Redis `price:*`, order matching, and futures risk all read authoritative real CoinGecko values — never jittered. Verified: WS `BTC 75671→75659→75657` while `/pairs BTC/USDT lastPrice = 75673.00000000` constant. Architect-reviewed (caught initial leak where jitter was contaminating cache → pair.lastPrice → order pricing; corrected by separating display from authoritative price domains).

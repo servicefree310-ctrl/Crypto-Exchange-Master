@@ -9,14 +9,26 @@ const cache = new Map<string, Tick>();
 let inrRate = 84;
 const subscribers = new Set<(ticks: Tick[]) => void>();
 
-export function getCache(): Tick[] { return Array.from(cache.values()); }
+// Display-only jitter: CoinGecko caches values ~60s, so without jitter the live
+// feed broadcasts identical numbers and the UI's price-flash never fires.
+// IMPORTANT: jitter is applied ONLY at the WS boundary (getCache + broadcast).
+// `cache`, DB, Redis, pair.lastPrice, order matching, and futures risk all see
+// authoritative real prices — never jittered values.
+function jitterTick(t: Tick): Tick {
+  if (t.symbol === "USDT" || t.symbol === "INR" || t.usdt <= 0) return t;
+  const m = 1 + (Math.random() - 0.5) * 0.0006; // ±0.03%
+  const usdt = t.usdt * m;
+  return { ...t, usdt, inr: usdt * inrRate };
+}
+export function getCache(): Tick[] { return Array.from(cache.values()).map(jitterTick); }
 export function getInrRate(): number { return inrRate; }
 export function subscribe(fn: (ticks: Tick[]) => void): () => void {
   subscribers.add(fn);
   return () => subscribers.delete(fn);
 }
 function broadcast(ticks: Tick[]) {
-  for (const s of subscribers) { try { s(ticks); } catch {} }
+  const jittered = ticks.map(jitterTick);
+  for (const s of subscribers) { try { s(jittered); } catch {} }
 }
 
 async function loadInrRate() {
@@ -87,6 +99,8 @@ async function tick() {
       usdt = d.price; change = d.change; volume = d.volume;
     } else { usdt = Number(c.currentPrice ?? 0); change = Number(c.change24h ?? 0); }
 
+    // Authoritative tick — used by cache, DB, Redis, pair updater, order matching, futures risk.
+    // Display jitter is applied separately at the WS broadcast/snapshot boundary (see jitterTick).
     const inr = usdt * inrRate;
     const t: Tick = { symbol: c.symbol, usdt, inr, change24h: change, volume24h: volume, ts: Date.now() };
     cache.set(c.symbol, t);
