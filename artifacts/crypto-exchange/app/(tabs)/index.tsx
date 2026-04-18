@@ -1,400 +1,347 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "expo-router";
+import React, { useMemo } from "react";
 import {
-  View, Text, FlatList, TextInput, TouchableOpacity,
-  StyleSheet, StatusBar, Platform, Animated, ScrollView, ActivityIndicator
+  View, Text, ScrollView, TouchableOpacity, Image,
+  StyleSheet, Platform, FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
 import { marketApi } from "@/lib/api";
 
-interface Coin {
-  id: string; symbol: string; name: string; price: number; change: number;
-  vol24h: string; mcap: string; color: string; history: number[];
-  high24h: number; low24h: number; rank: number; quote?: string;
-}
-
-const BASE_COINS: Coin[] = [
-  { id:"btc", symbol:"BTC", name:"Bitcoin",   price:64250.50, change: 2.5,  vol24h:"32.5B", mcap:"1.26T", color:"#F7931A", rank:1,  high24h:65200, low24h:62800, history:[61000,62200,61800,63400,62900,64100,63800,65200,64500,64251] },
-  { id:"eth", symbol:"ETH", name:"Ethereum",  price: 3180.20, change:-1.2,  vol24h:"15.2B", mcap:"382B",  color:"#627EEA", rank:2,  high24h:3310,  low24h:3080,  history:[3280,3210,3310,3180,3220,3150,3190,3100,3200,3180] },
-  { id:"bnb", symbol:"BNB", name:"BNB",       price:  580.40, change: 5.4,  vol24h:"2.1B",  mcap:"84B",   color:"#F3BA2F", rank:4,  high24h:592,   low24h:548,   history:[555,560,558,568,572,576,574,580,578,580] },
-  { id:"sol", symbol:"SOL", name:"Solana",    price:  142.60, change: 8.2,  vol24h:"4.5B",  mcap:"65B",   color:"#9945FF", rank:5,  high24h:148,   low24h:132,   history:[130,133,135,138,140,137,142,145,143,143] },
-  { id:"ada", symbol:"ADA", name:"Cardano",   price:    0.45, change:-0.5,  vol24h:"350M",  mcap:"16B",   color:"#0033AD", rank:8,  high24h:0.468, low24h:0.440, history:[0.46,0.455,0.46,0.458,0.452,0.456,0.45,0.448,0.452,0.45] },
-  { id:"xrp", symbol:"XRP", name:"XRP",       price:    0.59, change: 1.8,  vol24h:"1.2B",  mcap:"32B",   color:"#00AAE4", rank:6,  high24h:0.602, low24h:0.571, history:[0.575,0.578,0.58,0.585,0.582,0.588,0.586,0.590,0.588,0.59] },
-  { id:"doge",symbol:"DOGE",name:"Dogecoin",  price:   0.168, change: 3.1,  vol24h:"890M",  mcap:"24B",   color:"#C2A633", rank:9,  high24h:0.175, low24h:0.159, history:[0.160,0.162,0.161,0.163,0.165,0.164,0.166,0.165,0.167,0.168] },
-  { id:"dot", symbol:"DOT", name:"Polkadot",  price:    7.82, change:-2.1,  vol24h:"310M",  mcap:"10B",   color:"#E6007A", rank:12, high24h:8.10,  low24h:7.72,  history:[8.1,8.0,7.9,7.85,7.88,7.82,7.78,7.80,7.83,7.82] },
-  { id:"avax",symbol:"AVAX",name:"Avalanche", price:   38.40, change: 4.6,  vol24h:"520M",  mcap:"16B",   color:"#E84142", rank:11, high24h:39.5,  low24h:36.2,  history:[36,36.5,37,37.5,38,37.8,38.2,38.5,38.3,38.4] },
-  { id:"link",symbol:"LINK",name:"Chainlink", price:   14.80, change: 1.2,  vol24h:"280M",  mcap:"8.7B",  color:"#2A5ADA", rank:14, high24h:15.1,  low24h:14.2,  history:[14.2,14.4,14.3,14.5,14.6,14.4,14.7,14.8,14.75,14.80] },
-  { id:"matic",symbol:"MATIC",name:"Polygon",  price:   0.72, change:-0.8,  vol24h:"210M",  mcap:"7.1B",  color:"#8247E5", rank:15, high24h:0.745, low24h:0.698, history:[0.74,0.735,0.728,0.72,0.715,0.718,0.722,0.719,0.721,0.72] },
-  { id:"atom",symbol:"ATOM",name:"Cosmos",    price:    9.45, change: 2.8,  vol24h:"150M",  mcap:"3.7B",  color:"#2E3148", rank:23, high24h:9.72,  low24h:9.10,  history:[9.0,9.1,9.3,9.2,9.4,9.35,9.5,9.48,9.45,9.45] },
-];
-
-const TRENDING = [
-  { symbol: "SOL",  change: 8.2,  price: "142.60",  color: "#9945FF" },
-  { symbol: "BNB",  change: 5.4,  price: "580.40",  color: "#F3BA2F" },
-  { symbol: "AVAX", change: 4.6,  price: "38.40",   color: "#E84142" },
-  { symbol: "DOGE", change: 3.1,  price: "0.1680",  color: "#C2A633" },
-  { symbol: "ATOM", change: 2.8,  price: "9.45",    color: "#2E3148" },
-];
-
-function Sparkline({ data, color, width = 64, height = 30 }: { data: number[]; color: string; width?: number; height?: number }) {
-  if (!data || data.length < 2) return null;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const segW = width / (data.length - 1);
-  return (
-    <View style={{ width, height, overflow: "hidden" }}>
-      {data.slice(0, -1).map((val, i) => {
-        const nextVal = data[i + 1];
-        const y1 = height - ((val - min) / range) * (height - 2) - 1;
-        const y2 = height - ((nextVal - min) / range) * (height - 2) - 1;
-        const angle = Math.atan2(y2 - y1, segW) * (180 / Math.PI);
-        const len = Math.sqrt(segW * segW + (y2 - y1) * (y2 - y1));
-        return (
-          <View key={i} style={{
-            position: "absolute", left: i * segW, top: Math.min(y1, y2),
-            width: len, height: 1.5, backgroundColor: color, opacity: 0.9,
-            transform: [{ rotate: `${angle}deg` }],
-            transformOrigin: "0 50%",
-          } as any} />
-        );
-      })}
-      {/* Area fill approximation */}
-      {data.map((val, i) => {
-        const x = i * segW;
-        const y = height - ((val - min) / range) * (height - 2) - 1;
-        return (
-          <View key={`a${i}`} style={{
-            position: "absolute", left: x, top: y,
-            width: segW, height: height - y,
-            backgroundColor: color, opacity: 0.06,
-          }} />
-        );
-      })}
-    </View>
-  );
-}
-
-function CoinRow({ item, fav, onFav }: { item: Coin; fav: boolean; onFav: () => void }) {
-  const colors = useColors();
-  const priceAnim = useRef(new Animated.Value(1)).current;
-  const bgAnim = useRef(new Animated.Value(0)).current;
-  const isUp = item.change >= 0;
-  const prevRef = useRef(item.price);
-
-  useEffect(() => {
-    const dir = item.price > prevRef.current ? 1 : -1;
-    prevRef.current = item.price;
-    Animated.sequence([
-      Animated.timing(priceAnim, { toValue: 1.04, duration: 100, useNativeDriver: true }),
-      Animated.timing(priceAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
-    ]).start();
-    Animated.sequence([
-      Animated.timing(bgAnim, { toValue: 1, duration: 120, useNativeDriver: false }),
-      Animated.timing(bgAnim, { toValue: 0, duration: 400, useNativeDriver: false }),
-    ]).start();
-  }, [item.price]);
-
-  const isInr = (item.quote ?? "").toUpperCase() === "INR";
-  const currencySym = isInr ? "₹" : "$";
-  const fmtPrice = (p: number) => p >= 1
-    ? p.toLocaleString(isInr ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : p.toFixed(4);
-
-  const flashBg = bgAnim.interpolate({
-    inputRange: [0, 1], outputRange: ["transparent", isUp ? "#0ecb8115" : "#f6465d15"],
-  } as any);
-
-  return (
-    <Animated.View style={{ backgroundColor: flashBg }}>
-      <TouchableOpacity
-        testID={`coin-row-${item.id}`}
-        onPress={() => Haptics.selectionAsync()}
-        activeOpacity={0.7}
-        style={[styles.coinRow, { borderBottomColor: colors.border }]}
-      >
-        <TouchableOpacity onPress={() => { onFav(); Haptics.selectionAsync(); }} style={styles.starBtn}>
-          <Feather name={fav ? "star" : "star"} size={13} color={fav ? "#fcd535" : colors.mutedForeground} solid={fav} />
-        </TouchableOpacity>
-        <View style={[styles.coinLogo, { backgroundColor: item.color + "22" }]}>
-          <Text style={[styles.coinLogoText, { color: item.color }]}>{item.symbol[0]}</Text>
-        </View>
-        <View style={styles.coinInfo}>
-          <View style={styles.coinNameRow}>
-            <Text style={[styles.coinSymbol, { color: colors.foreground }]}>{item.symbol}</Text>
-            <Text style={[styles.coinRank, { color: colors.mutedForeground }]}>#{item.rank}</Text>
-          </View>
-          <Text style={[styles.coinVol, { color: colors.mutedForeground }]}>Vol {item.vol24h}</Text>
-        </View>
-        <View style={styles.coinSparkline}>
-          <Sparkline data={item.history} color={isUp ? "#0ecb81" : "#f6465d"} />
-        </View>
-        <View style={styles.coinPriceBlock}>
-          <Animated.Text style={[styles.coinPrice, { color: colors.foreground, transform: [{ scale: priceAnim }] }]}>
-            {currencySym}{fmtPrice(item.price)}
-          </Animated.Text>
-          <View style={[styles.changeBadge, { backgroundColor: (isUp ? "#0ecb81" : "#f6465d") + "1a" }]}>
-            <Text style={[styles.changeText, { color: isUp ? "#0ecb81" : "#f6465d" }]}>
-              {isUp ? "▲" : "▼"} {Math.abs(item.change).toFixed(2)}%
-            </Text>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-const CATS = ["All","Spot","Futures","Gainers","Losers","⭐"];
-
 const COIN_COLORS: Record<string, string> = {
-  BTC:"#F7931A", ETH:"#627EEA", BNB:"#F3BA2F", SOL:"#9945FF",
-  XRP:"#00AAE4", ADA:"#0033AD", DOGE:"#C2A633", DOT:"#E6007A",
-  AVAX:"#E84142", LINK:"#2A5ADA", USDT:"#26A17B",
+  BTC: "#F7931A", ETH: "#627EEA", BNB: "#F3BA2F", SOL: "#14F195",
+  XRP: "#0085C0", DOGE: "#C2A633", MATIC: "#8247E5", USDT: "#26A17B",
+  ADA: "#0033AD", AVAX: "#E84142", ATOM: "#2E3148",
 };
 
-export default function MarketsScreen() {
+const QUICK_ACTIONS = [
+  { label: "Deposit", icon: "arrow-down-circle", route: "/services/deposit-crypto", color: "#0ecb81" },
+  { label: "Withdraw", icon: "arrow-up-circle", route: "/services/withdraw-inr", color: "#f6465d" },
+  { label: "Buy Crypto", icon: "credit-card", route: "/services/buy-crypto", color: "#5b8def" },
+  { label: "P2P", icon: "users", route: "/services/p2p", color: "#fcd535" },
+  { label: "Earn", icon: "trending-up", route: "/services/earn", color: "#a06af5" },
+  { label: "Transfer", icon: "repeat", route: "/services/transfer", color: "#00c2ff" },
+  { label: "Refer", icon: "gift", route: "/services/refer", color: "#ff8a3d" },
+  { label: "More", icon: "grid", route: "/services", color: "#8d96a7" },
+];
+
+const BANNERS = [
+  { title: "1% TDS Compliant Trading", sub: "Trade INR pairs with full tax compliance", grad: ["#fcd535", "#f0b90b"], icon: "shield" as const },
+  { title: "Refer & Earn", sub: "Get 20% commission on every trade", grad: ["#a06af5", "#5b8def"], icon: "gift" as const },
+  { title: "Earn up to 12% APY", sub: "Stake your crypto, earn passive income", grad: ["#0ecb81", "#00c2ff"], icon: "trending-up" as const },
+];
+
+export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [search, setSearch] = useState("");
-  const [cat, setCat] = useState("All");
-  const [sortBy, setSortBy] = useState<"vol"|"change"|"price"|"mcap">("vol");
-  const [sortDir, setSortDir] = useState<1|-1>(-1);
-  const [favorites, setFavorites] = useState<string[]>(["btc","eth"]);
-  const [fearGreed] = useState(62);
+  const router = useRouter();
+  const { user, apiWallets, inrUsdtRate } = useApp();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : 0;
+  const bottomPad = Platform.OS === "web" ? 84 : 90;
 
-  const { data: marketsData = [], isLoading: marketsLoading } = useQuery({
-    queryKey: ["mobile-markets"],
+  const { data: marketsData = [] } = useQuery({
+    queryKey: ["home-markets"],
     queryFn: marketApi.getMarkets,
     refetchInterval: 30000,
   });
 
-  const coins: Coin[] = marketsData.map((m: any) => ({
-    id: (m.symbol ?? m.base ?? "").toLowerCase(),
-    symbol: m.base ?? m.symbol,
-    name: m.quote ? `${m.base}/${m.quote}` : (m.base ?? m.symbol),
-    price: m.price ?? 0,
-    change: m.change24h ?? 0,
-    vol24h: m.volume24h ? `${(m.volume24h / 1e9).toFixed(1)}B` : "0",
-    mcap: "--",
-    color: COIN_COLORS[m.base] ?? "#888",
-    history: Array.from({ length: 10 }, () => (m.price ?? 0) * (1 + (Math.random() - 0.499) * 0.05)),
-    high24h: m.high24h ?? 0,
-    low24h: m.low24h ?? 0,
-    rank: 0,
-    quote: m.quote,
-  }));
+  const totalInr = useMemo(() => {
+    if (!user?.isLoggedIn) return 0;
+    return (apiWallets || []).reduce((s: number, w: any) => s + Number(w.inrValue || 0), 0);
+  }, [apiWallets, user]);
 
-  const toggleFav = useCallback((id: string) => {
-    setFavorites(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id]);
-  }, []);
+  const hot = useMemo(() =>
+    [...marketsData].sort((a: any, b: any) => Math.abs(b.change24h) - Math.abs(a.change24h)).slice(0, 8)
+  , [marketsData]);
 
-  const handleSort = (s: typeof sortBy) => {
-    if (sortBy === s) setSortDir(d => (d === -1 ? 1 : -1) as 1 | -1);
-    else { setSortBy(s); setSortDir(-1); }
+  const gainers = useMemo(() =>
+    [...marketsData].filter((c: any) => c.change24h > 0).sort((a: any, b: any) => b.change24h - a.change24h).slice(0, 5)
+  , [marketsData]);
+
+  const losers = useMemo(() =>
+    [...marketsData].filter((c: any) => c.change24h < 0).sort((a: any, b: any) => a.change24h - b.change24h).slice(0, 5)
+  , [marketsData]);
+
+  const formatPrice = (p: number, quote: string) => {
+    const sym = quote === "INR" ? "₹" : "$";
+    const loc = quote === "INR" ? "en-IN" : "en-US";
+    return `${sym}${p.toLocaleString(loc, { minimumFractionDigits: p < 1 ? 4 : 2, maximumFractionDigits: p < 1 ? 6 : 2 })}`;
   };
 
-  const filtered = coins
-    .filter(c => {
-      const q = search.toLowerCase();
-      const m = c.symbol.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
-      if (cat === "Gainers") return m && c.change > 0;
-      if (cat === "Losers") return m && c.change < 0;
-      if (cat === "⭐") return m && favorites.includes(c.id);
-      if (cat === "Spot") {
-        const md: any = marketsData.find((x: any) => x.symbol === (c as any).name || `${x.base}/${x.quote}` === (c as any).name);
-        return m && (md?.tradingEnabled !== false);
-      }
-      if (cat === "Futures") {
-        const md: any = marketsData.find((x: any) => x.symbol === (c as any).name || `${x.base}/${x.quote}` === (c as any).name);
-        return m && !!md?.futuresEnabled;
-      }
-      return m;
-    })
-    .sort((a, b) => {
-      let v = 0;
-      if (sortBy === "change") v = a.change - b.change;
-      else if (sortBy === "price") v = a.price - b.price;
-      return v * sortDir;
-    });
+  const goLogin = () => {
+    Haptics.selectionAsync();
+    router.push("/(auth)/login");
+  };
 
-  const SortHeader = ({ label, key: k }: { label: string; key: typeof sortBy }) => (
-    <TouchableOpacity onPress={() => handleSort(k)} style={styles.sortHeaderBtn}>
-      <Text style={[styles.colHeaderText, { color: sortBy === k ? colors.primary : colors.mutedForeground }]}>{label}</Text>
-      {sortBy === k && <Text style={{ color: colors.primary, fontSize: 8 }}>{sortDir === -1 ? "▼" : "▲"}</Text>}
-    </TouchableOpacity>
-  );
+  const goAction = (route: string) => {
+    Haptics.selectionAsync();
+    if (!user?.isLoggedIn) { router.push("/(auth)/login"); return; }
+    router.push(route as any);
+  };
 
-  const ListHeader = () => (
-    <View>
-      {/* Top Header */}
-      <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.card }]}>
-        <View>
-          <Text style={[styles.headerTitle, { color: colors.primary }]}>CryptoX</Text>
-          <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Markets</Text>
+  return (
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{ paddingTop: topPad, paddingBottom: bottomPad }}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
+            {user?.isLoggedIn ? "Welcome back" : "Welcome to"}
+          </Text>
+          <Text style={[styles.brand, { color: colors.primary }]}>
+            {user?.isLoggedIn ? (user.name || user.email?.split("@")[0]) : "CryptoX"}
+          </Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]}>
-            <Feather name="bell" size={17} color={colors.mutedForeground} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]}>
-            <Feather name="sliders" size={17} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => router.push("/services/notifications" as any)} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
+          <Feather name="bell" size={18} color={colors.foreground} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push("/services/scan" as any)} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
+          <Feather name="maximize" size={18} color={colors.foreground} />
+        </TouchableOpacity>
       </View>
 
-      {/* Market Overview Bar */}
-      <View style={[styles.overviewBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-        {[
-          { label: "Market Cap", value: "$2.41T", color: colors.foreground },
-          { label: "24H Vol", value: "$98.5B", color: colors.foreground },
-          { label: "BTC Dom", value: "52.3%", color: colors.primary },
-          { label: "Fear & Greed", value: `${fearGreed}`, color: fearGreed > 50 ? colors.success : colors.destructive },
-        ].map((s, i) => (
-          <View key={s.label} style={[styles.overviewItem, { borderLeftWidth: i > 0 ? 1 : 0, borderLeftColor: colors.border }]}>
-            <Text style={[styles.ovLabel, { color: colors.mutedForeground }]}>{s.label}</Text>
-            <Text style={[styles.ovValue, { color: s.color }]}>{s.value}</Text>
+      {/* Asset Card / Login CTA */}
+      {user?.isLoggedIn ? (
+        <TouchableOpacity activeOpacity={0.85} onPress={() => router.push("/(tabs)/wallet")}
+          style={[styles.assetCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.assetTop}>
+            <Text style={[styles.assetLabel, { color: colors.mutedForeground }]}>Total Assets (INR)</Text>
+            <Feather name="eye" size={14} color={colors.mutedForeground} />
           </View>
+          <Text style={[styles.assetValue, { color: colors.foreground }]}>
+            ₹{totalInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+          <Text style={[styles.assetSub, { color: colors.mutedForeground }]}>
+            ≈ ${(totalInr / (inrUsdtRate || 95)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+          </Text>
+          <View style={styles.assetActions}>
+            <TouchableOpacity onPress={() => router.push("/services/deposit-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.assetBtnTxt, { color: "#000" }]}>Deposit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/services/withdraw-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.assetBtnTxt, { color: colors.foreground }]}>Withdraw</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/services/transfer" as any)} style={[styles.assetBtn, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.assetBtnTxt, { color: colors.foreground }]}>Transfer</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity onPress={goLogin} style={[styles.loginCta, { backgroundColor: colors.primary }]}>
+          <View>
+            <Text style={[styles.loginCtaTitle, { color: "#000" }]}>Login or Sign Up</Text>
+            <Text style={[styles.loginCtaSub, { color: "#000a" }]}>Start trading INR & USDT pairs</Text>
+          </View>
+          <Feather name="arrow-right-circle" size={26} color="#000" />
+        </TouchableOpacity>
+      )}
+
+      {/* Quick Actions */}
+      <View style={[styles.actionsGrid, { backgroundColor: colors.card }]}>
+        {QUICK_ACTIONS.map(a => (
+          <TouchableOpacity key={a.label} onPress={() => goAction(a.route)} style={styles.actionItem}>
+            <View style={[styles.actionIcon, { backgroundColor: a.color + "22" }]}>
+              <Feather name={a.icon as any} size={18} color={a.color} />
+            </View>
+            <Text style={[styles.actionLabel, { color: colors.foreground }]}>{a.label}</Text>
+          </TouchableOpacity>
         ))}
       </View>
 
-      {/* Trending */}
-      <View style={{ paddingVertical: 10 }}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground, paddingHorizontal: 16, marginBottom: 8 }]}>
-          🔥 Trending
-        </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}>
-          {TRENDING.map(t => (
-            <TouchableOpacity key={t.symbol} onPress={() => Haptics.selectionAsync()}
-              style={[styles.trendCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={[styles.trendLogo, { backgroundColor: t.color + "22" }]}>
-                <Text style={[styles.trendLogoText, { color: t.color }]}>{t.symbol[0]}</Text>
+      {/* Banner Carousel */}
+      <FlatList
+        horizontal
+        data={BANNERS}
+        keyExtractor={(b) => b.title}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.bannerList}
+        renderItem={({ item }) => (
+          <View style={[styles.banner, { backgroundColor: item.grad[0] }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerTitle}>{item.title}</Text>
+              <Text style={styles.bannerSub}>{item.sub}</Text>
+            </View>
+            <Feather name={item.icon} size={36} color="#0007" />
+          </View>
+        )}
+      />
+
+      {/* Hot Coins */}
+      <View style={styles.section}>
+        <View style={styles.sectionHead}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.fire}>🔥</Text>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Hot Coins</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/markets")}>
+            <Text style={[styles.seeAll, { color: colors.primary }]}>See All →</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14 }}>
+          {hot.map((c: any) => (
+            <TouchableOpacity key={c.symbol} onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
+              style={[styles.hotCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.hotTop}>
+                <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
+                  <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+                </View>
+                <Text style={[styles.hotSym, { color: colors.foreground }]}>{c.base}</Text>
               </View>
-              <Text style={[styles.trendSym, { color: colors.foreground }]}>{t.symbol}</Text>
-              <Text style={[styles.trendPrice, { color: colors.mutedForeground }]}>${t.price}</Text>
-              <View style={[styles.trendBadge, { backgroundColor: "#0ecb8118" }]}>
-                <Text style={[styles.trendChange, { color: "#0ecb81" }]}>+{t.change}%</Text>
-              </View>
+              <Text style={[styles.hotPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
+              <Text style={[styles.hotChange, { color: c.change24h >= 0 ? colors.success : colors.destructive }]}>
+                {c.change24h >= 0 ? "+" : ""}{c.change24h.toFixed(2)}%
+              </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {/* Search */}
-      <View style={[styles.searchBar, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-        <Feather name="search" size={15} color={colors.mutedForeground} style={{ marginRight: 8 }} />
-        <TextInput
-          testID="search-input"
-          value={search} onChangeText={setSearch}
-          placeholder="Search name or symbol..."
-          placeholderTextColor={colors.mutedForeground}
-          style={[styles.searchInput, { color: colors.foreground }]}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch("")}>
-            <Feather name="x" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Category Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
-        {CATS.map(c => (
-          <TouchableOpacity key={c} testID={`cat-${c}`} onPress={() => setCat(c)}
-            style={[styles.catTab, { borderColor: cat === c ? colors.primary : "transparent", backgroundColor: cat === c ? colors.primary + "18" : "transparent" }]}>
-            <Text style={[styles.catText, { color: cat === c ? colors.primary : colors.mutedForeground }]}>{c}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Column Headers */}
-      <View style={[styles.colHeader, { borderBottomColor: colors.border, borderTopColor: colors.border }]}>
-        <View style={{ width: 14 }} />
-        <Text style={[styles.colHeaderText, { color: colors.mutedForeground, width: 44 }]}> </Text>
-        <Text style={[styles.colHeaderText, { color: colors.mutedForeground, flex: 2 }]}>Name</Text>
-        <Text style={[styles.colHeaderText, { color: colors.mutedForeground, width: 68 }]}>7D Chart</Text>
-        <View style={{ flex: 2, alignItems: "flex-end" }}>
-          <View style={styles.sortRow}>
-            <SortHeader label="Price" key="price" />
-            <Text style={{ color: colors.border }}>·</Text>
-            <SortHeader label="Chg%" key="change" />
+      {/* Top Gainers */}
+      <View style={styles.section}>
+        <View style={styles.sectionHead}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="trending-up" size={16} color={colors.success} />
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 6 }]}>Top Gainers</Text>
           </View>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/markets")}>
+            <Text style={[styles.seeAll, { color: colors.primary }]}>See All →</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {gainers.length === 0 && <Text style={[styles.empty, { color: colors.mutedForeground }]}>No gainers right now</Text>}
+          {gainers.map((c: any, i: number) => (
+            <TouchableOpacity key={c.symbol} onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
+              style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === gainers.length - 1 ? 0 : StyleSheet.hairlineWidth }]}>
+              <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
+                <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground }}>/{c.quote}</Text></Text>
+                <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
+                <Text style={[styles.rowChange, { color: colors.success }]}>+{c.change24h.toFixed(2)}%</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
-    </View>
-  );
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <FlatList
-        data={filtered}
-        keyExtractor={i => i.id}
-        ListHeaderComponent={ListHeader}
-        renderItem={({ item }) => (
-          <CoinRow item={item} fav={favorites.includes(item.id)} onFav={() => toggleFav(item.id)} />
-        )}
-        ListEmptyComponent={marketsLoading ? (
-          <View style={{ padding: 40, alignItems: "center" }}>
-            <ActivityIndicator color="#fcd535" size="large" />
+      {/* Top Losers */}
+      <View style={styles.section}>
+        <View style={styles.sectionHead}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="trending-down" size={16} color={colors.destructive} />
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 6 }]}>Top Losers</Text>
           </View>
-        ) : (
-          <View style={{ padding: 40, alignItems: "center" }}>
-            <Text style={{ color: "#888", fontSize: 14 }}>No markets found</Text>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/markets")}>
+            <Text style={[styles.seeAll, { color: colors.primary }]}>See All →</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {losers.length === 0 && <Text style={[styles.empty, { color: colors.mutedForeground }]}>No losers right now</Text>}
+          {losers.map((c: any, i: number) => (
+            <TouchableOpacity key={c.symbol} onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
+              style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === losers.length - 1 ? 0 : StyleSheet.hairlineWidth }]}>
+              <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
+                <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground }}>/{c.quote}</Text></Text>
+                <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
+                <Text style={[styles.rowChange, { color: colors.destructive }]}>{c.change24h.toFixed(2)}%</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* News / Announcements */}
+      <View style={styles.section}>
+        <View style={styles.sectionHead}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="bell" size={16} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 6 }]}>Announcements</Text>
           </View>
-        )}
-        contentContainerStyle={{ paddingBottom: Platform.OS === "web" ? bottomPad + 84 : 90 }}
-        showsVerticalScrollIndicator={false}
-      />
-    </View>
+        </View>
+        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 14 }]}>
+          <Text style={[styles.newsTitle, { color: colors.foreground }]}>Welcome to CryptoX Exchange</Text>
+          <Text style={[styles.newsBody, { color: colors.mutedForeground }]}>
+            Trade INR & USDT pairs with industry-leading fees. KYC-verified traders enjoy lower fees and higher limits.
+          </Text>
+          <Text style={[styles.newsTime, { color: colors.mutedForeground }]}>Today</Text>
+        </View>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 10 },
-  headerTitle: { fontSize: 22, fontFamily: "Inter_700Bold" },
-  headerSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
-  headerRight: { flexDirection: "row", gap: 8 },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+  greeting: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  brand: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 2 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  overviewBar: { flexDirection: "row", borderBottomWidth: 1, paddingVertical: 8 },
-  overviewItem: { flex: 1, alignItems: "center", paddingVertical: 2 },
-  ovLabel: { fontSize: 9, fontFamily: "Inter_400Regular", marginBottom: 2 },
-  ovValue: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  sectionLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  trendCard: { alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, minWidth: 90, gap: 4 },
-  trendLogo: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  trendLogoText: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  trendSym: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  trendPrice: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  trendBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  trendChange: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
-  searchBar: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1, marginBottom: 10, marginTop: 4 },
-  searchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", padding: 0 },
-  catRow: { paddingHorizontal: 12, gap: 6, paddingBottom: 8 },
-  catTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
-  catText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  colHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 7, borderBottomWidth: 1, borderTopWidth: 1 },
-  colHeaderText: { fontSize: 10, fontFamily: "Inter_500Medium" },
-  sortHeaderBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
-  sortRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  coinRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 11, borderBottomWidth: 1 },
-  starBtn: { width: 20, alignItems: "center", marginRight: 2 },
-  coinLogo: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", marginRight: 8 },
-  coinLogoText: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  coinInfo: { flex: 2 },
-  coinNameRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  coinSymbol: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  coinRank: { fontSize: 9, fontFamily: "Inter_400Regular" },
-  coinVol: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 },
-  coinSparkline: { width: 68, alignItems: "center" },
-  coinPriceBlock: { flex: 2, alignItems: "flex-end" },
-  coinPrice: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  changeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, marginTop: 3 },
-  changeText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+
+  loginCta: { marginHorizontal: 14, marginTop: 6, padding: 16, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  loginCtaTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  loginCtaSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+
+  assetCard: { marginHorizontal: 14, marginTop: 6, padding: 16, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  assetTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  assetLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  assetValue: { fontSize: 24, fontFamily: "Inter_700Bold", marginTop: 6 },
+  assetSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  assetActions: { flexDirection: "row", marginTop: 14, gap: 8 },
+  assetBtn: { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: "center" },
+  assetBtnTxt: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  actionsGrid: { marginHorizontal: 14, marginTop: 12, paddingVertical: 14, borderRadius: 14, flexDirection: "row", flexWrap: "wrap" },
+  actionItem: { width: "25%", alignItems: "center", marginBottom: 12 },
+  actionIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  actionLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
+
+  bannerList: { paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  banner: { width: 280, padding: 14, borderRadius: 12, marginRight: 10, flexDirection: "row", alignItems: "center" },
+  bannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#000" },
+  bannerSub: { fontSize: 11, fontFamily: "Inter_400Regular", color: "#000a", marginTop: 4 },
+
+  section: { marginTop: 6 },
+  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8, marginTop: 6 },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center" },
+  sectionTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  fire: { fontSize: 16 },
+  seeAll: { fontSize: 12, fontFamily: "Inter_500Medium" },
+
+  hotCard: { width: 130, padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, marginRight: 10 },
+  hotTop: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  hotSym: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginLeft: 8 },
+  hotPrice: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  hotChange: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
+
+  listCard: { marginHorizontal: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  coinDot: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  coinDotTxt: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  rowSym: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  rowVol: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 },
+  rowPrice: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  rowChange: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
+  empty: { textAlign: "center", padding: 18, fontSize: 12 },
+
+  newsTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  newsBody: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 6, lineHeight: 17 },
+  newsTime: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 8 },
 });
