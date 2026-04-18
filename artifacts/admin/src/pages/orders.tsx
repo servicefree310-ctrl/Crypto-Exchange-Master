@@ -169,7 +169,7 @@ export default function OrdersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
+                  <TableHead>UID</TableHead>
                   <TableHead>Pair</TableHead>
                   <TableHead>Side</TableHead>
                   <TableHead>Type</TableHead>
@@ -187,7 +187,7 @@ export default function OrdersPage() {
                   <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No orders match the filters.</TableCell></TableRow>
                 ) : orders.map(o => (
                   <TableRow key={o.id}>
-                    <TableCell className="font-mono text-xs">#{o.id}</TableCell>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground" title={(o as any).uid}>{((o as any).uid || `#${o.id}`).slice(0, 10)}…</TableCell>
                     <TableCell className="font-mono">{pairById.get(o.pairId) || `#${o.pairId}`}</TableCell>
                     <TableCell>
                       {o.side === "buy"
@@ -217,7 +217,7 @@ export default function OrdersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
+                  <TableHead>UID</TableHead>
                   <TableHead>Pair</TableHead>
                   <TableHead>Side</TableHead>
                   <TableHead>Price</TableHead>
@@ -233,7 +233,7 @@ export default function OrdersPage() {
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No trades yet.</TableCell></TableRow>
                 ) : trades.map(t => (
                   <TableRow key={t.id}>
-                    <TableCell className="font-mono text-xs">#{t.id}</TableCell>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground" title={(t as any).uid}>{((t as any).uid || `#${t.id}`).slice(0, 10)}…</TableCell>
                     <TableCell className="font-mono">{pairById.get(t.pairId) || `#${t.pairId}`}</TableCell>
                     <TableCell>{t.side === "buy" ? <Badge className="bg-emerald-600">BUY</Badge> : <Badge className="bg-red-600">SELL</Badge>}</TableCell>
                     <TableCell className="tabular-nums">{Number(t.price).toLocaleString("en-US", { maximumFractionDigits: 8 })}</TableCell>

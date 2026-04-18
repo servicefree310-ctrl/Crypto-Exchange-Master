@@ -23,6 +23,7 @@ export default function InrWithdrawalsPage() {
       <div className="overflow-x-auto">
         <Table>
           <TableHeader><TableRow>
+            <TableHead>UID</TableHead>
             <TableHead>Ref ID</TableHead><TableHead>User</TableHead><TableHead>Bank</TableHead>
             <TableHead>Amount</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead>
             <TableHead>Date</TableHead><TableHead>Actions</TableHead>
@@ -30,6 +31,7 @@ export default function InrWithdrawalsPage() {
           <TableBody>
             {data.map((d) => (
               <TableRow key={d.id}>
+                <TableCell className="font-mono text-[10px] text-muted-foreground" title={(d as any).uid}>{((d as any).uid || "").slice(0, 10)}…</TableCell>
                 <TableCell className="font-mono text-xs">{d.refId}</TableCell>
                 <TableCell>#{d.userId}</TableCell>
                 <TableCell>#{d.bankId}</TableCell>

@@ -23,6 +23,7 @@ export default function CryptoWithdrawalsPage() {
       <div className="overflow-x-auto">
         <Table>
           <TableHeader><TableRow>
+            <TableHead>UID</TableHead>
             <TableHead>User</TableHead><TableHead>Coin/Net</TableHead><TableHead>Amount</TableHead>
             <TableHead>Address</TableHead><TableHead>TxHash</TableHead><TableHead>Status</TableHead>
             <TableHead>Date</TableHead><TableHead>Actions</TableHead>
@@ -30,6 +31,7 @@ export default function CryptoWithdrawalsPage() {
           <TableBody>
             {data.map((w) => (
               <TableRow key={w.id}>
+                <TableCell className="font-mono text-[10px] text-muted-foreground" title={(w as any).uid}>{((w as any).uid || "").slice(0, 10)}…</TableCell>
                 <TableCell>#{w.userId}</TableCell>
                 <TableCell>#{w.coinId}/{w.networkId}</TableCell>
                 <TableCell className="tabular-nums">{w.amount}</TableCell>

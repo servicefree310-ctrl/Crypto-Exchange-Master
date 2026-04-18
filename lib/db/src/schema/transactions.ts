@@ -1,7 +1,10 @@
-import { pgTable, text, serial, timestamp, integer, numeric, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, numeric, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { ulid } from "ulid";
 
 export const inrDepositsTable = pgTable("inr_deposits", {
   id: serial("id").primaryKey(),
+  uid: varchar("uid", { length: 32 }).notNull().unique().$defaultFn(() => ulid()).default(sql`replace(gen_random_uuid()::text, '-', '')`),
   userId: integer("user_id").notNull(),
   gatewayId: integer("gateway_id").notNull(),
   bankId: integer("bank_id"),
@@ -20,6 +23,7 @@ export type InrDeposit = typeof inrDepositsTable.$inferSelect;
 
 export const inrWithdrawalsTable = pgTable("inr_withdrawals", {
   id: serial("id").primaryKey(),
+  uid: varchar("uid", { length: 32 }).notNull().unique().$defaultFn(() => ulid()).default(sql`replace(gen_random_uuid()::text, '-', '')`),
   userId: integer("user_id").notNull(),
   bankId: integer("bank_id").notNull(),
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
@@ -36,6 +40,7 @@ export type InrWithdrawal = typeof inrWithdrawalsTable.$inferSelect;
 
 export const cryptoDepositsTable = pgTable("crypto_deposits", {
   id: serial("id").primaryKey(),
+  uid: varchar("uid", { length: 32 }).notNull().unique().$defaultFn(() => ulid()).default(sql`replace(gen_random_uuid()::text, '-', '')`),
   userId: integer("user_id").notNull(),
   coinId: integer("coin_id").notNull(),
   networkId: integer("network_id").notNull(),
@@ -59,6 +64,7 @@ export type CryptoDeposit = typeof cryptoDepositsTable.$inferSelect;
 
 export const cryptoWithdrawalsTable = pgTable("crypto_withdrawals", {
   id: serial("id").primaryKey(),
+  uid: varchar("uid", { length: 32 }).notNull().unique().$defaultFn(() => ulid()).default(sql`replace(gen_random_uuid()::text, '-', '')`),
   userId: integer("user_id").notNull(),
   coinId: integer("coin_id").notNull(),
   networkId: integer("network_id").notNull(),

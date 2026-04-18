@@ -1,7 +1,10 @@
-import { pgTable, text, serial, timestamp, integer, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, numeric, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { ulid } from "ulid";
 
 export const ordersTable = pgTable("orders", {
   id: serial("id").primaryKey(),
+  uid: varchar("uid", { length: 32 }).notNull().unique().$defaultFn(() => ulid()).default(sql`replace(gen_random_uuid()::text, '-', '')`),
   userId: integer("user_id").notNull(),
   pairId: integer("pair_id").notNull(),
   side: text("side").notNull(),
@@ -23,6 +26,7 @@ export type Order = typeof ordersTable.$inferSelect;
 
 export const tradesTable = pgTable("trades", {
   id: serial("id").primaryKey(),
+  uid: varchar("uid", { length: 32 }).notNull().unique().$defaultFn(() => ulid()).default(sql`replace(gen_random_uuid()::text, '-', '')`),
   orderId: integer("order_id").notNull(),
   userId: integer("user_id").notNull(),
   pairId: integer("pair_id").notNull(),

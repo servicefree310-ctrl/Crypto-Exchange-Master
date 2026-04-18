@@ -222,6 +222,7 @@ export default function CryptoDepositsPage() {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader><TableRow>
+              <TableHead>UID</TableHead>
               <TableHead>User</TableHead><TableHead>Coin</TableHead><TableHead>Network</TableHead>
               <TableHead>Amount</TableHead><TableHead>To Address</TableHead><TableHead>Tx Hash</TableHead>
               <TableHead>Block</TableHead><TableHead>Confirms</TableHead>
@@ -236,6 +237,7 @@ export default function CryptoDepositsPage() {
                 const confPct = d.requiredConfirmations > 0 ? Math.min(100, (d.confirmations / d.requiredConfirmations) * 100) : 0;
                 return (
                   <TableRow key={d.id}>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground" title={d.uid}>{(d.uid || "").slice(0, 10)}…</TableCell>
                     <TableCell>#{d.userId}</TableCell>
                     <TableCell>{c?.symbol || `#${d.coinId}`}</TableCell>
                     <TableCell>{n ? `${n.name}/${n.chain}` : `#${d.networkId}`}</TableCell>

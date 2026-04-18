@@ -23,12 +23,14 @@ export default function InrDepositsPage() {
       <div className="overflow-x-auto">
         <Table>
           <TableHeader><TableRow>
+            <TableHead>UID</TableHead>
             <TableHead>Ref ID</TableHead><TableHead>User</TableHead><TableHead>Amount</TableHead>
             <TableHead>UTR</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead><TableHead>Actions</TableHead>
           </TableRow></TableHeader>
           <TableBody>
             {data.map((d) => (
               <TableRow key={d.id}>
+                <TableCell className="font-mono text-[10px] text-muted-foreground" title={(d as any).uid}>{((d as any).uid || "").slice(0, 10)}…</TableCell>
                 <TableCell className="font-mono text-xs">{d.refId}</TableCell>
                 <TableCell>#{d.userId}</TableCell>
                 <TableCell className="tabular-nums font-medium">₹{Number(d.amount).toLocaleString("en-IN")}</TableCell>
