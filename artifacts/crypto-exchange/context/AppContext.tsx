@@ -220,88 +220,14 @@ interface AppContextType {
   todayPnlPercent: number;
 }
 
-export const MOCK_COINS: Coin[] = [
-  { symbol: 'BTC', name: 'Bitcoin', price: 6750000, change24h: 2.34, volume24h: 2100000000, high24h: 6820000, low24h: 6580000, marketCap: 132000000000000 },
-  { symbol: 'ETH', name: 'Ethereum', price: 355000, change24h: -1.23, volume24h: 980000000, high24h: 362000, low24h: 347000, marketCap: 42000000000000 },
-  { symbol: 'BNB', name: 'BNB', price: 62000, change24h: 0.87, volume24h: 450000000, high24h: 63500, low24h: 61000, marketCap: 9500000000000 },
-  { symbol: 'SOL', name: 'Solana', price: 18500, change24h: 4.56, volume24h: 320000000, high24h: 19200, low24h: 17600, marketCap: 8200000000000 },
-  { symbol: 'XRP', name: 'XRP', price: 580, change24h: -0.45, volume24h: 280000000, high24h: 598, low24h: 568, marketCap: 3200000000000 },
-  { symbol: 'ADA', name: 'Cardano', price: 82, change24h: 1.23, volume24h: 180000000, high24h: 86, low24h: 79, marketCap: 2900000000000 },
-  { symbol: 'DOGE', name: 'Dogecoin', price: 18.5, change24h: 3.78, volume24h: 250000000, high24h: 19.2, low24h: 17.8, marketCap: 2600000000000 },
-  { symbol: 'MATIC', name: 'Polygon', price: 95, change24h: -2.1, volume24h: 160000000, high24h: 98, low24h: 92, marketCap: 900000000000 },
-  { symbol: 'AVAX', name: 'Avalanche', price: 4200, change24h: 5.67, volume24h: 140000000, high24h: 4350, low24h: 3980, marketCap: 1750000000000 },
-  { symbol: 'DOT', name: 'Polkadot', price: 980, change24h: -1.89, volume24h: 120000000, high24h: 1020, low24h: 960, marketCap: 1300000000000 },
-  { symbol: 'LINK', name: 'Chainlink', price: 1450, change24h: 2.11, volume24h: 95000000, high24h: 1490, low24h: 1410, marketCap: 850000000000 },
-  { symbol: 'UNI', name: 'Uniswap', price: 1050, change24h: -0.78, volume24h: 78000000, high24h: 1080, low24h: 1020, marketCap: 620000000000 },
-  { symbol: 'SHIB', name: 'Shiba Inu', price: 0.00185, change24h: 6.45, volume24h: 220000000, high24h: 0.00195, low24h: 0.00174, marketCap: 1090000000000 },
-  { symbol: 'LTC', name: 'Litecoin', price: 7200, change24h: 1.56, volume24h: 88000000, high24h: 7380, low24h: 7080, marketCap: 540000000000 },
-  { symbol: 'ATOM', name: 'Cosmos', price: 1020, change24h: -3.21, volume24h: 65000000, high24h: 1060, low24h: 985, marketCap: 400000000000 },
-];
+export const MOCK_COINS: Coin[] = [];
 
-const MOCK_WALLET: WalletBalance[] = [
-  { symbol: 'INR', walletType: 'inr', available: 50000, locked: 5000, inrValue: 55000 },
-  { symbol: 'INR', walletType: 'spot', available: 25000, locked: 0, inrValue: 25000 },
-  { symbol: 'BTC', walletType: 'spot', available: 0.025, locked: 0.002, inrValue: 182250 },
-  { symbol: 'ETH', walletType: 'spot', available: 0.8, locked: 0.1, inrValue: 319500 },
-  { symbol: 'BNB', walletType: 'spot', available: 2.5, locked: 0, inrValue: 155000 },
-  { symbol: 'USDT', walletType: 'spot', available: 10000, locked: 1000, inrValue: 924000 },
-  { symbol: 'BTC', walletType: 'earn', available: 0.005, locked: 0, inrValue: 33750 },
-  { symbol: 'USDT', walletType: 'earn', available: 5000, locked: 0, inrValue: 462000 },
-  { symbol: 'USDT', walletType: 'futures', available: 2000, locked: 500, inrValue: 184800 },
-];
-
-const MOCK_ORDERS: Order[] = [
-  { id: 'ORD001', symbol: 'BTC/INR', type: 'limit', side: 'buy', price: 6700000, quantity: 0.001, filled: 0.001, status: 'filled', timestamp: Date.now() - 3600000, fee: 67, tds: 0, total: 6700.067, invoiceId: 'INV-2026001' },
-  { id: 'ORD002', symbol: 'ETH/INR', type: 'market', side: 'sell', price: 358000, quantity: 0.5, filled: 0.5, status: 'filled', timestamp: Date.now() - 7200000, fee: 89.5, tds: 1790, total: 178910.5, invoiceId: 'INV-2026002' },
-  { id: 'ORD003', symbol: 'SOL/INR', type: 'limit', side: 'buy', price: 18200, quantity: 5, filled: 2.5, status: 'partial', timestamp: Date.now() - 1800000, fee: 22.75, tds: 0, total: 45522.75, invoiceId: 'INV-2026003' },
-];
-
-const MOCK_POSITIONS: Position[] = [
-  { symbol: 'BTC/USDT', side: 'long', size: 0.01, entryPrice: 65000, markPrice: 67500, pnl: 25, pnlPercent: 3.84, leverage: 10, liquidationPrice: 58500, margin: 65 },
-  { symbol: 'ETH/USDT', side: 'short', size: 0.5, entryPrice: 3600, markPrice: 3550, pnl: 25, pnlPercent: 1.38, leverage: 5, liquidationPrice: 3960, margin: 360 },
-];
-
-const MOCK_TRANSACTIONS: Transaction[] = [
-  { id: 'TXN001', type: 'deposit', symbol: 'INR', amount: 50000, status: 'completed', timestamp: Date.now() - 86400000, fee: 0, address: 'HDFC Bank ••••4321', bankRef: 'NEFT/HDFC/123456', walletType: 'inr' },
-  { id: 'TXN002', type: 'withdraw', symbol: 'BTC', amount: 0.01, status: 'completed', timestamp: Date.now() - 172800000, fee: 0.0001, txHash: '0xabc...def', network: 'Bitcoin', address: '1A2B3C...', walletType: 'spot' },
-  { id: 'TXN003', type: 'deposit', symbol: 'USDT', amount: 5000, status: 'pending', timestamp: Date.now() - 3600000, fee: 1, network: 'TRC20', walletType: 'spot' },
-  { id: 'TXN004', type: 'withdraw', symbol: 'INR', amount: 25000, status: 'completed', timestamp: Date.now() - 259200000, fee: 0, address: 'HDFC Bank ••••4321', bankRef: 'IMPS/HDFC/234567', walletType: 'inr' },
-  { id: 'TXN005', type: 'earn', symbol: 'USDT', amount: 12.5, status: 'completed', timestamp: Date.now() - 86400000, fee: 0, walletType: 'earn' },
-];
-
-const MOCK_LOGIN_LOGS: LoginLog[] = [
-  { id: 'L1', device: 'iPhone 14 Pro', location: 'Mumbai, India', ip: '103.xxx.xx.1', timestamp: Date.now() - 3600000, status: 'success' },
-  { id: 'L2', device: 'Chrome / Windows', location: 'Delhi, India', ip: '103.xxx.xx.2', timestamp: Date.now() - 86400000, status: 'success' },
-  { id: 'L3', device: 'Unknown Device', location: 'Unknown', ip: '185.xxx.xx.3', timestamp: Date.now() - 172800000, status: 'failed' },
-];
-
-const MOCK_SESSIONS: ActiveSession[] = [
-  { id: 'S1', device: 'iPhone 14 Pro (Current)', location: 'Mumbai, India', lastActive: Date.now(), isCurrent: true },
-  { id: 'S2', device: 'Chrome / Windows', location: 'Delhi, India', lastActive: Date.now() - 7200000, isCurrent: false },
-];
-
-const EARN_PRODUCTS: EarnProduct[] = [
-  // Simple - flexible
-  { id: 'E1', symbol: 'USDT', type: 'simple', apy: 5.5, minAmount: 10, totalLocked: 1250000, available: true },
-  { id: 'E2', symbol: 'BTC', type: 'simple', apy: 2.8, minAmount: 0.0001, totalLocked: 18.5, available: true },
-  { id: 'E3', symbol: 'ETH', type: 'simple', apy: 3.5, minAmount: 0.01, totalLocked: 220, available: true },
-  { id: 'E4', symbol: 'BNB', type: 'simple', apy: 4.2, minAmount: 0.05, totalLocked: 850, available: true },
-  // Advanced - locked
-  { id: 'E5', symbol: 'USDT', type: 'advanced', apy: 8.5, minAmount: 100, duration: 30, totalLocked: 5800000, available: true },
-  { id: 'E6', symbol: 'USDT', type: 'advanced', apy: 12.5, minAmount: 500, duration: 90, totalLocked: 8200000, available: true },
-  { id: 'E7', symbol: 'USDT', type: 'advanced', apy: 18.5, minAmount: 1000, duration: 180, totalLocked: 12000000, available: true },
-  { id: 'E8', symbol: 'BTC', type: 'advanced', apy: 6.5, minAmount: 0.01, duration: 60, totalLocked: 45, available: true },
-  { id: 'E9', symbol: 'ETH', type: 'advanced', apy: 7.8, minAmount: 0.1, duration: 90, totalLocked: 580, available: true },
-];
-
-const FEE_TIERS: FeeTier[] = [
-  { level: 0, name: 'Regular', minVolume: 0, spotMaker: 0.20, spotTaker: 0.25, futuresMaker: 0.05, futuresTaker: 0.07, withdrawDiscount: 0 },
-  { level: 1, name: 'VIP 1', minVolume: 100000, spotMaker: 0.16, spotTaker: 0.20, futuresMaker: 0.04, futuresTaker: 0.06, withdrawDiscount: 5 },
-  { level: 2, name: 'VIP 2', minVolume: 500000, spotMaker: 0.12, spotTaker: 0.15, futuresMaker: 0.03, futuresTaker: 0.05, withdrawDiscount: 10 },
-  { level: 3, name: 'VIP 3', minVolume: 2500000, spotMaker: 0.08, spotTaker: 0.10, futuresMaker: 0.02, futuresTaker: 0.04, withdrawDiscount: 15 },
-  { level: 4, name: 'VIP 4', minVolume: 10000000, spotMaker: 0.06, spotTaker: 0.08, futuresMaker: 0.015, futuresTaker: 0.03, withdrawDiscount: 20 },
-  { level: 5, name: 'VIP 5', minVolume: 50000000, spotMaker: 0.04, spotTaker: 0.06, futuresMaker: 0.01, futuresTaker: 0.025, withdrawDiscount: 25 },
-];
+const DEFAULT_FEE_TIER: FeeTier = {
+  level: 0, name: 'Regular', minVolume: 0,
+  spotMaker: 0.20, spotTaker: 0.25,
+  futuresMaker: 0.05, futuresTaker: 0.07,
+  withdrawDiscount: 0,
+};
 
 const KYC_LEVELS: KycLevelInfo[] = [
   {
@@ -331,20 +257,20 @@ const KYC_LEVELS: KycLevelInfo[] = [
 ];
 
 const defaultUser: User = {
-  uid: 'CXABCD1234',
-  name: 'Rahul Sharma',
-  email: 'rahul@example.com',
-  phone: '+91 98765 43210',
-  kycLevel: 2,
-  kycStatus: 'verified',
-  subscriptionLevel: 1,
-  monthlyVolume: 350000,
-  referralCode: 'RAHUL100',
-  referralEarnings: 2500,
-  totalTdsPaid: 3580,
-  totalTdsUnpaid: 1200,
-  totalFeesPaid: 8540,
-  totalEarned: 4250,
+  uid: '',
+  name: '',
+  email: '',
+  phone: '',
+  kycLevel: 0,
+  kycStatus: 'pending',
+  subscriptionLevel: 0,
+  monthlyVolume: 0,
+  referralCode: '',
+  referralEarnings: 0,
+  totalTdsPaid: 0,
+  totalTdsUnpaid: 0,
+  totalFeesPaid: 0,
+  totalEarned: 0,
   isLoggedIn: false,
 };
 
@@ -359,6 +285,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [apiWallets, setApiWallets] = useState<ApiWallet[]>([]);
   const [apiBanks, setApiBanks] = useState<ApiBank[]>([]);
   const [apiCoins, setApiCoins] = useState<ApiCoin[]>([]);
+  const [apiPairs, setApiPairs] = useState<any[]>([]);
   const [inrUsdtRate, setInrUsdtRate] = useState<number>(84);
 
   const refreshWallets = async () => {
@@ -369,6 +296,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
   const refreshCoins = async () => {
     try { setApiCoins(await api.get<ApiCoin[]>('/coins')); } catch {}
+  };
+  const refreshPairs = async () => {
+    try { setApiPairs(await api.get<any[]>('/pairs')); } catch {}
   };
   const fetchNetworks = async (coinId: number) => {
     try { return await api.get<ApiNetwork[]>(`/networks?coinId=${coinId}`); } catch { return []; }
@@ -428,45 +358,217 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loginWithApi = async (email: string, password: string) => {
     const res = await api.post<{ user: ApiUser }>('/auth/login', { email, password });
     setUserState(apiUserToUser(res.user));
-    await Promise.all([refreshWallets(), refreshBanks(), refreshCoins()]);
+    await Promise.all([refreshWallets(), refreshBanks(), refreshCoins(), refreshPairs(), refreshOrders(), refreshPositions(), refreshTransactions(), refreshFees(), refreshEarnPositions()]);
   };
   const signupWithApi = async (data: { name: string; email: string; phone: string; password: string; referralCode?: string }) => {
     const res = await api.post<{ user: ApiUser }>('/auth/register', data);
     setUserState(apiUserToUser(res.user));
-    await Promise.all([refreshWallets(), refreshBanks(), refreshCoins()]);
+    await Promise.all([refreshWallets(), refreshBanks(), refreshCoins(), refreshPairs(), refreshOrders(), refreshPositions(), refreshTransactions(), refreshFees(), refreshEarnPositions()]);
   };
   const logout = async () => {
     try { await api.post('/auth/logout'); } catch {}
     await api.clearToken();
     setUserState({ ...defaultUser, isLoggedIn: false });
     setApiWallets([]); setApiBanks([]);
+    setOrders([]); setPositions([]); setTransactions([]); setEarnPositions([]);
+    setCurrentFeeTier(DEFAULT_FEE_TIER); setFeeTiers([DEFAULT_FEE_TIER]);
   };
-  const [coins, setCoins] = useState<Coin[]>(MOCK_COINS);
-  const [walletBalances, setWalletBalances] = useState<WalletBalance[]>(MOCK_WALLET);
-  const [orders, setOrders] = useState<Order[]>(MOCK_ORDERS);
-  const [positions] = useState<Position[]>(MOCK_POSITIONS);
-  const [transactions, setTransactions] = useState<Transaction[]>(MOCK_TRANSACTIONS);
-  const [banks, setBanks] = useState<Bank[]>([
-    { id: 'B1', accountHolder: 'Rahul Sharma', accountNumber: '1234567890', ifsc: 'HDFC0001234', bankName: 'HDFC Bank', status: 'verified', addedAt: Date.now() - 604800000 },
-  ]);
-  const [loginLogs] = useState<LoginLog[]>(MOCK_LOGIN_LOGS);
-  const [activeSessions] = useState<ActiveSession[]>(MOCK_SESSIONS);
+  const [coins, setCoins] = useState<Coin[]>([]);
+  const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [loginLogs] = useState<LoginLog[]>([]);
+  const [activeSessions] = useState<ActiveSession[]>([]);
   const [botEnabled, setBotEnabled] = useState(true);
-  const [earnPositions, setEarnPositions] = useState<EarnPosition[]>([
-    { id: 'EP1', productId: 'E1', symbol: 'USDT', type: 'simple', amount: 1000, apy: 5.5, startDate: Date.now() - 1209600000, earned: 4.52, status: 'active', autoMaturity: false },
-    { id: 'EP2', productId: 'E5', symbol: 'USDT', type: 'advanced', amount: 500, apy: 8.5, startDate: Date.now() - 864000000, endDate: Date.now() + 1728000000, earned: 11.6, status: 'active', autoMaturity: true },
-  ]);
+  const [earnPositions, setEarnPositions] = useState<EarnPosition[]>([]);
+  const [feeTiers, setFeeTiers] = useState<FeeTier[]>([DEFAULT_FEE_TIER]);
+  const [currentFeeTier, setCurrentFeeTier] = useState<FeeTier>(DEFAULT_FEE_TIER);
 
   const effectiveTheme: 'dark' | 'light' = theme === 'system' ? (systemScheme ?? 'dark') : theme;
-  const currentFeeTier = [...FEE_TIERS].reverse().find(t => user.monthlyVolume >= t.minVolume) || FEE_TIERS[0];
+
+  // Derive legacy `coins[]` (used by markets/home/trade screens) from live apiCoins
+  useEffect(() => {
+    setCoins(apiCoins
+      .filter(c => c.symbol !== 'INR')
+      .map(c => {
+        const usdt = Number(c.currentPrice) || 0;
+        const ch = Number(c.change24h) || 0;
+        return {
+          symbol: c.symbol,
+          name: c.name,
+          price: usdt,
+          change24h: parseFloat(ch.toFixed(2)),
+          volume24h: 0,
+          high24h: usdt,
+          low24h: usdt,
+          marketCap: 0,
+        };
+      }));
+  }, [apiCoins]);
+
+  // Derive walletBalances from live apiWallets
+  useEffect(() => {
+    setWalletBalances(apiWallets.map(w => {
+      const available = Number(w.balance) || 0;
+      const locked = Number(w.locked) || 0;
+      const usdt = Number(w.coinPrice) || 0;
+      const rate = w.coinSymbol === 'INR' ? 1 : w.coinSymbol === 'USDT' ? inrUsdtRate : (usdt * inrUsdtRate);
+      return {
+        symbol: w.coinSymbol,
+        walletType: w.walletType as WalletType,
+        available, locked,
+        inrValue: (available + locked) * rate,
+      };
+    }));
+  }, [apiWallets, inrUsdtRate]);
+
+  // ---- Live data refreshers (use apiPairs ref via closure of latest state) ----
+  const refreshOrders = async () => {
+    try {
+      const rows = await api.get<any[]>('/orders');
+      const list = await api.get<any[]>('/pairs').catch(() => apiPairs);
+      const mapped: Order[] = rows.map(r => {
+        const p = list.find((x: any) => x.id === r.pairId);
+        const sym = p?.symbol || `PAIR${r.pairId}`;
+        const qty = Number(r.qty) || 0;
+        const price = Number(r.price) || Number(r.avgPrice) || 0;
+        const filled = Number(r.filledQty) || 0;
+        return {
+          id: r.uid || String(r.id),
+          symbol: sym,
+          type: (r.type as any) || 'limit',
+          side: (r.side as any) || 'buy',
+          price, quantity: qty, filled,
+          status: (r.status as any) || 'open',
+          timestamp: new Date(r.createdAt).getTime(),
+          fee: Number(r.fee) || 0,
+          tds: Number(r.tds) || 0,
+          total: price * qty,
+          invoiceId: r.uid || String(r.id),
+        };
+      });
+      setOrders(mapped);
+    } catch {}
+  };
+
+  const refreshPositions = async () => {
+    try {
+      const rows = await api.get<any[]>('/positions');
+      const list = apiPairs.length ? apiPairs : await api.get<any[]>('/pairs').catch(() => []);
+      const mapped: Position[] = rows.map(r => {
+        const p = list.find((x: any) => x.id === r.pairId);
+        const entry = Number(r.entryPrice) || 0;
+        const mark = Number(r.markPrice) || entry;
+        const qty = Number(r.qty) || 0;
+        const margin = Number(r.marginAmount) || 0;
+        const pnl = Number(r.unrealizedPnl) || 0;
+        return {
+          symbol: p?.symbol || `PAIR${r.pairId}`,
+          side: (r.side as any) || 'long',
+          size: qty,
+          entryPrice: entry, markPrice: mark,
+          pnl, pnlPercent: margin > 0 ? (pnl / margin) * 100 : 0,
+          leverage: r.leverage || 1,
+          liquidationPrice: Number(r.liquidationPrice) || 0,
+          margin,
+        };
+      });
+      setPositions(mapped);
+    } catch {}
+  };
+
+  const refreshTransactions = async () => {
+    try {
+      const rows = await api.get<any[]>('/trades');
+      const list = apiPairs.length ? apiPairs : await api.get<any[]>('/pairs').catch(() => []);
+      const mapped: Transaction[] = rows.map(r => {
+        const p = list.find((x: any) => x.id === r.pairId);
+        const sym = p?.symbol || `PAIR${r.pairId}`;
+        const qty = Number(r.qty) || 0;
+        const price = Number(r.price) || 0;
+        return {
+          id: r.uid || String(r.id),
+          type: 'trade',
+          symbol: sym,
+          amount: qty * price,
+          status: 'completed',
+          timestamp: new Date(r.createdAt).getTime(),
+          fee: Number(r.fee) || 0,
+          walletType: 'spot',
+        };
+      });
+      setTransactions(mapped);
+    } catch {}
+  };
+
+  const refreshFees = async () => {
+    try {
+      const data = await api.get<any>('/fees/my');
+      const tiers = (data.tiers || []) as any[];
+      if (tiers.length) {
+        setFeeTiers(tiers.map((t, i) => ({
+          level: t.level ?? i,
+          name: t.name || (t.level === 0 ? 'Regular' : `VIP ${t.level}`),
+          minVolume: Number(t.minVolume ?? t.volumeUsdt ?? 0),
+          spotMaker: Number(t.spotMaker ?? t.makerFee ?? 0),
+          spotTaker: Number(t.spotTaker ?? t.takerFee ?? 0),
+          futuresMaker: Number(t.futuresMaker ?? 0),
+          futuresTaker: Number(t.futuresTaker ?? 0),
+          withdrawDiscount: Number(t.withdrawDiscount ?? 0),
+        })));
+      }
+      const cur = data.currentTier;
+      if (cur) {
+        setCurrentFeeTier({
+          level: cur.level ?? 0,
+          name: cur.name || (cur.level === 0 ? 'Regular' : `VIP ${cur.level}`),
+          minVolume: Number(cur.minVolume ?? 0),
+          spotMaker: Number(cur.spotMaker ?? 0),
+          spotTaker: Number(cur.spotTaker ?? 0),
+          futuresMaker: Number(cur.futuresMaker ?? 0),
+          futuresTaker: Number(cur.futuresTaker ?? 0),
+          withdrawDiscount: Number(cur.withdrawDiscount ?? 0),
+        });
+      }
+    } catch {}
+  };
+
+  const refreshEarnPositions = async () => {
+    try {
+      const rows = await api.get<any[]>('/earn/positions');
+      const mapped: EarnPosition[] = rows.map(r => ({
+        id: r.uid || String(r.id),
+        productId: String(r.productId || ''),
+        symbol: r.coinSymbol || r.symbol || '',
+        type: (r.type as any) || 'simple',
+        amount: Number(r.amount) || 0,
+        apy: Number(r.apy) || 0,
+        startDate: new Date(r.startedAt || r.createdAt).getTime(),
+        endDate: r.endsAt ? new Date(r.endsAt).getTime() : undefined,
+        earned: Number(r.accruedReward || r.earned || 0),
+        status: (r.status as any) || 'active',
+        autoMaturity: !!r.autoRenew,
+      }));
+      setEarnPositions(mapped);
+    } catch {}
+  };
 
   useEffect(() => {
     loadSettings();
     (async () => {
+      // Always fetch public market data (works for guests too)
+      void refreshCoins();
+      void refreshPairs();
       try {
         const me = await api.get<{ user: ApiUser }>('/auth/me');
         setUserState(apiUserToUser(me.user));
-        await Promise.all([refreshWallets(), refreshBanks(), refreshCoins()]);
+        await Promise.all([
+          refreshWallets(), refreshBanks(),
+          refreshOrders(), refreshPositions(), refreshTransactions(),
+          refreshFees(), refreshEarnPositions(),
+        ]);
       } catch {
         // Server says not logged in — clear any stale token + reset to defaults
         await api.clearToken();
@@ -489,12 +591,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return Array.from(map.values());
       });
-      // Sync mock `coins[]` with live data so existing screens (markets/trade) get live prices
-      setCoins(prev => prev.map(c => {
-        const t = ticks.find((x: any) => x.symbol === c.symbol);
-        if (!t) return c;
-        return { ...c, price: t.usdt, change24h: parseFloat(Number(t.change24h).toFixed(2)), volume24h: t.volume24h ?? c.volume24h };
-      }));
     };
     const restFallback = async () => {
       try {
@@ -556,8 +652,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateBalance = (symbol: string, walletType: WalletType, delta: number) => {
     setWalletBalances(prev => {
       const existing = prev.find(b => b.symbol === symbol && b.walletType === walletType);
-      const coin = MOCK_COINS.find(c => c.symbol === symbol);
-      const rate = symbol === 'INR' ? 1 : symbol === 'USDT' ? 92.4 : (coin?.price || 0);
+      const coin = apiCoins.find(c => c.symbol === symbol);
+      const usdt = coin ? Number(coin.currentPrice) : 0;
+      const rate = symbol === 'INR' ? 1 : symbol === 'USDT' ? inrUsdtRate : (usdt * inrUsdtRate);
       if (existing) {
         return prev.map(b => b.symbol === symbol && b.walletType === walletType
           ? { ...b, available: Math.max(0, b.available + delta), inrValue: Math.max(0, b.available + delta) * rate }
@@ -582,8 +679,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addEarnPosition = (p: EarnPosition) => setEarnPositions(prev => [p, ...prev]);
 
   const totalPortfolioValue = walletBalances.reduce((s, b) => s + b.inrValue, 0);
-  const todayPnl = 8750;
-  const todayPnlPercent = 2.34;
+  const todayPnl = 0;
+  const todayPnlPercent = 0;
 
   return (
     <AppContext.Provider value={{
@@ -601,8 +698,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       banks, addBank, updateBankStatus,
       loginLogs, activeSessions,
       botEnabled, setBotEnabled,
-      earnProducts: EARN_PRODUCTS, earnPositions, addEarnPosition,
-      feeTiers: FEE_TIERS, currentFeeTier,
+      earnProducts: [], earnPositions, addEarnPosition,
+      feeTiers, currentFeeTier,
       kycLevels: KYC_LEVELS,
       totalPortfolioValue, todayPnl, todayPnlPercent,
     }}>
