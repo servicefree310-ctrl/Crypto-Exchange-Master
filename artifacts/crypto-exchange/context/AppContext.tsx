@@ -579,9 +579,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
     const interval: ReturnType<typeof setInterval> | null = null;
 
-    // Live prices: WebSocket primary, REST fallback
+    // Live prices: WebSocket primary, REST fallback (adaptive polling)
     let ws: WebSocket | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let wsHealthy = false;
     const applyTicks = (inrRate: number, ticks: any[]) => {
       if (typeof inrRate === 'number' && inrRate > 0) setInrUsdtRate(inrRate);
       setApiCoins(prev => {
@@ -599,12 +600,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyTicks(r.inrRate, r.ticks);
       } catch {}
     };
+    const startPolling = (intervalMs: number) => {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(restFallback, intervalMs);
+    };
     const connectWs = () => {
       try {
         const base = (Platform.OS === 'web')
           ? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws/prices`
           : `wss://${process.env.EXPO_PUBLIC_DOMAIN}/api/ws/prices`;
         ws = new WebSocket(base);
+        ws.onopen = () => { wsHealthy = true; startPolling(20000); };
         ws.onmessage = (ev) => {
           try {
             const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
@@ -613,12 +619,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           } catch {}
         };
-        ws.onclose = () => { setTimeout(connectWs, 5000); };
-        ws.onerror = () => { try { ws?.close(); } catch {} };
-      } catch { /* fallback to polling */ }
+        ws.onclose = () => { wsHealthy = false; startPolling(2000); setTimeout(connectWs, 4000); };
+        ws.onerror = () => { wsHealthy = false; startPolling(2000); try { ws?.close(); } catch {} };
+      } catch { startPolling(2000); }
     };
+    // Start with fast polling (2s) — switches to slow (20s) once WS is healthy
+    startPolling(2000);
     connectWs();
-    pollTimer = setInterval(restFallback, 15000);
     void restFallback();
 
     return () => { if (interval) clearInterval(interval); if (pollTimer) clearInterval(pollTimer); try { ws?.close(); } catch {} };
