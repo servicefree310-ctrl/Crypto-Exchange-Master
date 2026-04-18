@@ -358,6 +358,62 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      {/* Discover */}
+      <View style={[styles.section, { marginTop: 14 }]}>
+        <View style={styles.sectionHead}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Discover</Text>
+          <TouchableOpacity><Text style={[styles.seeAll, { color: colors.primary }]}>More →</Text></TouchableOpacity>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 10 }}>
+          {[
+            { tag: "NEW LISTING", title: "SOL/INR Now Live",   sub: "Trade Solana with INR · 0.1% fee", color: "#14F195", icon: "zap" },
+            { tag: "TRENDING",    title: "BTC Halving 2028",   sub: "What it means for prices",        color: "#F7931A", icon: "trending-up" },
+            { tag: "GUIDE",       title: "Futures 101",        sub: "Learn leverage trading safely",   color: "#5b8def", icon: "book-open" },
+            { tag: "EVENT",       title: "Trading Contest",    sub: "Win ₹10L · Apr 20-30",            color: "#a06af5", icon: "award" },
+            { tag: "AIRDROP",     title: "Claim XYZ Tokens",   sub: "Free 500 XYZ for verified users", color: "#ff8a3d", icon: "gift" },
+          ].map((d, i) => (
+            <TouchableOpacity key={i} style={[styles.discCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={[styles.discTagRow]}>
+                <View style={[styles.discTag, { backgroundColor: d.color + "22" }]}>
+                  <Text style={[styles.discTagTxt, { color: d.color }]}>{d.tag}</Text>
+                </View>
+                <Feather name={d.icon as any} size={14} color={d.color} />
+              </View>
+              <Text style={[styles.discTitle, { color: colors.foreground }]} numberOfLines={2}>{d.title}</Text>
+              <Text style={[styles.discSub, { color: colors.mutedForeground }]} numberOfLines={2}>{d.sub}</Text>
+              <View style={[styles.discFoot]}>
+                <Text style={[styles.discLink, { color: d.color }]}>Read more</Text>
+                <Feather name="arrow-right" size={11} color={d.color} />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* News strip */}
+      <View style={[styles.section]}>
+        <View style={styles.sectionHead}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Crypto News</Text>
+          <TouchableOpacity><Text style={[styles.seeAll, { color: colors.primary }]}>All →</Text></TouchableOpacity>
+        </View>
+        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {[
+            { t: "Bitcoin holds above $76K as ETF inflows continue", time: "2h ago", src: "Reuters" },
+            { t: "RBI clarifies VDA tax: 1% TDS unchanged for FY26", time: "5h ago", src: "ET Markets" },
+            { t: "Solana hits new ATH on rising DeFi volume",        time: "8h ago", src: "CoinDesk" },
+            { t: "Ethereum Pectra upgrade goes live on mainnet",     time: "1d ago", src: "Bloomberg" },
+          ].map((n, i, arr) => (
+            <TouchableOpacity key={i} style={[styles.newsRow, { borderBottomColor: colors.border, borderBottomWidth: i === arr.length - 1 ? 0 : StyleSheet.hairlineWidth }]}>
+              <View style={[styles.newsBullet, { backgroundColor: colors.primary }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.newsTitle, { color: colors.foreground }]} numberOfLines={2}>{n.t}</Text>
+                <Text style={[styles.newsMeta, { color: colors.mutedForeground }]}>{n.src} · {n.time}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
       {/* Earn promo */}
       <TouchableOpacity onPress={() => goAction("/services/earn", true)}
         style={[styles.earnCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -474,6 +530,20 @@ const styles = StyleSheet.create({
   changeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 3 },
   changeBadgeTxt: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   empty: { textAlign: "center", padding: 18, fontSize: 12 },
+
+  discCard: { width: 200, padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
+  discTagRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  discTag: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
+  discTagTxt: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  discTitle: { fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 4 },
+  discSub: { fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 15 },
+  discFoot: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 10 },
+  discLink: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+
+  newsRow: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  newsBullet: { width: 4, height: 4, borderRadius: 2, marginTop: 7 },
+  newsTitle: { fontSize: 12.5, fontFamily: "Inter_500Medium", lineHeight: 17 },
+  newsMeta: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 3 },
 
   earnCard: { marginHorizontal: 14, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 12 },
   earnIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
