@@ -834,28 +834,68 @@ router.patch("/admin/crypto-withdrawals/:id", adminOnly, async (req, res): Promi
 });
 
 // Earn products
+function pickEarnFields(b: Record<string, unknown>, isCreate: boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const setStr = (k: string, v: unknown) => { if (v !== undefined && v !== null) out[k] = String(v); };
+  const setNum = (k: string, v: unknown) => { if (v !== undefined && v !== null && v !== "") out[k] = Number(v); };
+  const setBool = (k: string, v: unknown) => { if (v !== undefined) out[k] = Boolean(v); };
+  const setDate = (k: string, v: unknown) => {
+    if (v === null || v === "") { out[k] = null; return; }
+    if (v !== undefined) { const d = new Date(String(v)); if (!Number.isNaN(d.getTime())) out[k] = d; }
+  };
+  if (isCreate) setNum("coinId", b.coinId);
+  if (b.type !== undefined) {
+    const t = String(b.type);
+    if (!["simple", "advanced"].includes(t)) throw new Error("Invalid type");
+    out.type = t;
+  }
+  if (b.payoutInterval !== undefined && !["daily", "weekly", "monthly", "atMaturity"].includes(String(b.payoutInterval))) {
+    throw new Error("Invalid payoutInterval");
+  }
+  if (b.status !== undefined && !["active", "paused", "ended"].includes(String(b.status))) {
+    throw new Error("Invalid status");
+  }
+  setStr("name", b.name);
+  setStr("description", b.description);
+  setNum("durationDays", b.durationDays);
+  setStr("apy", b.apy);
+  setStr("minAmount", b.minAmount);
+  setStr("maxAmount", b.maxAmount);
+  setStr("totalCap", b.totalCap);
+  setStr("payoutInterval", b.payoutInterval);
+  setBool("compounding", b.compounding);
+  setBool("earlyRedemption", b.earlyRedemption);
+  setStr("earlyRedemptionPenaltyPct", b.earlyRedemptionPenaltyPct);
+  setNum("minVipTier", b.minVipTier);
+  setBool("featured", b.featured);
+  setNum("displayOrder", b.displayOrder);
+  setDate("saleStartAt", b.saleStartAt);
+  setDate("saleEndAt", b.saleEndAt);
+  if (b.status !== undefined) out.status = String(b.status);
+  return out;
+}
 router.get("/admin/earn-products", supportPlus, async (_req, res): Promise<void> => {
-  res.json(await db.select().from(earnProductsTable).orderBy(desc(earnProductsTable.createdAt)));
+  res.json(await db.select().from(earnProductsTable).orderBy(desc(earnProductsTable.displayOrder), desc(earnProductsTable.createdAt)));
 });
 router.post("/admin/earn-products", adminOnly, async (req, res): Promise<void> => {
   const b = req.body ?? {};
   if (!b.coinId || !b.type || b.apy === undefined) {
     res.status(400).json({ error: "coinId, type, apy required" }); return;
   }
-  const [p] = await db.insert(earnProductsTable).values({
-    coinId: Number(b.coinId),
-    type: b.type,
-    durationDays: Number(b.durationDays ?? 0),
-    apy: String(b.apy),
-    minAmount: String(b.minAmount ?? "0"),
-    maxAmount: String(b.maxAmount ?? "0"),
-    status: b.status ?? "active",
-  }).returning();
+  let fields: Record<string, unknown>;
+  try { fields = pickEarnFields(b, true); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+  const [p] = await db.insert(earnProductsTable).values(fields as typeof earnProductsTable.$inferInsert).returning();
   res.status(201).json(p);
 });
 router.patch("/admin/earn-products/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const [p] = await db.update(earnProductsTable).set(req.body).where(eq(earnProductsTable.id, id)).returning();
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  let fields: Record<string, unknown>;
+  try { fields = pickEarnFields(req.body ?? {}, false); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+  if (Object.keys(fields).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
+  const [p] = await db.update(earnProductsTable).set(fields).where(eq(earnProductsTable.id, id)).returning();
   if (!p) { res.status(404).json({ error: "Not found" }); return; }
   res.json(p);
 });
@@ -865,7 +905,20 @@ router.delete("/admin/earn-products/:id", adminOnly, async (req, res): Promise<v
   res.sendStatus(204);
 });
 router.get("/admin/earn-positions", supportPlus, async (_req, res): Promise<void> => {
-  res.json(await db.select().from(earnPositionsTable).orderBy(desc(earnPositionsTable.startedAt)).limit(500));
+  const rows = await db.select().from(earnPositionsTable).orderBy(desc(earnPositionsTable.startedAt)).limit(500);
+  res.json(rows);
+});
+router.get("/admin/earn-stats", supportPlus, async (_req, res): Promise<void> => {
+  const products = await db.select().from(earnProductsTable);
+  const positions = await db.select().from(earnPositionsTable);
+  const totalProducts = products.length;
+  const activeProducts = products.filter((p) => p.status === "active").length;
+  const totalCap = products.reduce((s, p) => s + Number(p.totalCap || 0), 0);
+  const totalSubscribed = products.reduce((s, p) => s + Number(p.currentSubscribed || 0), 0);
+  const activePositions = positions.filter((p) => p.status === "active").length;
+  const totalPositionAmount = positions.filter((p) => p.status === "active").reduce((s, p) => s + Number(p.amount || 0), 0);
+  const totalEarned = positions.reduce((s, p) => s + Number(p.totalEarned || 0), 0);
+  res.json({ totalProducts, activeProducts, totalCap, totalSubscribed, activePositions, totalPositionAmount, totalEarned });
 });
 
 // Legal CMS
