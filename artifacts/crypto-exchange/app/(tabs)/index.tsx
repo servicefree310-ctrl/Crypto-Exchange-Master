@@ -206,6 +206,19 @@ export default function HomeScreen() {
     return (apiWallets || []).reduce((s: number, w: any) => s + Number(w.inrValue || 0), 0);
   }, [apiWallets, user]);
 
+  const portfolioBreakdown = useMemo(() => {
+    const acc = { spot: 0, futures: 0, earn: 0 };
+    if (!user?.isLoggedIn) return acc;
+    for (const w of (apiWallets || []) as any[]) {
+      const t = String(w.walletType || "spot").toLowerCase();
+      const v = Number(w.inrValue || 0);
+      if (t === "futures") acc.futures += v;
+      else if (t === "earn") acc.earn += v;
+      else acc.spot += v;
+    }
+    return acc;
+  }, [apiWallets, user]);
+
   const dayPnl = useMemo(() => {
     if (!user?.isLoggedIn || !marketsData.length || !apiWallets?.length) return { abs: 0, pct: 0 };
     let prev = 0, cur = 0;
@@ -404,6 +417,39 @@ export default function HomeScreen() {
               <Feather name="chevron-right" size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
           )}
+
+          {/* Wallet breakdown: Spot / Futures / Earn */}
+          <View style={[styles.breakdownRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+            <TouchableOpacity style={styles.breakdownItem} onPress={() => router.push("/(tabs)/wallet" as any)}>
+              <View style={styles.breakdownHead}>
+                <View style={[styles.breakdownDot, { backgroundColor: colors.primary }]} />
+                <Text style={[styles.breakdownLabel, { color: colors.mutedForeground }]}>Spot</Text>
+              </View>
+              <Text style={[styles.breakdownVal, { color: colors.foreground }]} numberOfLines={1}>
+                {hideBalance ? "₹••••" : `₹${portfolioBreakdown.spot.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+              </Text>
+            </TouchableOpacity>
+            <View style={[styles.breakdownSep, { backgroundColor: colors.border }]} />
+            <TouchableOpacity style={styles.breakdownItem} onPress={() => router.push("/(tabs)/futures" as any)}>
+              <View style={styles.breakdownHead}>
+                <View style={[styles.breakdownDot, { backgroundColor: colors.destructive }]} />
+                <Text style={[styles.breakdownLabel, { color: colors.mutedForeground }]}>Futures</Text>
+              </View>
+              <Text style={[styles.breakdownVal, { color: colors.foreground }]} numberOfLines={1}>
+                {hideBalance ? "₹••••" : `₹${portfolioBreakdown.futures.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+              </Text>
+            </TouchableOpacity>
+            <View style={[styles.breakdownSep, { backgroundColor: colors.border }]} />
+            <TouchableOpacity style={styles.breakdownItem} onPress={() => router.push("/services/earn" as any)}>
+              <View style={styles.breakdownHead}>
+                <View style={[styles.breakdownDot, { backgroundColor: colors.success }]} />
+                <Text style={[styles.breakdownLabel, { color: colors.mutedForeground }]}>Earn</Text>
+              </View>
+              <Text style={[styles.breakdownVal, { color: colors.foreground }]} numberOfLines={1}>
+                {hideBalance ? "₹••••" : `₹${portfolioBreakdown.earn.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.assetActions}>
             <TouchableOpacity onPress={() => router.push("/services/deposit-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.primary }]}>
@@ -713,6 +759,14 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 11, fontFamily: "Inter_400Regular" },
   brand: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 2 },
   iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+
+  breakdownRow: { flexDirection: "row", alignItems: "stretch", borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, marginTop: 12, paddingVertical: 10, paddingHorizontal: 4 },
+  breakdownItem: { flex: 1, paddingHorizontal: 8, gap: 4 },
+  breakdownHead: { flexDirection: "row", alignItems: "center", gap: 5 },
+  breakdownDot: { width: 6, height: 6, borderRadius: 3 },
+  breakdownLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  breakdownVal: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  breakdownSep: { width: StyleSheet.hairlineWidth, marginVertical: 2 },
 
   ticker: { flexDirection: "row", alignItems: "center", marginHorizontal: 14, marginBottom: 10, paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   tickerLive: { flexDirection: "row", alignItems: "center", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, marginRight: 8, gap: 4 },
