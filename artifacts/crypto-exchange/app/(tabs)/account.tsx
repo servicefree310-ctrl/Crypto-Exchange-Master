@@ -13,7 +13,7 @@ type AccountTab = 'profile' | 'kyc' | 'security' | 'subscription' | 'refer' | 'b
 
 export default function AccountScreen() {
   const colors = useColors();
-  const { user, setUser, theme, setTheme, language, setLanguage, loginLogs, activeSessions, banks, addBank, botEnabled, setBotEnabled } = useApp();
+  const { user, setUser, logout, theme, setTheme, language, setLanguage, loginLogs, activeSessions, banks, addBank, botEnabled, setBotEnabled } = useApp();
   const router = useRouter();
   const [tab, setTab] = useState<AccountTab>('profile');
   const [addingBank, setAddingBank] = useState(false);
@@ -406,7 +406,7 @@ export default function AccountScreen() {
                 <Switch value={botEnabled} onValueChange={setBotEnabled} thumbColor={botEnabled ? colors.primary : colors.mutedForeground} trackColor={{ false: colors.border, true: colors.primary + '66' }} />
               </View>
 
-              <TouchableOpacity style={s.logoutBtn} onPress={() => { setUser({ isLoggedIn: false }); router.replace('/(auth)/login'); }}>
+              <TouchableOpacity style={s.logoutBtn} onPress={async () => { await logout(); router.replace('/(auth)/login'); }}>
                 <MaterialIcons name="logout" size={18} color={colors.danger} />
                 <Text style={s.logoutText}>Sign Out</Text>
               </TouchableOpacity>

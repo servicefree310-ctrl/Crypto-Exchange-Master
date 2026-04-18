@@ -12,23 +12,32 @@ import * as Haptics from 'expo-haptics';
 export default function LoginScreen() {
   const router = useRouter();
   const colors = useColors();
-  const { setUser } = useApp();
+  const { loginWithApi } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const showError = (msg: string) => {
+    setErrorMsg(msg);
+    if (Platform.OS !== 'web') Alert.alert('Login Failed', msg);
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill all fields');
-      return;
-    }
+    setErrorMsg('');
+    if (!email || !password) { showError('Please fill all fields'); return; }
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1200));
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await setUser({ isLoggedIn: true, email });
-    setLoading(false);
-    router.replace('/(tabs)');
+    try {
+      await loginWithApi(email.trim(), password);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/(tabs)');
+    } catch (e: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      showError(e?.message || 'Invalid credentials');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const s = styles(colors);
@@ -83,6 +92,12 @@ export default function LoginScreen() {
             <TouchableOpacity style={s.forgot}>
               <Text style={s.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>
+
+            {errorMsg ? (
+              <View style={{ backgroundColor: '#fee2e2', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                <Text style={{ color: '#b91c1c', fontSize: 13, fontFamily: 'Inter_500Medium' }}>{errorMsg}</Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity
               style={[s.btn, loading && { opacity: 0.7 }]}

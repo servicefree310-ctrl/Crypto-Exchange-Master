@@ -7,18 +7,13 @@ import { useApp } from '@/context/AppContext';
 export default function AuthIndex() {
   const router = useRouter();
   const colors = useColors();
-  const { user } = useApp();
+  const { user, authBootstrapped } = useApp();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (user.isLoggedIn) {
-        router.replace('/(tabs)');
-      } else {
-        router.replace('/(auth)/login');
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [user.isLoggedIn]);
+    if (!authBootstrapped) return;
+    if (user.isLoggedIn) router.replace('/(tabs)');
+    else router.replace('/(auth)/login');
+  }, [user.isLoggedIn, authBootstrapped]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColorScheme } from 'react-native';
+import { api, type ApiUser } from '@/lib/api';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'en' | 'hi';
@@ -169,6 +170,10 @@ interface AppContextType {
   setLanguage: (l: Language) => void;
   user: User;
   setUser: (u: Partial<User>) => void;
+  authBootstrapped: boolean;
+  loginWithApi: (email: string, password: string) => Promise<void>;
+  signupWithApi: (data: { name: string; email: string; phone: string; password: string; referralCode?: string }) => Promise<void>;
+  logout: () => Promise<void>;
   coins: Coin[];
   walletBalances: WalletBalance[];
   updateBalance: (symbol: string, walletType: WalletType, delta: number) => void;
@@ -332,6 +337,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('dark');
   const [language, setLanguageState] = useState<Language>('en');
   const [user, setUserState] = useState<User>(defaultUser);
+  const [authBootstrapped, setAuthBootstrapped] = useState(false);
+
+  const apiUserToUser = (u: ApiUser): User => ({
+    ...defaultUser,
+    uid: u.uid,
+    name: u.name || u.email.split('@')[0],
+    email: u.email,
+    phone: u.phone || '',
+    kycLevel: (u.kycLevel ?? 0) as 0 | 1 | 2 | 3,
+    kycStatus: (u.kycStatus as User['kycStatus']) || 'pending',
+    subscriptionLevel: (u.vipTier ?? 0) as 0 | 1 | 2 | 3,
+    referralCode: u.referralCode,
+    isLoggedIn: true,
+  });
+
+  const loginWithApi = async (email: string, password: string) => {
+    const res = await api.post<{ user: ApiUser }>('/auth/login', { email, password });
+    setUserState(apiUserToUser(res.user));
+  };
+  const signupWithApi = async (data: { name: string; email: string; phone: string; password: string; referralCode?: string }) => {
+    const res = await api.post<{ user: ApiUser }>('/auth/register', data);
+    setUserState(apiUserToUser(res.user));
+  };
+  const logout = async () => {
+    try { await api.post('/auth/logout'); } catch {}
+    await api.clearToken();
+    setUserState({ ...defaultUser, isLoggedIn: false });
+  };
   const [coins, setCoins] = useState<Coin[]>(MOCK_COINS);
   const [walletBalances, setWalletBalances] = useState<WalletBalance[]>(MOCK_WALLET);
   const [orders, setOrders] = useState<Order[]>(MOCK_ORDERS);
@@ -353,6 +386,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadSettings();
+    (async () => {
+      try {
+        const me = await api.get<{ user: ApiUser }>('/auth/me');
+        setUserState(apiUserToUser(me.user));
+      } catch {
+        // Server says not logged in — clear any stale token + reset to defaults
+        await api.clearToken();
+        setUserState({ ...defaultUser, isLoggedIn: false });
+      } finally { setAuthBootstrapped(true); }
+    })();
     const interval = setInterval(() => {
       setCoins(prev => prev.map(c => ({
         ...c,
@@ -367,10 +410,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const savedTheme = await AsyncStorage.getItem('theme');
       const savedLang = await AsyncStorage.getItem('language');
-      const savedUser = await AsyncStorage.getItem('user');
       if (savedTheme) setThemeState(savedTheme as Theme);
       if (savedLang) setLanguageState(savedLang as Language);
-      if (savedUser) setUserState(JSON.parse(savedUser));
+      // NOTE: user state is hydrated authoritatively from /auth/me, not local cache.
     } catch {}
   };
 
@@ -426,7 +468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider value={{
       theme, setTheme, effectiveTheme,
       language, setLanguage,
-      user, setUser,
+      user, setUser, authBootstrapped, loginWithApi, signupWithApi, logout,
       coins, walletBalances, updateBalance,
       orders, addOrder, cancelOrder, updateOrderFill,
       positions, transactions, addTransaction,

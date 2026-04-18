@@ -12,7 +12,7 @@ import * as Haptics from 'expo-haptics';
 export default function SignupScreen() {
   const router = useRouter();
   const colors = useColors();
-  const { setUser } = useApp();
+  const { signupWithApi } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -21,23 +21,28 @@ export default function SignupScreen() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const showError = (msg: string) => {
+    setErrorMsg(msg);
+    if (Platform.OS !== 'web') Alert.alert('Sign Up Failed', msg);
+  };
 
   const handleSignup = async () => {
-    if (!name || !email || !phone || !password) {
-      Alert.alert('Error', 'Please fill all required fields');
-      return;
-    }
-    if (!agreed) {
-      Alert.alert('Error', 'Please agree to Terms & Conditions');
-      return;
-    }
+    setErrorMsg('');
+    if (!name || !email || !phone || !password) { showError('Please fill all required fields'); return; }
+    if (!agreed) { showError('Please agree to Terms & Conditions'); return; }
+    if (password.length < 6) { showError('Password must be 6+ characters'); return; }
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1500));
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const uid = 'CX' + Math.random().toString(36).substr(2, 8).toUpperCase();
-    await setUser({ isLoggedIn: true, name, email, phone, uid, kycStatus: 'pending' });
-    setLoading(false);
-    router.replace('/(tabs)');
+    try {
+      await signupWithApi({ name: name.trim(), email: email.trim(), phone: phone.trim(), password, referralCode: referral.trim() || undefined });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/(tabs)');
+    } catch (e: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      showError(e?.message || 'Could not create account');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const s = styles(colors);
@@ -102,6 +107,12 @@ export default function SignupScreen() {
             </View>
             <Text style={s.checkText}>I agree to <Text style={{ color: colors.primary }}>Terms & Conditions</Text> and <Text style={{ color: colors.primary }}>Privacy Policy</Text></Text>
           </TouchableOpacity>
+
+          {errorMsg ? (
+            <View style={{ backgroundColor: '#fee2e2', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+              <Text style={{ color: '#b91c1c', fontSize: 13, fontFamily: 'Inter_500Medium' }}>{errorMsg}</Text>
+            </View>
+          ) : null}
 
           <TouchableOpacity style={[s.btn, (!agreed || loading) && { opacity: 0.7 }]} onPress={handleSignup} disabled={!agreed || loading}>
             <Text style={s.btnText}>{loading ? 'Creating Account...' : 'Create Account'}</Text>
