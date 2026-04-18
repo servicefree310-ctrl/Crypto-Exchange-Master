@@ -527,7 +527,12 @@ export default function FuturesScreen() {
           <View style={[styles.modalSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={[styles.handle, { backgroundColor: colors.border }]} />
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Select Contract</Text>
-            {PERP_PAIRS.map(p => (
+            {futPairs.length === 0 && (
+              <Text style={{ color: colors.mutedForeground, textAlign: "center", padding: 20 }}>
+                No futures contracts enabled. Please enable from admin.
+              </Text>
+            )}
+            {futPairs.map(p => (
               <TouchableOpacity key={p.label} onPress={() => { setSelectedPair(p); setCurrentPrice(p.base); setShowPairModal(false); Haptics.selectionAsync(); }}
                 style={[styles.pairOpt, { borderTopColor: colors.border, backgroundColor: selectedPair.label===p.label?colors.secondary:"transparent" }]}>
                 <View style={[styles.pairOptDot, { backgroundColor: p.color }]} />
