@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Platform, Switch, Alert, TextInput
+  Platform, Switch, Alert, TextInput
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
@@ -27,7 +27,9 @@ export default function AccountScreen() {
   const [bankName, setBankName] = useState('');
 
   const s = styles(colors);
-  const topPadding = Platform.OS === 'web' ? 80 : 0;
+  const insets = useSafeAreaInsets();
+  const topPadding = Platform.OS === 'web' ? 80 : insets.top + 8;
+  const bottomPadding = insets.bottom + (Platform.OS === 'web' ? 100 : 80);
 
   const subLevels = [
     { level: 0, name: 'Basic', fee: '0.5%', withdrawLimit: '₹1L/day', color: '#848E9C' },
@@ -81,8 +83,8 @@ export default function AccountScreen() {
   ];
 
   return (
-    <SafeAreaView style={s.container}>
-      <ScrollView contentContainerStyle={[s.scroll, { paddingTop: topPadding }]} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={s.container} edges={['top']}>
+      <ScrollView contentContainerStyle={[s.scroll, { paddingTop: topPadding, paddingBottom: bottomPadding }]} showsVerticalScrollIndicator={false}>
         <Text style={s.title}>Account</Text>
 
         {/* User Card */}

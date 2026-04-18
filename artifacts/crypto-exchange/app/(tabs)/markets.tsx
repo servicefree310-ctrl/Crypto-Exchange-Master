@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  SafeAreaView, Platform, TextInput
+  Platform, TextInput
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
@@ -52,7 +53,9 @@ export default function MarketsScreen() {
   }, [coins, search, filter, sort]);
 
   const s = styles(colors);
-  const topPadding = Platform.OS === 'web' ? 80 : 0;
+  const insets = useSafeAreaInsets();
+  const topPadding = (Platform.OS === 'web' ? 80 : insets.top + 8);
+  const bottomPadding = insets.bottom + (Platform.OS === 'web' ? 100 : 80);
 
   const filters: { key: Filter; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -63,7 +66,7 @@ export default function MarketsScreen() {
   ];
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={s.container} edges={['top']}>
       <View style={[s.top, { paddingTop: topPadding || 16 }]}>
         <Text style={s.title}>Markets</Text>
 
@@ -113,7 +116,7 @@ export default function MarketsScreen() {
       <FlatList
         data={filtered}
         keyExtractor={c => c.symbol}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: bottomPadding }}
         scrollEnabled={!!filtered.length}
         renderItem={({ item: coin }) => (
           <TouchableOpacity

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useApp, WalletType } from '@/context/AppContext';
@@ -45,10 +46,12 @@ export default function Wallet() {
   const recentTxns = transactions.slice(0, 5);
 
   const s = styles(colors);
-  const topPad = Platform.OS === 'web' ? 80 : 12;
+  const insets = useSafeAreaInsets();
+  const topPad = Platform.OS === 'web' ? 80 : insets.top + 8;
+  const bottomPad = insets.bottom + (Platform.OS === 'web' ? 100 : 80);
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={s.container} edges={['top']}>
       <View style={[s.header, { paddingTop: topPad }]}>
         <Text style={s.headerTitle}>Wallet</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>

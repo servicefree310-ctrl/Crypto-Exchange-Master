@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Platform
+  Platform
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
@@ -28,11 +28,13 @@ export default function TradeScreen() {
   const openOrders = orders.filter(o => o.status === 'open' || o.status === 'partial');
 
   const s = styles(colors);
-  const topPadding = Platform.OS === 'web' ? 80 : 0;
+  const insets = useSafeAreaInsets();
+  const topPadding = Platform.OS === 'web' ? 80 : insets.top + 8;
+  const bottomPadding = insets.bottom + (Platform.OS === 'web' ? 100 : 80);
 
   return (
-    <SafeAreaView style={s.container}>
-      <ScrollView contentContainerStyle={[s.scroll, { paddingTop: topPadding }]} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={s.container} edges={['top']}>
+      <ScrollView contentContainerStyle={[s.scroll, { paddingTop: topPadding, paddingBottom: bottomPadding }]} showsVerticalScrollIndicator={false}>
         <Text style={s.title}>Trade</Text>
 
         {/* Tab */}

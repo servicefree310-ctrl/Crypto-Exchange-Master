@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Platform, RefreshControl
+  Platform, RefreshControl
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
@@ -41,13 +41,15 @@ export default function HomeScreen() {
   };
 
   const s = styles(colors);
-  const topPadding = Platform.OS === 'web' ? 80 : 0;
+  const insets = useSafeAreaInsets();
+  const topPadding = Platform.OS === 'web' ? 80 : insets.top + 8;
+  const bottomPadding = insets.bottom + (Platform.OS === 'web' ? 100 : 80);
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={s.container} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[s.scroll, { paddingTop: topPadding }]}
+        contentContainerStyle={[s.scroll, { paddingTop: topPadding, paddingBottom: bottomPadding }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Header */}
