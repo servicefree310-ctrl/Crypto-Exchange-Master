@@ -14,7 +14,7 @@ import { marketApi } from "@/lib/api";
 interface Coin {
   id: string; symbol: string; name: string; price: number; change: number;
   vol24h: string; mcap: string; color: string; history: number[];
-  high24h: number; low24h: number; rank: number;
+  high24h: number; low24h: number; rank: number; quote?: string;
 }
 
 const BASE_COINS: Coin[] = [
@@ -99,8 +99,10 @@ function CoinRow({ item, fav, onFav }: { item: Coin; fav: boolean; onFav: () => 
     ]).start();
   }, [item.price]);
 
+  const isInr = (item.quote ?? "").toUpperCase() === "INR";
+  const currencySym = isInr ? "₹" : "$";
   const fmtPrice = (p: number) => p >= 1
-    ? p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ? p.toLocaleString(isInr ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : p.toFixed(4);
 
   const flashBg = bgAnim.interpolate({
@@ -133,7 +135,7 @@ function CoinRow({ item, fav, onFav }: { item: Coin; fav: boolean; onFav: () => 
         </View>
         <View style={styles.coinPriceBlock}>
           <Animated.Text style={[styles.coinPrice, { color: colors.foreground, transform: [{ scale: priceAnim }] }]}>
-            ${fmtPrice(item.price)}
+            {currencySym}{fmtPrice(item.price)}
           </Animated.Text>
           <View style={[styles.changeBadge, { backgroundColor: (isUp ? "#0ecb81" : "#f6465d") + "1a" }]}>
             <Text style={[styles.changeText, { color: isUp ? "#0ecb81" : "#f6465d" }]}>
@@ -175,7 +177,7 @@ export default function MarketsScreen() {
   const coins: Coin[] = marketsData.map((m: any) => ({
     id: (m.symbol ?? m.base ?? "").toLowerCase(),
     symbol: m.base ?? m.symbol,
-    name: m.base ?? m.symbol,
+    name: m.quote ? `${m.base}/${m.quote}` : (m.base ?? m.symbol),
     price: m.price ?? 0,
     change: m.change24h ?? 0,
     vol24h: m.volume24h ? `${(m.volume24h / 1e9).toFixed(1)}B` : "0",
@@ -185,6 +187,7 @@ export default function MarketsScreen() {
     high24h: m.high24h ?? 0,
     low24h: m.low24h ?? 0,
     rank: 0,
+    quote: m.quote,
   }));
 
   const toggleFav = useCallback((id: string) => {
