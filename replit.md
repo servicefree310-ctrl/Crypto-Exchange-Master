@@ -43,3 +43,12 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 ### Run
 - `pnpm --filter @workspace/scripts run seed` — re-run seed (idempotent)
 - Workflows: `artifacts/api-server: API Server` (port 8080), `artifacts/admin: web` (mounted /admin), `artifacts/crypto-exchange: expo`
+
+
+## Phase 4 Complete (Apr 18 2026)
+- API: GET/POST/DELETE /banks (single-verified-bank rule via DB partial unique index + tx-level check), GET /wallets (joined with coins), POST /inr-withdrawals & /crypto-withdrawals (atomic db.transaction: SELECT FOR UPDATE wallet → debit balance → increment locked → insert withdrawal row → return)
+- DB: CREATE UNIQUE INDEX bank_accounts_one_verified_per_user ON bank_accounts(user_id) WHERE status='verified'
+- Mobile: AppContext now exposes apiWallets/apiBanks/apiCoins + refresh + addBank/removeBank/withdrawInr/withdrawCrypto helpers; auto-loads after auth bootstrap and after login/signup; clears on logout
+- Mobile screens: wallet.tsx (live API balances), withdraw-inr.tsx (verified banks list, balance check, fee/receive preview, real submit), withdraw-crypto.tsx (live coin/network list, MIN/fee/TDS preview, real submit), account.tsx bank tab (real API list/add/delete with constraint errors surfaced)
+- E2E verified: balance debit + locked increment, partial unique index blocks 2nd verified bank, min/insufficient/ownership validations all return correct errors
+

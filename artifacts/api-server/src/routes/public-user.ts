@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   db,
   walletsTable,
@@ -49,39 +49,48 @@ router.post("/banks", requireAuth, async (req, res): Promise<void> => {
   if (!bankName || !accountNumber || !ifsc || !holderName) {
     res.status(400).json({ error: "bankName, accountNumber, ifsc, holderName required" }); return;
   }
-  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(ifsc).toUpperCase())) {
+  const ifscNorm = String(ifsc).toUpperCase();
+  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscNorm)) {
     res.status(400).json({ error: "Invalid IFSC code" }); return;
   }
+  const acctNorm = String(accountNumber).replace(/\s+/g, "");
 
-  // Single verified bank rule: a user can have many under_review/rejected banks but only one verified
-  const verified = await db
-    .select()
-    .from(bankAccountsTable)
-    .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.status, "verified")))
-    .limit(1);
-  if (verified.length > 0) {
-    res.status(409).json({ error: "You already have a verified bank account. Remove it first to add another." });
-    return;
+  try {
+    const created = await db.transaction(async (tx) => {
+      // 1. Block if there's already a verified bank for this user
+      const verified = await tx
+        .select({ id: bankAccountsTable.id })
+        .from(bankAccountsTable)
+        .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.status, "verified")))
+        .limit(1);
+      if (verified.length > 0) {
+        const e: any = new Error("You already have a verified bank account. Remove it first to add another.");
+        e.code = 409; throw e;
+      }
+      // 2. Block duplicate account number for same user
+      const dup = await tx
+        .select({ id: bankAccountsTable.id })
+        .from(bankAccountsTable)
+        .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.accountNumber, acctNorm)))
+        .limit(1);
+      if (dup.length > 0) {
+        const e: any = new Error("This account is already added"); e.code = 409; throw e;
+      }
+      const [row] = await tx.insert(bankAccountsTable).values({
+        userId, bankName: String(bankName), accountNumber: acctNorm, ifsc: ifscNorm,
+        holderName: String(holderName), status: "under_review", isPrimary: true,
+      }).returning();
+      return row;
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    // unique partial index `bank_accounts_one_verified_per_user` will fire if race condition occurs
+    if (e?.code === 409) { res.status(409).json({ error: e.message }); return; }
+    if (typeof e?.message === "string" && e.message.includes("bank_accounts_one_verified_per_user")) {
+      res.status(409).json({ error: "You already have a verified bank account." }); return;
+    }
+    throw e;
   }
-
-  // Block duplicate account numbers for this user
-  const dup = await db
-    .select()
-    .from(bankAccountsTable)
-    .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.accountNumber, String(accountNumber))))
-    .limit(1);
-  if (dup.length > 0) { res.status(409).json({ error: "This account is already added" }); return; }
-
-  const [created] = await db.insert(bankAccountsTable).values({
-    userId,
-    bankName: String(bankName),
-    accountNumber: String(accountNumber),
-    ifsc: String(ifsc).toUpperCase(),
-    holderName: String(holderName),
-    status: "under_review",
-    isPrimary: true,
-  }).returning();
-  res.status(201).json(created);
 });
 
 router.delete("/banks/:id", requireAuth, async (req, res): Promise<void> => {
@@ -98,7 +107,7 @@ router.delete("/banks/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ ok: true });
 });
 
-// ─── Withdrawals ──────────────────────────────────────────────────────────────
+// ─── Withdrawals (transactional balance lock + debit) ─────────────────────────
 router.get("/inr-withdrawals", requireAuth, async (req, res): Promise<void> => {
   const rows = await db.select().from(inrWithdrawalsTable)
     .where(eq(inrWithdrawalsTable.userId, req.user!.id))
@@ -115,19 +124,48 @@ router.post("/inr-withdrawals", requireAuth, async (req, res): Promise<void> => 
   }
   if (amt < 100) { res.status(400).json({ error: "Minimum withdrawal is ₹100" }); return; }
 
-  const [bank] = await db.select().from(bankAccountsTable)
-    .where(and(eq(bankAccountsTable.id, Number(bankId)), eq(bankAccountsTable.userId, userId)))
-    .limit(1);
-  if (!bank) { res.status(404).json({ error: "Bank not found" }); return; }
-  if (bank.status !== "verified") { res.status(403).json({ error: "Bank must be verified to withdraw" }); return; }
+  const fee = Math.max(10, +(amt * 0.001).toFixed(2));
 
-  const fee = Math.max(10, amt * 0.001);
-  const refId = `WINR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-  const [created] = await db.insert(inrWithdrawalsTable).values({
-    userId, bankId: Number(bankId),
-    amount: String(amt), fee: String(fee), refId, status: "pending",
-  }).returning();
-  res.status(201).json(created);
+  try {
+    const created = await db.transaction(async (tx) => {
+      // Lock bank
+      const [bank] = await tx.select().from(bankAccountsTable)
+        .where(and(eq(bankAccountsTable.id, Number(bankId)), eq(bankAccountsTable.userId, userId)))
+        .limit(1);
+      if (!bank) { const e: any = new Error("Bank not found"); e.code = 404; throw e; }
+      if (bank.status !== "verified") { const e: any = new Error("Bank must be verified to withdraw"); e.code = 403; throw e; }
+
+      // Lock & debit INR wallet (any wallet of type INR for this user)
+      const [inrCoin] = await tx.select().from(coinsTable).where(eq(coinsTable.symbol, "INR")).limit(1);
+      if (!inrCoin) { const e: any = new Error("INR coin not configured"); e.code = 500; throw e; }
+      const [wallet] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, inrCoin.id), eq(walletsTable.walletType, "inr")))
+        .for("update")
+        .limit(1);
+      if (!wallet) { const e: any = new Error("INR wallet not found"); e.code = 404; throw e; }
+      const balance = Number(wallet.balance);
+      if (balance < amt) { const e: any = new Error(`Insufficient balance (₹${balance.toFixed(2)})`); e.code = 400; throw e; }
+
+      await tx.update(walletsTable)
+        .set({
+          balance: sql`${walletsTable.balance} - ${amt}`,
+          locked: sql`${walletsTable.locked} + ${amt}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(walletsTable.id, wallet.id));
+
+      const refId = `WINR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+      const [wd] = await tx.insert(inrWithdrawalsTable).values({
+        userId, bankId: Number(bankId),
+        amount: String(amt), fee: String(fee), refId, status: "pending",
+      }).returning();
+      return wd;
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 router.get("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> => {
@@ -144,21 +182,57 @@ router.post("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> 
   if (!coinId || !networkId || !Number.isFinite(amt) || amt <= 0 || !toAddress) {
     res.status(400).json({ error: "coinId, networkId, positive amount, toAddress required" }); return;
   }
-  const [network] = await db.select().from(networksTable).where(eq(networksTable.id, Number(networkId))).limit(1);
-  if (!network) { res.status(404).json({ error: "Network not found" }); return; }
-  if (network.coinId !== Number(coinId)) { res.status(400).json({ error: "Network does not belong to this coin" }); return; }
-  if (network.status !== "active") { res.status(400).json({ error: "Network is not active" }); return; }
-  const minWd = Number(network.minWithdraw);
-  if (amt < minWd) { res.status(400).json({ error: `Minimum withdrawal is ${minWd}` }); return; }
+  if (String(toAddress).trim().length < 20) {
+    res.status(400).json({ error: "Recipient address looks invalid" }); return;
+  }
 
-  const fee = Number(network.withdrawFee) || 0;
-  const refId = `WCRY-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-  const [created] = await db.insert(cryptoWithdrawalsTable).values({
-    userId, coinId: Number(coinId), networkId: Number(networkId),
-    amount: String(amt), fee: String(fee), toAddress: String(toAddress), memo: memo ? String(memo) : null,
-    status: "pending",
-  }).returning();
-  res.status(201).json(created);
+  try {
+    const created = await db.transaction(async (tx) => {
+      const [network] = await tx.select().from(networksTable).where(eq(networksTable.id, Number(networkId))).limit(1);
+      if (!network) { const e: any = new Error("Network not found"); e.code = 404; throw e; }
+      if (network.coinId !== Number(coinId)) { const e: any = new Error("Network does not belong to this coin"); e.code = 400; throw e; }
+      if (network.status !== "active") { const e: any = new Error("Network is not active"); e.code = 400; throw e; }
+      const minWd = Number(network.minWithdraw);
+      if (amt < minWd) { const e: any = new Error(`Minimum withdrawal is ${minWd}`); e.code = 400; throw e; }
+      if (network.memoRequired && (!memo || String(memo).trim().length === 0)) {
+        const e: any = new Error("This network requires a memo/destination tag"); e.code = 400; throw e;
+      }
+
+      const fee = Number(network.withdrawFee) || 0;
+      const tds = +(amt * 0.01).toFixed(8); // 1% TDS on crypto withdraw
+
+      const [wallet] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, Number(coinId)), eq(walletsTable.walletType, "spot")))
+        .for("update")
+        .limit(1);
+      if (!wallet) { const e: any = new Error("Spot wallet for this coin not found"); e.code = 404; throw e; }
+
+      const totalDebit = amt; // user requested gross; fee + tds taken from this on processing
+      const balance = Number(wallet.balance);
+      if (balance < totalDebit) { const e: any = new Error(`Insufficient balance (${balance})`); e.code = 400; throw e; }
+
+      await tx.update(walletsTable)
+        .set({
+          balance: sql`${walletsTable.balance} - ${totalDebit}`,
+          locked: sql`${walletsTable.locked} + ${totalDebit}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(walletsTable.id, wallet.id));
+
+      const refId = `WCRY-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+      const [wd] = await tx.insert(cryptoWithdrawalsTable).values({
+        userId, coinId: Number(coinId), networkId: Number(networkId),
+        amount: String(amt), fee: String(fee + tds),
+        toAddress: String(toAddress).trim(), memo: memo ? String(memo) : null,
+        status: "pending",
+      }).returning();
+      return wd;
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 export default router;

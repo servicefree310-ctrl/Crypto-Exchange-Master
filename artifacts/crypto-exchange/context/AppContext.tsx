@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColorScheme } from 'react-native';
-import { api, type ApiUser } from '@/lib/api';
+import { api, type ApiUser, type ApiWallet, type ApiBank, type ApiCoin, type ApiNetwork } from '@/lib/api';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'en' | 'hi';
@@ -174,6 +174,17 @@ interface AppContextType {
   loginWithApi: (email: string, password: string) => Promise<void>;
   signupWithApi: (data: { name: string; email: string; phone: string; password: string; referralCode?: string }) => Promise<void>;
   logout: () => Promise<void>;
+  apiWallets: ApiWallet[];
+  apiBanks: ApiBank[];
+  apiCoins: ApiCoin[];
+  refreshWallets: () => Promise<void>;
+  refreshBanks: () => Promise<void>;
+  refreshCoins: () => Promise<void>;
+  fetchNetworks: (coinId: number) => Promise<ApiNetwork[]>;
+  addBankApi: (data: { bankName: string; accountNumber: string; ifsc: string; holderName: string }) => Promise<ApiBank>;
+  removeBankApi: (id: number) => Promise<void>;
+  withdrawInrApi: (bankId: number, amount: number) => Promise<any>;
+  withdrawCryptoApi: (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string }) => Promise<any>;
   coins: Coin[];
   walletBalances: WalletBalance[];
   updateBalance: (symbol: string, walletType: WalletType, delta: number) => void;
@@ -338,6 +349,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>('en');
   const [user, setUserState] = useState<User>(defaultUser);
   const [authBootstrapped, setAuthBootstrapped] = useState(false);
+  const [apiWallets, setApiWallets] = useState<ApiWallet[]>([]);
+  const [apiBanks, setApiBanks] = useState<ApiBank[]>([]);
+  const [apiCoins, setApiCoins] = useState<ApiCoin[]>([]);
+
+  const refreshWallets = async () => {
+    try { setApiWallets(await api.get<ApiWallet[]>('/wallets')); } catch {}
+  };
+  const refreshBanks = async () => {
+    try { setApiBanks(await api.get<ApiBank[]>('/banks')); } catch {}
+  };
+  const refreshCoins = async () => {
+    try { setApiCoins(await api.get<ApiCoin[]>('/coins')); } catch {}
+  };
+  const fetchNetworks = async (coinId: number) => {
+    try { return await api.get<ApiNetwork[]>(`/networks?coinId=${coinId}`); } catch { return []; }
+  };
+  const addBankApi = async (data: { bankName: string; accountNumber: string; ifsc: string; holderName: string }) => {
+    const created = await api.post<ApiBank>('/banks', data);
+    await refreshBanks();
+    return created;
+  };
+  const removeBankApi = async (id: number) => {
+    await api.delete(`/banks/${id}`);
+    await refreshBanks();
+  };
+  const withdrawInrApi = async (bankId: number, amount: number) => {
+    const wd = await api.post('/inr-withdrawals', { bankId, amount });
+    await refreshWallets();
+    return wd;
+  };
+  const withdrawCryptoApi = async (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string }) => {
+    const wd = await api.post('/crypto-withdrawals', data);
+    await refreshWallets();
+    return wd;
+  };
 
   const apiUserToUser = (u: ApiUser): User => ({
     ...defaultUser,
@@ -355,15 +401,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loginWithApi = async (email: string, password: string) => {
     const res = await api.post<{ user: ApiUser }>('/auth/login', { email, password });
     setUserState(apiUserToUser(res.user));
+    await Promise.all([refreshWallets(), refreshBanks(), refreshCoins()]);
   };
   const signupWithApi = async (data: { name: string; email: string; phone: string; password: string; referralCode?: string }) => {
     const res = await api.post<{ user: ApiUser }>('/auth/register', data);
     setUserState(apiUserToUser(res.user));
+    await Promise.all([refreshWallets(), refreshBanks(), refreshCoins()]);
   };
   const logout = async () => {
     try { await api.post('/auth/logout'); } catch {}
     await api.clearToken();
     setUserState({ ...defaultUser, isLoggedIn: false });
+    setApiWallets([]); setApiBanks([]);
   };
   const [coins, setCoins] = useState<Coin[]>(MOCK_COINS);
   const [walletBalances, setWalletBalances] = useState<WalletBalance[]>(MOCK_WALLET);
@@ -390,10 +439,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const me = await api.get<{ user: ApiUser }>('/auth/me');
         setUserState(apiUserToUser(me.user));
+        await Promise.all([refreshWallets(), refreshBanks(), refreshCoins()]);
       } catch {
         // Server says not logged in — clear any stale token + reset to defaults
         await api.clearToken();
         setUserState({ ...defaultUser, isLoggedIn: false });
+        setApiWallets([]); setApiBanks([]);
       } finally { setAuthBootstrapped(true); }
     })();
     const interval = setInterval(() => {
@@ -469,6 +520,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       theme, setTheme, effectiveTheme,
       language, setLanguage,
       user, setUser, authBootstrapped, loginWithApi, signupWithApi, logout,
+      apiWallets, apiBanks, apiCoins,
+      refreshWallets, refreshBanks, refreshCoins, fetchNetworks,
+      addBankApi, removeBankApi, withdrawInrApi, withdrawCryptoApi,
       coins, walletBalances, updateBalance,
       orders, addOrder, cancelOrder, updateOrderFill,
       positions, transactions, addTransaction,

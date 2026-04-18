@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   SafeAreaView, Platform, Switch, Alert, TextInput
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
 import { MaterialIcons, Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -13,9 +13,12 @@ type AccountTab = 'profile' | 'kyc' | 'security' | 'subscription' | 'refer' | 'b
 
 export default function AccountScreen() {
   const colors = useColors();
-  const { user, setUser, logout, theme, setTheme, language, setLanguage, loginLogs, activeSessions, banks, addBank, botEnabled, setBotEnabled } = useApp();
+  const { user, setUser, logout, theme, setTheme, language, setLanguage, loginLogs, activeSessions, apiBanks, addBankApi, removeBankApi, refreshBanks, botEnabled, setBotEnabled } = useApp();
   const router = useRouter();
-  const [tab, setTab] = useState<AccountTab>('profile');
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const initialTab = (params.tab as AccountTab) || 'profile';
+  const [tab, setTab] = useState<AccountTab>(initialTab);
+  React.useEffect(() => { if (params.tab) setTab(params.tab as AccountTab); }, [params.tab]);
   const [addingBank, setAddingBank] = useState(false);
   const [bankHolder, setBankHolder] = useState('');
   const [bankAcct, setBankAcct] = useState('');
@@ -32,20 +35,35 @@ export default function AccountScreen() {
     { level: 3, name: 'Platinum', fee: '0.1%', withdrawLimit: 'Unlimited', color: '#7DF9FF' },
   ];
 
-  const handleAddBank = () => {
+  const [bankSubmitting, setBankSubmitting] = useState(false);
+
+  React.useEffect(() => { if (user.isLoggedIn && tab === 'bank') refreshBanks(); }, [user.isLoggedIn, tab]);
+
+  const handleAddBank = async () => {
     if (!bankHolder || !bankAcct || !bankIFSC || !bankName) { Alert.alert('Error', 'Fill all fields'); return; }
-    addBank({
-      id: 'B' + Date.now(),
-      accountHolder: bankHolder,
-      accountNumber: bankAcct,
-      ifsc: bankIFSC,
-      bankName,
-      status: 'under_review',
-      addedAt: Date.now(),
-    });
-    setAddingBank(false);
-    setBankHolder(''); setBankAcct(''); setBankIFSC(''); setBankName('');
-    Alert.alert('Submitted', 'Bank added! Under review (24-48 hrs)');
+    setBankSubmitting(true);
+    try {
+      await addBankApi({ holderName: bankHolder, accountNumber: bankAcct, ifsc: bankIFSC, bankName });
+      setAddingBank(false);
+      setBankHolder(''); setBankAcct(''); setBankIFSC(''); setBankName('');
+      if (Platform.OS !== 'web') Alert.alert('Submitted', 'Bank added! Under review (24-48 hrs)');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to add bank');
+    } finally {
+      setBankSubmitting(false);
+    }
+  };
+
+  const handleRemoveBank = (id: number) => {
+    const confirmAndRemove = async () => {
+      try { await removeBankApi(id); }
+      catch (e: any) { Alert.alert('Error', e?.message || 'Failed to remove bank'); }
+    };
+    if (Platform.OS === 'web') { confirmAndRemove(); return; }
+    Alert.alert('Remove Bank', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: confirmAndRemove },
+    ]);
   };
 
   const menuItems: { key: AccountTab; icon: string; label: string; iconLib?: 'feather' | 'material' | 'mi' }[] = [
@@ -285,7 +303,10 @@ export default function AccountScreen() {
           {tab === 'bank' && (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Bank Accounts</Text>
-              {banks.map(bank => (
+              {apiBanks.length === 0 && (
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 8 }}>No bank accounts added yet.</Text>
+              )}
+              {apiBanks.map(bank => (
                 <View key={bank.id} style={s.bankCard}>
                   <View style={s.bankHeader}>
                     <MaterialIcons name="account-balance" size={20} color={colors.primary} />
@@ -295,9 +316,13 @@ export default function AccountScreen() {
                         {bank.status === 'under_review' ? 'Under Review' : bank.status}
                       </Text>
                     </View>
+                    <TouchableOpacity onPress={() => handleRemoveBank(bank.id)} style={{ padding: 4 }}>
+                      <Feather name="trash-2" size={16} color={colors.danger} />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={s.bankAcctText}>{bank.accountHolder}</Text>
+                  <Text style={s.bankAcctText}>{bank.holderName}</Text>
                   <Text style={s.bankAcctNum}>A/C: ••••{bank.accountNumber.slice(-4)} | IFSC: {bank.ifsc}</Text>
+                  {bank.rejectReason ? <Text style={[s.bankAcctNum, { color: colors.danger }]}>Reason: {bank.rejectReason}</Text> : null}
                 </View>
               ))}
 
@@ -324,8 +349,8 @@ export default function AccountScreen() {
                     <TouchableOpacity style={s.cancelBtn} onPress={() => setAddingBank(false)}>
                       <Text style={s.cancelBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={s.saveBankBtn} onPress={handleAddBank}>
-                      <Text style={s.saveBankBtnText}>Submit</Text>
+                    <TouchableOpacity style={[s.saveBankBtn, { opacity: bankSubmitting ? 0.6 : 1 }]} disabled={bankSubmitting} onPress={handleAddBank}>
+                      <Text style={s.saveBankBtnText}>{bankSubmitting ? 'Submitting...' : 'Submit'}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

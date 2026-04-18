@@ -63,3 +63,44 @@ export type ApiUser = {
   referralCode: string;
   status: string;
 };
+
+export type ApiWallet = {
+  id: number;
+  walletType: 'spot' | 'inr' | 'earn' | 'futures' | string;
+  coinId: number;
+  balance: string;
+  locked: string;
+  coinSymbol: string;
+  coinName: string;
+  coinPrice: string;
+};
+
+export type ApiBank = {
+  id: number;
+  bankName: string;
+  accountNumber: string;
+  ifsc: string;
+  holderName: string;
+  status: 'under_review' | 'verified' | 'rejected' | string;
+  rejectReason: string | null;
+  createdAt: string;
+};
+
+export type ApiCoin = {
+  id: number;
+  symbol: string;
+  name: string;
+  status: string;
+  currentPrice: string;
+};
+
+export type ApiNetwork = {
+  id: number;
+  coinId: number;
+  name: string;
+  symbol: string;
+  minWithdraw: string;
+  withdrawFee: string;
+  memoRequired?: boolean;
+  status: string;
+};

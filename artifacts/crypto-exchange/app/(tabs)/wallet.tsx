@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Pla
 import { useRouter } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useApp, WalletType } from '@/context/AppContext';
+import { useFocusEffect } from 'expo-router';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -16,12 +17,28 @@ const WALLET_TYPES: { id: WalletType; name: string; icon: any; color: string }[]
 export default function Wallet() {
   const colors = useColors();
   const router = useRouter();
-  const { walletBalances, transactions, totalPortfolioValue, todayPnl, todayPnlPercent } = useApp();
+  const { apiWallets, refreshWallets, transactions, todayPnl, todayPnlPercent, user } = useApp();
   const [walletType, setWalletType] = useState<WalletType>('spot');
   const [hideBalance, setHideBalance] = useState(false);
 
-  const balances = walletBalances.filter(b => b.walletType === walletType);
+  useFocusEffect(React.useCallback(() => { if (user.isLoggedIn) refreshWallets(); }, [user.isLoggedIn]));
+
+  const allBalances = apiWallets.map(w => {
+    const available = Number(w.balance);
+    const locked = Number(w.locked);
+    const price = Number(w.coinPrice);
+    return {
+      walletType: w.walletType as WalletType,
+      symbol: w.coinSymbol,
+      name: w.coinName,
+      available,
+      locked,
+      inrValue: available * price,
+    };
+  });
+  const balances = allBalances.filter(b => b.walletType === walletType);
   const walletTotal = balances.reduce((s, b) => s + b.inrValue, 0);
+  const totalPortfolioValue = allBalances.reduce((s, b) => s + b.inrValue, 0);
   const recentTxns = transactions.slice(0, 5);
 
   const s = styles(colors);
@@ -107,14 +124,14 @@ export default function Wallet() {
               <Text style={s.emptyText}>No assets in {WALLET_TYPES.find(w => w.id === walletType)?.name} wallet</Text>
             </View>
           ) : balances.map((b, i) => (
-            <TouchableOpacity key={i} style={s.balRow} onPress={() => b.symbol !== 'INR' && router.push(`/trading/${b.symbol}INR` as any)}>
+            <TouchableOpacity key={i} style={s.balRow} onPress={() => b.symbol !== 'INR' && router.push(`/trading/${b.symbol}USDT` as any)}>
               <CryptoIcon symbol={b.symbol} size={36} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.balSym}>{b.symbol}</Text>
-                <Text style={s.balName}>Available • Locked: {b.locked}</Text>
+                <Text style={s.balName}>{b.name} • Locked: {b.locked.toFixed(b.symbol === 'INR' ? 2 : 6)}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={s.balQty}>{hideBalance ? '••••' : b.symbol === 'INR' ? b.available.toLocaleString('en-IN') : b.available.toFixed(6)}</Text>
+                <Text style={s.balQty}>{hideBalance ? '••••' : b.symbol === 'INR' ? b.available.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : b.available.toFixed(6)}</Text>
                 <Text style={s.balValue}>{hideBalance ? '••••' : `≈ ₹${b.inrValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}</Text>
               </View>
             </TouchableOpacity>
