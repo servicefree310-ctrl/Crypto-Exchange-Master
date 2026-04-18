@@ -37,11 +37,92 @@ const MARKET_TABS: MarketTab[] = ["Hot", "Gainers", "Losers", "New"];
 type MarketKind = "spot" | "futures";
 type QuoteFilter = "INR" | "USDT";
 
+// Live price row with flash effect on price change
+function LivePriceRow({
+  c, i, last, isFutures, colors, onPress, formatPrice,
+}: {
+  c: any; i: number; last: boolean; isFutures: boolean;
+  colors: any; onPress: () => void; formatPrice: (p: number, q: string) => string;
+}) {
+  const flash = useRef(new Animated.Value(0)).current;
+  const prevRef = useRef<number>(c.price);
+  const [direction, setDirection] = useState<"up" | "down" | null>(null);
+
+  useEffect(() => {
+    if (c.price !== prevRef.current && prevRef.current > 0) {
+      const dir = c.price > prevRef.current ? "up" : "down";
+      setDirection(dir);
+      flash.setValue(1);
+      Animated.timing(flash, {
+        toValue: 0, duration: 800, useNativeDriver: false, easing: Easing.out(Easing.quad),
+      }).start();
+    }
+    prevRef.current = c.price;
+  }, [c.price]);
+
+  const up = c.change24h >= 0;
+  const flashColor = direction === "up" ? "#0ecb81" : "#f6465d";
+  const bgFlash = flash.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(0,0,0,0)", flashColor + "33"],
+  });
+  const priceColor = flash.interpolate({
+    inputRange: [0, 1],
+    outputRange: [colors.foreground, flashColor],
+  });
+
+  return (
+    <TouchableOpacity activeOpacity={0.7} onPress={onPress}>
+      <Animated.View
+        style={[styles.row, {
+          backgroundColor: bgFlash,
+          borderBottomColor: colors.border,
+          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
+        }]}
+      >
+        <View style={[styles.rankBadge, { backgroundColor: colors.secondary }]}>
+          <Text style={[styles.rankBadgeTxt, { color: colors.mutedForeground }]}>{i + 1}</Text>
+        </View>
+        <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
+          <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Text style={[styles.rowSym, { color: colors.foreground }]}>
+              {c.base}<Text style={{ color: colors.mutedForeground, fontSize: 11 }}>/{c.quote}</Text>
+            </Text>
+            {isFutures && (
+              <View style={[styles.permBadge, { backgroundColor: "#f3ba2f22" }]}>
+                <Text style={[styles.permBadgeTxt, { color: "#f3ba2f" }]}>PERP</Text>
+              </View>
+            )}
+            {direction && (
+              <Animated.View style={{ opacity: flash }}>
+                <Feather name={direction === "up" ? "arrow-up" : "arrow-down"} size={9} color={flashColor} />
+              </Animated.View>
+            )}
+          </View>
+          <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Animated.Text style={[styles.rowPrice, { color: priceColor }]}>{formatPrice(c.price, c.quote)}</Animated.Text>
+          <View style={[styles.changeBadge, { backgroundColor: (up ? colors.success : colors.destructive) + "22" }]}>
+            <Feather name={up ? "arrow-up-right" : "arrow-down-right"} size={9} color={up ? colors.success : colors.destructive} />
+            <Text style={[styles.changeBadgeTxt, { color: up ? colors.success : colors.destructive }]}>
+              {up ? "+" : ""}{c.change24h.toFixed(2)}%
+            </Text>
+          </View>
+        </View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, apiWallets, inrUsdtRate } = useApp();
+  const { user, apiWallets, inrUsdtRate, apiCoins } = useApp();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 : 90;
 
@@ -140,15 +221,35 @@ export default function HomeScreen() {
     return { abs, pct };
   }, [apiWallets, marketsData, user]);
 
-  // Filter by market kind (spot|futures) and quote (INR|USDT)
+  // Live price overlay: merge WS-driven apiCoins ticks into REST market rows
+  const livePriceMap = useMemo(() => {
+    const m = new Map<string, { usdt: number; inr: number; change: number }>();
+    for (const c of (apiCoins || [])) {
+      m.set(c.symbol, {
+        usdt: Number((c as any).currentPrice ?? 0),
+        inr: Number((c as any).priceInr ?? 0),
+        change: Number((c as any).change24h ?? 0),
+      });
+    }
+    return m;
+  }, [apiCoins]);
+
+  // Filter by market kind (spot|futures) and quote (INR|USDT) — overlay live prices
   const eligible = useMemo(() => {
-    return (marketsData || []).filter((m: any) => {
-      if (m.quote !== quoteFilter) return false;
-      if (marketKind === "futures" && !m.futuresEnabled) return false;
-      if (marketKind === "spot" && m.tradingEnabled === false) return false;
-      return true;
-    });
-  }, [marketsData, marketKind, quoteFilter]);
+    return (marketsData || [])
+      .filter((m: any) => {
+        if (m.quote !== quoteFilter) return false;
+        if (marketKind === "futures" && !m.futuresEnabled) return false;
+        if (marketKind === "spot" && m.tradingEnabled === false) return false;
+        return true;
+      })
+      .map((m: any) => {
+        const live = livePriceMap.get(m.base);
+        if (!live) return m;
+        const price = m.quote === "INR" ? (live.inr || m.price) : (live.usdt || m.price);
+        return { ...m, price, change24h: live.change || m.change24h };
+      });
+  }, [marketsData, marketKind, quoteFilter, livePriceMap]);
 
   const hot = useMemo(() => [...eligible].sort((a: any, b: any) => (b.volume24h || 0) - (a.volume24h || 0)).slice(0, 6), [eligible]);
   const gainers = useMemo(() => [...eligible].filter((c: any) => c.change24h > 0).sort((a: any, b: any) => b.change24h - a.change24h).slice(0, 6), [eligible]);
@@ -501,44 +602,21 @@ export default function HomeScreen() {
                 </Text>
               </View>
             )}
-            {filteredCoins.map((c: any, i: number) => {
-              const up = c.change24h >= 0;
-              return (
-                <TouchableOpacity
-                  key={`${c.symbol}-${i}`}
-                  activeOpacity={0.7}
-                  onPress={() => router.push(`/(tabs)/${marketKind === "futures" ? "futures" : "trade"}?pair=${c.symbol}` as any)}
-                  style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === filteredCoins.length - 1 ? 0 : StyleSheet.hairlineWidth }]}
-                >
-                  <View style={[styles.rankBadge, { backgroundColor: colors.secondary }]}>
-                    <Text style={[styles.rankBadgeTxt, { color: colors.mutedForeground }]}>{i + 1}</Text>
-                  </View>
-                  <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
-                    <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                      <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground, fontSize: 11 }}>/{c.quote}</Text></Text>
-                      {marketKind === "futures" && (
-                        <View style={[styles.permBadge, { backgroundColor: "#f3ba2f22" }]}>
-                          <Text style={[styles.permBadgeTxt, { color: "#f3ba2f" }]}>PERP</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
-                    <View style={[styles.changeBadge, { backgroundColor: (up ? colors.success : colors.destructive) + "22" }]}>
-                      <Feather name={up ? "arrow-up-right" : "arrow-down-right"} size={9} color={up ? colors.success : colors.destructive} />
-                      <Text style={[styles.changeBadgeTxt, { color: up ? colors.success : colors.destructive }]}>
-                        {up ? "+" : ""}{c.change24h.toFixed(2)}%
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {filteredCoins.map((c: any, i: number) => (
+              <LivePriceRow
+                key={c.symbol}
+                c={c}
+                i={i}
+                last={i === filteredCoins.length - 1}
+                isFutures={marketKind === "futures"}
+                colors={colors}
+                formatPrice={formatPrice}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push(`/(tabs)/${marketKind === "futures" ? "futures" : "trade"}?pair=${c.symbol}` as any);
+                }}
+              />
+            ))}
           </View>
         </Animated.View>
       </View>
