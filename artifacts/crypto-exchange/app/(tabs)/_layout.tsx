@@ -1,21 +1,18 @@
+import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
-import { MaterialCommunityIcons, Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+
 import { useColors } from "@/hooks/useColors";
 
 function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="markets">
         <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
         <Label>Markets</Label>
       </NativeTabs.Trigger>
@@ -23,12 +20,16 @@ function NativeTabLayout() {
         <Icon sf={{ default: "arrow.left.arrow.right", selected: "arrow.left.arrow.right" }} />
         <Label>Trade</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="futures">
+        <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis" }} />
+        <Label>Futures</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="wallet">
-        <Icon sf={{ default: "wallet.pass", selected: "wallet.pass.fill" }} />
+        <Icon sf={{ default: "wallet.bifold", selected: "wallet.bifold.fill" }} />
         <Label>Wallet</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="account">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
+        <Icon sf={{ default: "person.circle", selected: "person.circle.fill" }} />
         <Label>Account</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
@@ -54,66 +55,79 @@ function ClassicTabLayout() {
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
-          height: isWeb ? 84 : 64,
-          paddingBottom: isWeb ? 34 : 8,
+          ...(isWeb ? { height: 84 } : {}),
         },
-        tabBarLabelStyle: {
-          fontFamily: 'Inter_500Medium',
-          fontSize: 10,
-        },
+        tabBarLabelStyle: { fontSize: 10, fontFamily: "Inter_500Medium" },
         tabBarBackground: () =>
           isIOS ? (
-            <BlurView intensity={100} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+            <BlurView
+              intensity={80}
+              tint="dark"
+              style={StyleSheet.absoluteFill}
+            />
+          ) : isWeb ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.card }]} />
           ) : null,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="house" tintColor={color} size={22} /> : <Feather name="home" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="markets"
-        options={{
           title: "Markets",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="chart.bar" tintColor={color} size={22} /> : <Ionicons name="bar-chart" size={22} color={color} />,
+          tabBarIcon: ({ color, size }) =>
+            isIOS ? (
+              <SymbolView name="chart.bar" tintColor={color} size={size} />
+            ) : (
+              <Feather name="bar-chart-2" size={size} color={color} />
+            ),
         }}
       />
       <Tabs.Screen
         name="trade"
         options={{
           title: "Trade",
-          tabBarIcon: ({ color, focused }) => (
-            <View style={{
-              backgroundColor: focused ? colors.primary : colors.secondary,
-              borderRadius: 12,
-              width: 40, height: 40,
-              alignItems: 'center', justifyContent: 'center',
-              marginTop: -8,
-            }}>
-              <MaterialCommunityIcons name="swap-horizontal" size={24} color={focused ? '#000' : color} />
-            </View>
-          ),
+          tabBarIcon: ({ color, size }) =>
+            isIOS ? (
+              <SymbolView name="arrow.left.arrow.right" tintColor={color} size={size} />
+            ) : (
+              <Feather name="repeat" size={size} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="futures"
+        options={{
+          title: "Futures",
+          tabBarIcon: ({ color, size }) =>
+            isIOS ? (
+              <SymbolView name="chart.line.uptrend.xyaxis" tintColor={color} size={size} />
+            ) : (
+              <Feather name="trending-up" size={size} color={color} />
+            ),
         }}
       />
       <Tabs.Screen
         name="wallet"
         options={{
           title: "Wallet",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="wallet.pass" tintColor={color} size={22} /> : <MaterialIcons name="account-balance-wallet" size={22} color={color} />,
+          tabBarIcon: ({ color, size }) =>
+            isIOS ? (
+              <SymbolView name="wallet.bifold" tintColor={color} size={size} />
+            ) : (
+              <Feather name="briefcase" size={size} color={color} />
+            ),
         }}
       />
       <Tabs.Screen
         name="account"
         options={{
           title: "Account",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="person" tintColor={color} size={22} /> : <MaterialIcons name="person" size={22} color={color} />,
+          tabBarIcon: ({ color, size }) =>
+            isIOS ? (
+              <SymbolView name="person.circle" tintColor={color} size={size} />
+            ) : (
+              <Feather name="user" size={size} color={color} />
+            ),
         }}
       />
     </Tabs>

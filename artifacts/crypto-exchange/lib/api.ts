@@ -128,3 +128,149 @@ export type ApiNetwork = {
   memoRequired?: boolean;
   status: string;
 };
+
+// ─── Compatibility namespaces for cryptox-mobile UI tabs ──────────────────────
+let _bearerToken: string | null = null;
+export function setToken(t: string | null) { _bearerToken = t; }
+export function getToken() { return _bearerToken; }
+
+type MarketRow = {
+  symbol: string; base: string; quote: string;
+  price: number; change24h: number; volume24h: number;
+  high24h: number; low24h: number; futuresEnabled?: boolean;
+};
+
+let _coinsCache: ApiCoin[] | null = null;
+async function getCoinsCached(): Promise<ApiCoin[]> {
+  if (_coinsCache) return _coinsCache;
+  _coinsCache = await api.get<ApiCoin[]>('/coins');
+  setTimeout(() => { _coinsCache = null; }, 60_000);
+  return _coinsCache;
+}
+
+function pairToMarket(p: any, coinById: Map<number, ApiCoin>): MarketRow {
+  const base = coinById.get(p.baseCoinId)?.symbol ?? 'UNK';
+  const quote = coinById.get(p.quoteCoinId)?.symbol ?? 'UNK';
+  return {
+    symbol: p.symbol,
+    base, quote,
+    price: Number(p.lastPrice ?? 0),
+    change24h: Number(p.change24h ?? 0),
+    volume24h: Number(p.volume24h ?? 0),
+    high24h: Number(p.high24h ?? 0),
+    low24h: Number(p.low24h ?? 0),
+    futuresEnabled: !!p.futuresEnabled,
+  };
+}
+
+export const marketApi = {
+  getMarkets: async (): Promise<MarketRow[]> => {
+    const [pairs, coins] = await Promise.all([
+      api.get<any[]>('/pairs'),
+      getCoinsCached(),
+    ]);
+    const m = new Map(coins.map(c => [c.id, c]));
+    return pairs.map(p => pairToMarket(p, m));
+  },
+  getCandles: async (symbol: string, count = 100): Promise<any[]> => {
+    const data = await api.get<any>(`/klines?symbol=${encodeURIComponent(symbol)}&interval=1m&limit=${count}&source=auto`);
+    const candles = Array.isArray(data) ? data : (data?.candles ?? []);
+    return candles.map((c: any) => ({
+      time: c.time ?? c.t ?? c[0],
+      open: Number(c.open ?? c.o ?? c[1]),
+      high: Number(c.high ?? c.h ?? c[2]),
+      low: Number(c.low ?? c.l ?? c[3]),
+      close: Number(c.close ?? c.c ?? c[4]),
+      volume: Number(c.volume ?? c.v ?? c[5] ?? 0),
+    }));
+  },
+  getOrderbook: async (symbol: string): Promise<{ bids: [number, number][]; asks: [number, number][] }> => {
+    const r = await api.get<any>(`/orderbook?symbol=${encodeURIComponent(symbol)}`);
+    return { bids: r?.bids ?? [], asks: r?.asks ?? [] };
+  },
+  getTrades: async (symbol: string): Promise<any[]> => {
+    const r = await api.get<any[]>(`/recent-trades?symbol=${encodeURIComponent(symbol)}`);
+    return Array.isArray(r) ? r : [];
+  },
+};
+
+export const walletApi = {
+  getBalances: async (): Promise<{ balances: any[]; totalUsd: number; totalInr: number }> => {
+    const wallets = await api.get<ApiWallet[]>('/wallets');
+    let totalUsd = 0;
+    const balances = wallets.map(w => {
+      const bal = Number(w.balance) + Number(w.locked);
+      const px = Number(w.coinPrice ?? 0);
+      const usd = bal * px;
+      totalUsd += usd;
+      return {
+        currency: w.coinSymbol, name: w.coinName, walletType: w.walletType,
+        balance: bal, available: Number(w.balance), locked: Number(w.locked),
+        usdValue: usd, price: px,
+      };
+    });
+    return { balances, totalUsd, totalInr: totalUsd * 84 };
+  },
+  getTransactions: async (): Promise<any[]> => {
+    try { return await api.get<any[]>('/transactions'); } catch { return []; }
+  },
+};
+
+export const tradingApi = {
+  getOrders: async (): Promise<any[]> => api.get<any[]>('/orders'),
+  getHistory: async (): Promise<any[]> => {
+    try { return await api.get<any[]>('/orders?status=filled'); } catch { return []; }
+  },
+  placeOrder: async (body: { pair: string; side: 'buy' | 'sell'; type: 'market' | 'limit'; price?: number; quantity: number }) => {
+    const pairs = await api.get<any[]>('/pairs');
+    const p = pairs.find(x => x.symbol === body.pair || x.symbol === body.pair.replace('/', ''));
+    if (!p) throw new ApiError(404, `Pair ${body.pair} not found`);
+    return api.post('/orders', { pairId: p.id, side: body.side, type: body.type, price: body.price, qty: body.quantity });
+  },
+  cancelOrder: async (id: number) => api.post(`/orders/${id}/cancel`),
+};
+
+export const futuresApi = {
+  getMarkets: async (): Promise<MarketRow[]> => {
+    const all = await marketApi.getMarkets();
+    return all.filter(m => m.futuresEnabled);
+  },
+  getPositions: async (): Promise<any[]> => {
+    try { return await api.get<any[]>('/positions'); } catch { return []; }
+  },
+};
+
+export const userApi = {
+  getStats: async (): Promise<any> => {
+    try {
+      const [me, fees] = await Promise.all([
+        api.get<any>('/auth/me').catch(() => null),
+        api.get<any>('/fees/my').catch(() => null),
+      ]);
+      return {
+        user: me?.user ?? null,
+        volume30d: fees?.volume30dUsdt ?? 0,
+        vipTier: fees?.tier ?? me?.user?.vipTier ?? 0,
+        makerFee: fees?.makerFee ?? 0.001,
+        takerFee: fees?.takerFee ?? 0.001,
+        commissionEarned: fees?.commissionEarned ?? 0,
+      };
+    } catch { return { user: null, volume30d: 0, vipTier: 0, makerFee: 0.001, takerFee: 0.001, commissionEarned: 0 }; }
+  },
+};
+
+export const authApi = {
+  me: async () => {
+    const r = await api.get<{ user: ApiUser }>('/auth/me');
+    return r.user;
+  },
+  login: async (body: { email: string; password: string }) => {
+    const r = await api.post<{ user: ApiUser }>('/auth/login', body);
+    return { token: '', user: r.user };
+  },
+  register: async (body: { email: string; password: string; firstName?: string }) => {
+    const r = await api.post<{ user: ApiUser }>('/auth/register', { ...body, name: body.firstName ?? '' });
+    return { token: '', user: r.user };
+  },
+  logout: async () => api.post('/auth/logout'),
+};
