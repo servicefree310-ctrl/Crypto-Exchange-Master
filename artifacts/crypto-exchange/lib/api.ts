@@ -139,6 +139,7 @@ type MarketRow = {
   price: number; change24h: number; volume24h: number;
   high24h: number; low24h: number;
   tradingEnabled?: boolean; futuresEnabled?: boolean;
+  createdAt?: number;
 };
 
 let _coinsCache: ApiCoin[] | null = null;
@@ -162,6 +163,7 @@ function pairToMarket(p: any, coinById: Map<number, ApiCoin>): MarketRow {
     low24h: Number(p.low24h ?? 0),
     tradingEnabled: p.tradingEnabled !== false,
     futuresEnabled: !!p.futuresEnabled,
+    createdAt: p.createdAt ? new Date(p.createdAt).getTime() : 0,
   };
 }
 

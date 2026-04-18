@@ -34,6 +34,8 @@ const FALLBACK_BANNERS: any[] = [];
 
 type MarketTab = "Hot" | "Gainers" | "Losers" | "New";
 const MARKET_TABS: MarketTab[] = ["Hot", "Gainers", "Losers", "New"];
+type MarketKind = "spot" | "futures";
+type QuoteFilter = "INR" | "USDT";
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -45,9 +47,17 @@ export default function HomeScreen() {
 
   const [search, setSearch] = useState("");
   const [marketTab, setMarketTab] = useState<MarketTab>("Hot");
+  const [marketKind, setMarketKind] = useState<MarketKind>("spot");
+  const [quoteFilter, setQuoteFilter] = useState<QuoteFilter>("INR");
   const [hideBalance, setHideBalance] = useState(false);
   const [bannerIdx, setBannerIdx] = useState(0);
   const bannerRef = useRef<FlatList>(null);
+
+  // Animations
+  const tabFade = useRef(new Animated.Value(1)).current;
+  const kindIndicator = useRef(new Animated.Value(0)).current;
+  const quoteIndicator = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
 
   const { data: marketsData = [] } = useQuery({
     queryKey: ["home-markets"],
@@ -128,10 +138,42 @@ export default function HomeScreen() {
     return { abs, pct };
   }, [apiWallets, marketsData, user]);
 
-  const hot = useMemo(() => [...marketsData].sort((a: any, b: any) => Math.abs(b.change24h) - Math.abs(a.change24h)).slice(0, 8), [marketsData]);
-  const gainers = useMemo(() => [...marketsData].filter((c: any) => c.change24h > 0).sort((a: any, b: any) => b.change24h - a.change24h).slice(0, 5), [marketsData]);
-  const losers = useMemo(() => [...marketsData].filter((c: any) => c.change24h < 0).sort((a: any, b: any) => a.change24h - b.change24h).slice(0, 5), [marketsData]);
-  const newCoins = useMemo(() => [...marketsData].slice(0, 5), [marketsData]);
+  // Filter by market kind (spot|futures) and quote (INR|USDT)
+  const eligible = useMemo(() => {
+    return (marketsData || []).filter((m: any) => {
+      if (m.quote !== quoteFilter) return false;
+      if (marketKind === "futures" && !m.futuresEnabled) return false;
+      if (marketKind === "spot" && m.tradingEnabled === false) return false;
+      return true;
+    });
+  }, [marketsData, marketKind, quoteFilter]);
+
+  const hot = useMemo(() => [...eligible].sort((a: any, b: any) => (b.volume24h || 0) - (a.volume24h || 0)).slice(0, 6), [eligible]);
+  const gainers = useMemo(() => [...eligible].filter((c: any) => c.change24h > 0).sort((a: any, b: any) => b.change24h - a.change24h).slice(0, 6), [eligible]);
+  const losers = useMemo(() => [...eligible].filter((c: any) => c.change24h < 0).sort((a: any, b: any) => a.change24h - b.change24h).slice(0, 6), [eligible]);
+  const newCoins = useMemo(() => [...eligible].sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6), [eligible]);
+
+  // Animate kind / quote indicator
+  useEffect(() => {
+    Animated.spring(kindIndicator, { toValue: marketKind === "spot" ? 0 : 1, useNativeDriver: false, friction: 7, tension: 80 }).start();
+  }, [marketKind]);
+  useEffect(() => {
+    Animated.spring(quoteIndicator, { toValue: quoteFilter === "INR" ? 0 : 1, useNativeDriver: false, friction: 7, tension: 80 }).start();
+  }, [quoteFilter]);
+  // Fade the list when tab changes
+  useEffect(() => {
+    tabFade.setValue(0);
+    Animated.timing(tabFade, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [marketTab, marketKind, quoteFilter]);
+  // Subtle pulse for "Hot" badge
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
 
   const tickerData = useMemo(() => marketsData.slice(0, 12), [marketsData]);
 
@@ -361,7 +403,7 @@ export default function HomeScreen() {
         ))}
       </View>
 
-      {/* Markets — tabs */}
+      {/* Markets — premium kind+quote selector + animated tabs */}
       <View style={[styles.section, { marginTop: 4 }]}>
         <View style={styles.sectionHead}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Markets</Text>
@@ -369,40 +411,121 @@ export default function HomeScreen() {
             <Text style={[styles.seeAll, { color: colors.primary }]}>View All →</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Kind toggle (Spot | Futures) — animated indicator */}
+        <View style={[styles.segmentRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Animated.View style={[styles.segmentIndicator, {
+            backgroundColor: colors.primary,
+            left: kindIndicator.interpolate({ inputRange: [0, 1], outputRange: ["2%", "50%"] }),
+          }]} />
+          {(["spot", "futures"] as MarketKind[]).map(k => (
+            <TouchableOpacity key={k} onPress={() => { Haptics.selectionAsync(); setMarketKind(k); }} style={styles.segmentBtn}>
+              <Feather name={k === "spot" ? "bar-chart-2" : "zap"} size={12} color={marketKind === k ? "#000" : colors.mutedForeground} />
+              <Text style={[styles.segmentTxt, { color: marketKind === k ? "#000" : colors.mutedForeground }]}>{k === "spot" ? "Spot" : "Futures"}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Quote pills (INR | USDT) */}
+        <View style={styles.quoteRow}>
+          {(["INR", "USDT"] as QuoteFilter[]).map(q => {
+            const active = quoteFilter === q;
+            return (
+              <TouchableOpacity
+                key={q}
+                onPress={() => { Haptics.selectionAsync(); setQuoteFilter(q); }}
+                style={[styles.quotePill, {
+                  backgroundColor: active ? colors.primary + "22" : colors.card,
+                  borderColor: active ? colors.primary : colors.border,
+                }]}
+              >
+                <Text style={[styles.quotePillTxt, { color: active ? colors.primary : colors.mutedForeground }]}>
+                  {q === "INR" ? "₹ INR" : "$ USDT"}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          <View style={{ flex: 1 }} />
+          <Text style={[styles.eligibleCount, { color: colors.mutedForeground }]}>{eligible.length} pairs</Text>
+        </View>
+
+        {/* Tab strip */}
         <View style={[styles.tabRow, { borderBottomColor: colors.border }]}>
-          {MARKET_TABS.map(t => (
-            <TouchableOpacity key={t} onPress={() => { setMarketTab(t); Haptics.selectionAsync(); }} style={styles.tabItem}>
-              <Text style={[styles.tabTxt, { color: marketTab === t ? colors.primary : colors.mutedForeground }]}>{t}</Text>
-              {marketTab === t && <View style={[styles.tabUnderline, { backgroundColor: colors.primary }]} />}
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {filteredCoins.length === 0 && <Text style={[styles.empty, { color: colors.mutedForeground }]}>No coins to show</Text>}
-          {filteredCoins.map((c: any, i: number) => (
-            <TouchableOpacity
-              key={`${c.symbol}-${i}`}
-              onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
-              style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === filteredCoins.length - 1 ? 0 : StyleSheet.hairlineWidth }]}
-            >
-              <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
-                <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground, fontSize: 11 }}>/{c.quote}</Text></Text>
-                <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
-                <View style={[styles.changeBadge, { backgroundColor: (c.change24h >= 0 ? colors.success : colors.destructive) + "22" }]}>
-                  <Text style={[styles.changeBadgeTxt, { color: c.change24h >= 0 ? colors.success : colors.destructive }]}>
-                    {c.change24h >= 0 ? "+" : ""}{c.change24h.toFixed(2)}%
-                  </Text>
+          {MARKET_TABS.map(t => {
+            const active = marketTab === t;
+            return (
+              <TouchableOpacity key={t} onPress={() => { setMarketTab(t); Haptics.selectionAsync(); }} style={styles.tabItem}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  {t === "Hot" && (
+                    <Animated.View style={{
+                      opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
+                      transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.1] }) }],
+                    }}>
+                      <Feather name="zap" size={10} color={active ? colors.primary : "#f6465d"} />
+                    </Animated.View>
+                  )}
+                  {t === "Gainers" && <Feather name="trending-up" size={10} color={active ? colors.primary : "#0ecb81"} />}
+                  {t === "Losers" && <Feather name="trending-down" size={10} color={active ? colors.primary : "#f6465d"} />}
+                  {t === "New" && <Feather name="star" size={10} color={active ? colors.primary : "#a06af5"} />}
+                  <Text style={[styles.tabTxt, { color: active ? colors.primary : colors.mutedForeground }]}>{t}</Text>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+                {active && <View style={[styles.tabUnderline, { backgroundColor: colors.primary }]} />}
+              </TouchableOpacity>
+            );
+          })}
         </View>
+
+        {/* Animated coin list */}
+        <Animated.View style={{ opacity: tabFade, transform: [{ translateY: tabFade.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
+          <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {filteredCoins.length === 0 && (
+              <View style={{ paddingVertical: 28, alignItems: "center" }}>
+                <Feather name="inbox" size={22} color={colors.mutedForeground} />
+                <Text style={[styles.empty, { color: colors.mutedForeground, marginTop: 6 }]}>
+                  No {quoteFilter} {marketKind} pairs in {marketTab}
+                </Text>
+              </View>
+            )}
+            {filteredCoins.map((c: any, i: number) => {
+              const up = c.change24h >= 0;
+              return (
+                <TouchableOpacity
+                  key={`${c.symbol}-${i}`}
+                  activeOpacity={0.7}
+                  onPress={() => router.push(`/(tabs)/${marketKind === "futures" ? "futures" : "trade"}?pair=${c.symbol}` as any)}
+                  style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === filteredCoins.length - 1 ? 0 : StyleSheet.hairlineWidth }]}
+                >
+                  <View style={[styles.rankBadge, { backgroundColor: colors.secondary }]}>
+                    <Text style={[styles.rankBadgeTxt, { color: colors.mutedForeground }]}>{i + 1}</Text>
+                  </View>
+                  <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
+                    <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground, fontSize: 11 }}>/{c.quote}</Text></Text>
+                      {marketKind === "futures" && (
+                        <View style={[styles.permBadge, { backgroundColor: "#f3ba2f22" }]}>
+                          <Text style={[styles.permBadgeTxt, { color: "#f3ba2f" }]}>PERP</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
+                    <View style={[styles.changeBadge, { backgroundColor: (up ? colors.success : colors.destructive) + "22" }]}>
+                      <Feather name={up ? "arrow-up-right" : "arrow-down-right"} size={9} color={up ? colors.success : colors.destructive} />
+                      <Text style={[styles.changeBadgeTxt, { color: up ? colors.success : colors.destructive }]}>
+                        {up ? "+" : ""}{c.change24h.toFixed(2)}%
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Animated.View>
       </View>
 
       {/* Discover */}
@@ -569,9 +692,21 @@ const styles = StyleSheet.create({
   seeAll: { fontSize: 12, fontFamily: "Inter_500Medium" },
 
   tabRow: { flexDirection: "row", marginHorizontal: 14, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, marginBottom: 8 },
-  tabItem: { paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
+  tabItem: { paddingHorizontal: 12, paddingVertical: 10, alignItems: "center" },
   tabTxt: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  tabUnderline: { position: "absolute", bottom: 0, left: 14, right: 14, height: 2, borderRadius: 2 },
+  tabUnderline: { position: "absolute", bottom: 0, left: 10, right: 10, height: 2, borderRadius: 2 },
+  segmentRow: { position: "relative", flexDirection: "row", marginHorizontal: 14, marginBottom: 10, height: 36, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, padding: 2, overflow: "hidden" },
+  segmentIndicator: { position: "absolute", top: 2, bottom: 2, width: "48%", borderRadius: 8 },
+  segmentBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, zIndex: 1 },
+  segmentTxt: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  quoteRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 14, marginBottom: 8 },
+  quotePill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  quotePillTxt: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  eligibleCount: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  rankBadge: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", marginRight: 6 },
+  rankBadgeTxt: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  permBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3 },
+  permBadgeTxt: { fontSize: 8, fontFamily: "Inter_700Bold", letterSpacing: 0.4 },
 
   listCard: { marginHorizontal: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 11, gap: 10 },
