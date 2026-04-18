@@ -56,8 +56,8 @@ export default function HomeScreen() {
   // Animations
   const tabFade = useRef(new Animated.Value(1)).current;
   const kindIndicator = useRef(new Animated.Value(0)).current;
-  const quoteIndicator = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
+  const [segmentW, setSegmentW] = useState(0);
 
   const { data: marketsData = [] } = useQuery({
     queryKey: ["home-markets"],
@@ -153,13 +153,10 @@ export default function HomeScreen() {
   const losers = useMemo(() => [...eligible].filter((c: any) => c.change24h < 0).sort((a: any, b: any) => a.change24h - b.change24h).slice(0, 6), [eligible]);
   const newCoins = useMemo(() => [...eligible].sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6), [eligible]);
 
-  // Animate kind / quote indicator
+  // Animate kind indicator (translateX based on measured container width)
   useEffect(() => {
-    Animated.spring(kindIndicator, { toValue: marketKind === "spot" ? 0 : 1, useNativeDriver: false, friction: 7, tension: 80 }).start();
+    Animated.spring(kindIndicator, { toValue: marketKind === "spot" ? 0 : 1, useNativeDriver: true, friction: 7, tension: 80 }).start();
   }, [marketKind]);
-  useEffect(() => {
-    Animated.spring(quoteIndicator, { toValue: quoteFilter === "INR" ? 0 : 1, useNativeDriver: false, friction: 7, tension: 80 }).start();
-  }, [quoteFilter]);
   // Fade the list when tab changes
   useEffect(() => {
     tabFade.setValue(0);
@@ -413,11 +410,22 @@ export default function HomeScreen() {
         </View>
 
         {/* Kind toggle (Spot | Futures) — animated indicator */}
-        <View style={[styles.segmentRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Animated.View style={[styles.segmentIndicator, {
-            backgroundColor: colors.primary,
-            left: kindIndicator.interpolate({ inputRange: [0, 1], outputRange: ["2%", "50%"] }),
-          }]} />
+        <View
+          onLayout={(e) => setSegmentW(e.nativeEvent.layout.width)}
+          style={[styles.segmentRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+        >
+          {segmentW > 0 && (
+            <Animated.View style={[styles.segmentIndicator, {
+              backgroundColor: colors.primary,
+              width: (segmentW - 4) / 2,
+              transform: [{
+                translateX: kindIndicator.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, (segmentW - 4) / 2],
+                }),
+              }],
+            }]} />
+          )}
           {(["spot", "futures"] as MarketKind[]).map(k => (
             <TouchableOpacity key={k} onPress={() => { Haptics.selectionAsync(); setMarketKind(k); }} style={styles.segmentBtn}>
               <Feather name={k === "spot" ? "bar-chart-2" : "zap"} size={12} color={marketKind === k ? "#000" : colors.mutedForeground} />
@@ -696,7 +704,7 @@ const styles = StyleSheet.create({
   tabTxt: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   tabUnderline: { position: "absolute", bottom: 0, left: 10, right: 10, height: 2, borderRadius: 2 },
   segmentRow: { position: "relative", flexDirection: "row", marginHorizontal: 14, marginBottom: 10, height: 36, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, padding: 2, overflow: "hidden" },
-  segmentIndicator: { position: "absolute", top: 2, bottom: 2, width: "48%", borderRadius: 8 },
+  segmentIndicator: { position: "absolute", top: 2, bottom: 2, left: 2, borderRadius: 8 },
   segmentBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, zIndex: 1 },
   segmentTxt: { fontSize: 12, fontFamily: "Inter_700Bold" },
   quoteRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 14, marginBottom: 8 },
