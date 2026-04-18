@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -326,14 +326,15 @@ export default function HomeScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-            {user?.isLoggedIn ? "Good day," : "Welcome to"}
-          </Text>
-          <Text style={[styles.brand, { color: colors.primary }]} numberOfLines={1}>
-            {user?.isLoggedIn ? (user.name || user.email?.split("@")[0] || "Trader") : "CryptoX"}
-          </Text>
+        <View style={styles.brandRow}>
+          <View style={[styles.brandLogo, { backgroundColor: colors.primary }]}>
+            <Text style={styles.brandLogoTxt}>Z</Text>
+          </View>
+          <Text style={[styles.brandName, { color: colors.foreground }]} numberOfLines={1}>ZEBVIX</Text>
         </View>
+        <TouchableOpacity onPress={() => goAction("/services/deposit-crypto", true)} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
+          <MaterialCommunityIcons name="qrcode-scan" size={17} color={colors.foreground} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => router.push("/(tabs)/markets")} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
           <Feather name="search" size={17} color={colors.foreground} />
         </TouchableOpacity>
@@ -705,6 +706,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 6 },
+  brandRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  brandLogoTxt: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#0b0e11", lineHeight: 20 },
+  brandName: { fontSize: 18, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   greeting: { fontSize: 11, fontFamily: "Inter_400Regular" },
   brand: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 2 },
   iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
