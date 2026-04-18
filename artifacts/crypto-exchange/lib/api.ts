@@ -137,7 +137,8 @@ export function getToken() { return _bearerToken; }
 type MarketRow = {
   symbol: string; base: string; quote: string;
   price: number; change24h: number; volume24h: number;
-  high24h: number; low24h: number; futuresEnabled?: boolean;
+  high24h: number; low24h: number;
+  tradingEnabled?: boolean; futuresEnabled?: boolean;
 };
 
 let _coinsCache: ApiCoin[] | null = null;
@@ -159,6 +160,7 @@ function pairToMarket(p: any, coinById: Map<number, ApiCoin>): MarketRow {
     volume24h: Number(p.volume24h ?? 0),
     high24h: Number(p.high24h ?? 0),
     low24h: Number(p.low24h ?? 0),
+    tradingEnabled: p.tradingEnabled !== false,
     futuresEnabled: !!p.futuresEnabled,
   };
 }

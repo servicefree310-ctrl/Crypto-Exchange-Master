@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, Platform, Modal, Animated
@@ -8,6 +8,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
 
 const PERP_PAIRS = [
   { label:"BTCUSDT PERP", base:64250, change:2.5, color:"#F7931A" },
@@ -125,7 +126,26 @@ const FUNDING_HISTORY = [
 export default function FuturesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [selectedPair, setSelectedPair] = useState(PERP_PAIRS[0]);
+  const { apiPairs, apiCoins } = useApp();
+  const futPairs = useMemo(() => {
+    const coinById = new Map<number, any>();
+    (apiCoins || []).forEach((c: any) => coinById.set(c.id, c));
+    const list = (apiPairs || [])
+      .filter((p: any) => p.futuresEnabled && p.status === "active")
+      .map((p: any) => {
+        const base = coinById.get(p.baseCoinId)?.symbol ?? "";
+        const quote = coinById.get(p.quoteCoinId)?.symbol ?? "";
+        return {
+          label: `${base}/${quote}`,
+          base: Number(p.lastPrice) || 0,
+          change: Number(p.change24h) || 0,
+          color: PERP_PAIRS.find(x => x.label.startsWith(base))?.color || "#888",
+        };
+      });
+    return list.length ? list : PERP_PAIRS;
+  }, [apiPairs, apiCoins]);
+  const [selectedPair, setSelectedPair] = useState(futPairs[0]);
+  useEffect(() => { setSelectedPair(prev => futPairs.find(p => p.label === prev.label) || futPairs[0]); }, [futPairs]);
   const [showPairModal, setShowPairModal] = useState(false);
   const [leverage, setLeverage] = useState(10);
   const [showLevModal, setShowLevModal] = useState(false);

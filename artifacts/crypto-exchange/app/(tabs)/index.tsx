@@ -206,6 +206,14 @@ export default function MarketsScreen() {
       if (cat === "Gainers") return m && c.change > 0;
       if (cat === "Losers") return m && c.change < 0;
       if (cat === "⭐") return m && favorites.includes(c.id);
+      if (cat === "Spot") {
+        const md: any = marketsData.find((x: any) => x.symbol === (c as any).name || `${x.base}/${x.quote}` === (c as any).name);
+        return m && (md?.tradingEnabled !== false);
+      }
+      if (cat === "Futures") {
+        const md: any = marketsData.find((x: any) => x.symbol === (c as any).name || `${x.base}/${x.quote}` === (c as any).name);
+        return m && !!md?.futuresEnabled;
+      }
       return m;
     })
     .sort((a, b) => {

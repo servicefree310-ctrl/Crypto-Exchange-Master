@@ -203,21 +203,29 @@ type BottomTab = typeof BOTTOM_TABS[number];
 export default function TradeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { apiCoins, coins: liveCoins, user, orders: liveOrders, cancelOrder: ctxCancelOrder, refreshWallets } = useApp();
-  const livePairs = useMemo(() => {
-    const arr = (apiCoins || []).filter((c: any) => c.symbol !== "INR" && c.symbol !== "USDT").map((c: any) => `${c.symbol}/USDT`);
-    return arr.length ? arr : PAIRS;
+  const { apiCoins, apiPairs, coins: liveCoins, user, orders: liveOrders, cancelOrder: ctxCancelOrder, refreshWallets } = useApp();
+  const coinById = useMemo(() => {
+    const m = new Map<number, any>();
+    (apiCoins || []).forEach((c: any) => m.set(c.id, c));
+    return m;
   }, [apiCoins]);
+  const spotPairs = useMemo(() => {
+    return (apiPairs || []).filter((p: any) => p.tradingEnabled !== false && p.status === "active");
+  }, [apiPairs]);
+  const livePairs = useMemo(() => {
+    const arr = spotPairs.map((p: any) => p.symbol).filter(Boolean);
+    return arr.length ? arr : PAIRS;
+  }, [spotPairs]);
   const livePriceMap = useMemo(() => {
     const m: Record<string, number> = {};
-    (apiCoins || []).forEach((c: any) => { m[`${c.symbol}/USDT`] = Number(c.currentPrice) || 0; });
+    spotPairs.forEach((p: any) => { m[p.symbol] = Number(p.lastPrice) || 0; });
     return m;
-  }, [apiCoins]);
+  }, [spotPairs]);
   const liveChangeMap = useMemo(() => {
     const m: Record<string, number> = {};
-    (apiCoins || []).forEach((c: any) => { m[`${c.symbol}/USDT`] = Number(c.change24h) || 0; });
+    spotPairs.forEach((p: any) => { m[p.symbol] = Number(p.change24h) || 0; });
     return m;
-  }, [apiCoins]);
+  }, [spotPairs]);
   const [pair, setPair] = useState("BTC/USDT");
   const [showPairModal, setShowPairModal] = useState(false);
   const [interval_, setInterval_] = useState("1H");
@@ -708,8 +716,9 @@ export default function TradeScreen() {
                 style={[styles.pairOpt, { borderTopColor: colors.border, backgroundColor: pair===p?colors.secondary:"transparent" }]}>
                 {(() => {
                   const lp = livePriceMap[p] || PAIR_BASE[p] || 0;
-                  const lc = (liveCoins || []).find((c: any) => `${c.symbol}/USDT` === p);
-                  const ch = lc ? Number(lc.change) : (PAIR_CHANGE[p] || 0);
+                  const ch = liveChangeMap[p] !== undefined ? liveChangeMap[p] : (PAIR_CHANGE[p] || 0);
+                  const pq = (p.split("/")[1] || "USDT");
+                  const sym = pq === "INR" ? "₹" : "$";
                   return (
                     <>
                       <View>
@@ -718,7 +727,7 @@ export default function TradeScreen() {
                           {ch>=0?"+":""}{ch.toFixed(2)}%
                         </Text>
                       </View>
-                      <Text style={[styles.pairOptPrice, { color: colors.foreground }]}>{fmtP(lp)}</Text>
+                      <Text style={[styles.pairOptPrice, { color: colors.foreground }]}>{sym}{fmtP(lp)}</Text>
                     </>
                   );
                 })()}
