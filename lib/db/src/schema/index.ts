@@ -6,6 +6,7 @@ export * from "./coins";
 export * from "./gateways";
 export * from "./wallets";
 export * from "./transactions";
+export * from "./otp";
 export * from "./orders";
 export * from "./earn";
 export * from "./cms";

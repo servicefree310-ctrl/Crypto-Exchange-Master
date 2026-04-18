@@ -183,8 +183,8 @@ interface AppContextType {
   fetchNetworks: (coinId: number) => Promise<ApiNetwork[]>;
   addBankApi: (data: { bankName: string; accountNumber: string; ifsc: string; holderName: string }) => Promise<ApiBank>;
   removeBankApi: (id: number) => Promise<void>;
-  withdrawInrApi: (bankId: number, amount: number) => Promise<any>;
-  withdrawCryptoApi: (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string }) => Promise<any>;
+  withdrawInrApi: (bankId: number, amount: number, otpId: number) => Promise<any>;
+  withdrawCryptoApi: (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string; otpId: number }) => Promise<any>;
   coins: Coin[];
   walletBalances: WalletBalance[];
   updateBalance: (symbol: string, walletType: WalletType, delta: number) => void;
@@ -374,12 +374,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await api.delete(`/banks/${id}`);
     await refreshBanks();
   };
-  const withdrawInrApi = async (bankId: number, amount: number) => {
-    const wd = await api.post('/inr-withdrawals', { bankId, amount });
+  const withdrawInrApi = async (bankId: number, amount: number, otpId: number) => {
+    const wd = await api.post('/inr-withdrawals', { bankId, amount, otpId });
     await refreshWallets();
     return wd;
   };
-  const withdrawCryptoApi = async (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string }) => {
+  const withdrawCryptoApi = async (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string; otpId: number }) => {
     const wd = await api.post('/crypto-withdrawals', data);
     await refreshWallets();
     return wd;

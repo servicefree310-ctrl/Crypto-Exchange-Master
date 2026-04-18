@@ -52,3 +52,20 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 - Mobile screens: wallet.tsx (live API balances), withdraw-inr.tsx (verified banks list, balance check, fee/receive preview, real submit), withdraw-crypto.tsx (live coin/network list, MIN/fee/TDS preview, real submit), account.tsx bank tab (real API list/add/delete with constraint errors surfaced)
 - E2E verified: balance debit + locked increment, partial unique index blocks 2nd verified bank, min/insufficient/ownership validations all return correct errors
 
+
+## Phase 5 Complete (Apr 18 2026)
+- OTP backend: POST /otp/send + /otp/verify (6-digit auto-gen, 5-min TTL, max 5 attempts, hashed in `otp_codes`); `consumeVerifiedOtp(userId, purpose)` helper used inside withdraw routes; if no active row in `otp_providers` → returns devCode (NODE_ENV !== 'production') and console.logs — NO third-party SMS gateway
+- KYC backend: GET /kyc/settings (per-level requirements), GET /kyc/my, POST /kyc/submit with PAN/Aadhaar/level-specific validation; admin PATCH /admin/kyc/:id approval auto-bumps users.kycLevel
+- Refer endpoint: GET /refer/stats (total referees + commission earned)
+- Admin money flow rewritten with db.transaction + SELECT FOR UPDATE: INR deposit completed → credit balance; INR/crypto withdrawal completed → reduce locked; rejected → refund locked → balance; non-pending transitions blocked; idempotent on same-status
+- Mobile: components/OtpModal.tsx (resend cooldown + dev-code banner) wired into withdraw-inr.tsx & withdraw-crypto.tsx as required gate; app/services/kyc.tsx full rewrite (settings/my API + L1/L2/L3 modal forms + pending/approved/rejected states); app/services/refer.tsx with stats + copy/share + linked from account tab
+- E2E verified end-to-end: withdraw 5000 → balance/locked = 45000/5000; reject → 50000/0 (refund); withdraw 7000 → complete → 43000/0; KYC L1 approval bumps user.kycLevel 0→1
+
+## Phase 5 Hardening (Apr 18 2026 — post-architect-review)
+- OTP codes hashed at rest (SHA-256) — DB stores hash, plaintext only returned via devCode in dev mode
+- OTP codes generated with crypto.randomInt (not Math.random)
+- consumeVerifiedOtp() rewritten as atomic single-use: conditional UPDATE ... RETURNING with WHERE verified_at IS NOT NULL AND expires_at > now() AND purpose/user/recipient match — race-safe, accepts optional `tx` to run inside caller transaction
+- POST /inr-withdrawals & POST /crypto-withdrawals now require `otpId`; consumeVerifiedOtp called inside the same db.transaction as wallet debit, so OTP is consumed atomically with the locked-funds movement
+- Mobile chain wired: OtpModal returns otpId → withdraw screens pass it to AppContext.withdrawInrApi/withdrawCryptoApi → /api includes it in body
+- KYC admin approval changed to monotonic: `kycLevel = GREATEST(users.kycLevel, rec.level)` — approving older lower-level record never downgrades user
+- E2E verified: withdraw without otpId → 400; with valid otpId → success (wallet 49000/1000); replay same otpId → "OTP already used or expired"; submit L1+L2 then approve L2 first then L1 → final kycLevel stays at 2

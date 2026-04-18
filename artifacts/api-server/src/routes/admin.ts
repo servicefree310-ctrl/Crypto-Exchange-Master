@@ -14,6 +14,7 @@ import {
   kycRecordsTable,
   kycSettingsTable,
   bankAccountsTable,
+  walletsTable,
   earnProductsTable,
   earnPositionsTable,
   legalPagesTable,
@@ -273,7 +274,10 @@ router.patch("/admin/kyc/:id", adminOnly, async (req, res): Promise<void> => {
   }).where(eq(kycRecordsTable.id, id)).returning();
   if (!rec) { res.status(404).json({ error: "Not found" }); return; }
   if (status === "approved") {
-    await db.update(usersTable).set({ kycLevel: rec.level }).where(eq(usersTable.id, rec.userId));
+    // Monotonic: never lower a user's KYC level
+    await db.update(usersTable)
+      .set({ kycLevel: sql`GREATEST(${usersTable.kycLevel}, ${rec.level})` })
+      .where(eq(usersTable.id, rec.userId));
   }
   res.json(rec);
 });
@@ -321,11 +325,36 @@ router.patch("/admin/inr-deposits/:id", adminOnly, async (req, res): Promise<voi
   if (!["completed", "rejected", "pending"].includes(status)) {
     res.status(400).json({ error: "Invalid status" }); return;
   }
-  const [d] = await db.update(inrDepositsTable).set({
-    status, notes: notes ?? null, reviewedBy: req.user!.id, processedAt: new Date(),
-  }).where(eq(inrDepositsTable.id, id)).returning();
-  if (!d) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(d);
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(inrDepositsTable).where(eq(inrDepositsTable.id, id)).for("update").limit(1);
+      if (!current) { const e: any = new Error("Not found"); e.code = 404; throw e; }
+      if (current.status === status) return current;
+      // Money movement only when transitioning into 'completed'
+      if (status === "completed" && current.status !== "completed") {
+        const [inrCoin] = await tx.select().from(coinsTable).where(eq(coinsTable.symbol, "INR")).limit(1);
+        if (!inrCoin) { const e: any = new Error("INR coin not configured"); e.code = 500; throw e; }
+        const [w] = await tx.select().from(walletsTable)
+          .where(and(eq(walletsTable.userId, current.userId), eq(walletsTable.coinId, inrCoin.id), eq(walletsTable.walletType, "inr")))
+          .for("update").limit(1);
+        if (!w) { const e: any = new Error("INR wallet not found for user"); e.code = 500; throw e; }
+        const credit = Number(current.amount) - Number(current.fee || 0);
+        await tx.update(walletsTable).set({
+          balance: sql`${walletsTable.balance} + ${credit}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      }
+      const [d] = await tx.update(inrDepositsTable).set({
+        status, notes: notes ?? null, reviewedBy: req.user!.id, processedAt: new Date(),
+      }).where(eq(inrDepositsTable.id, id)).returning();
+      return d;
+    });
+    res.json(updated);
+  } catch (e: any) {
+    if (e?.code === 404) { res.status(404).json({ error: e.message }); return; }
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 router.get("/admin/inr-withdrawals", supportPlus, async (_req, res): Promise<void> => {
@@ -337,11 +366,44 @@ router.patch("/admin/inr-withdrawals/:id", adminOnly, async (req, res): Promise<
   if (!["completed", "rejected", "pending"].includes(status)) {
     res.status(400).json({ error: "Invalid status" }); return;
   }
-  const [w] = await db.update(inrWithdrawalsTable).set({
-    status, rejectReason: rejectReason ?? null, reviewedBy: req.user!.id, processedAt: new Date(),
-  }).where(eq(inrWithdrawalsTable.id, id)).returning();
-  if (!w) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(w);
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(inrWithdrawalsTable).where(eq(inrWithdrawalsTable.id, id)).for("update").limit(1);
+      if (!current) { const e: any = new Error("Not found"); e.code = 404; throw e; }
+      if (current.status === status) return current;
+      if (current.status !== "pending") {
+        const e: any = new Error("Can only update pending withdrawals"); e.code = 400; throw e;
+      }
+      const [inrCoin] = await tx.select().from(coinsTable).where(eq(coinsTable.symbol, "INR")).limit(1);
+      const [w] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, current.userId), eq(walletsTable.coinId, inrCoin!.id), eq(walletsTable.walletType, "inr")))
+        .for("update").limit(1);
+      if (!w) { const e: any = new Error("INR wallet not found"); e.code = 500; throw e; }
+      const amt = Number(current.amount);
+      if (status === "completed") {
+        // money out → reduce locked
+        await tx.update(walletsTable).set({
+          locked: sql`${walletsTable.locked} - ${amt}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      } else if (status === "rejected") {
+        // refund: locked → balance
+        await tx.update(walletsTable).set({
+          locked: sql`${walletsTable.locked} - ${amt}`,
+          balance: sql`${walletsTable.balance} + ${amt}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      }
+      const [updatedRow] = await tx.update(inrWithdrawalsTable).set({
+        status, rejectReason: rejectReason ?? null, reviewedBy: req.user!.id, processedAt: new Date(),
+      }).where(eq(inrWithdrawalsTable.id, id)).returning();
+      return updatedRow;
+    });
+    res.json(updated);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 router.get("/admin/crypto-deposits", supportPlus, async (_req, res): Promise<void> => {
@@ -356,12 +418,42 @@ router.patch("/admin/crypto-withdrawals/:id", adminOnly, async (req, res): Promi
   if (!["completed", "rejected", "pending"].includes(status)) {
     res.status(400).json({ error: "Invalid status" }); return;
   }
-  const [w] = await db.update(cryptoWithdrawalsTable).set({
-    status, txHash: txHash ?? null, rejectReason: rejectReason ?? null,
-    reviewedBy: req.user!.id, processedAt: new Date(),
-  }).where(eq(cryptoWithdrawalsTable.id, id)).returning();
-  if (!w) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(w);
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(cryptoWithdrawalsTable).where(eq(cryptoWithdrawalsTable.id, id)).for("update").limit(1);
+      if (!current) { const e: any = new Error("Not found"); e.code = 404; throw e; }
+      if (current.status === status) return current;
+      if (current.status !== "pending") {
+        const e: any = new Error("Can only update pending withdrawals"); e.code = 400; throw e;
+      }
+      const [w] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, current.userId), eq(walletsTable.coinId, current.coinId), eq(walletsTable.walletType, "spot")))
+        .for("update").limit(1);
+      if (!w) { const e: any = new Error("Spot wallet not found"); e.code = 500; throw e; }
+      const amt = Number(current.amount);
+      if (status === "completed") {
+        await tx.update(walletsTable).set({
+          locked: sql`${walletsTable.locked} - ${amt}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      } else if (status === "rejected") {
+        await tx.update(walletsTable).set({
+          locked: sql`${walletsTable.locked} - ${amt}`,
+          balance: sql`${walletsTable.balance} + ${amt}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      }
+      const [updatedRow] = await tx.update(cryptoWithdrawalsTable).set({
+        status, txHash: txHash ?? null, rejectReason: rejectReason ?? null,
+        reviewedBy: req.user!.id, processedAt: new Date(),
+      }).where(eq(cryptoWithdrawalsTable.id, id)).returning();
+      return updatedRow;
+    });
+    res.json(updated);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 // Earn products

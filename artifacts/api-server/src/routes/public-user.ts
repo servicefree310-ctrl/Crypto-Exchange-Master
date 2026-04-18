@@ -8,8 +8,12 @@ import {
   inrWithdrawalsTable,
   cryptoWithdrawalsTable,
   networksTable,
+  kycRecordsTable,
+  kycSettingsTable,
+  usersTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { consumeVerifiedOtp } from "./otp";
 
 const router: IRouter = Router();
 
@@ -117,17 +121,21 @@ router.get("/inr-withdrawals", requireAuth, async (req, res): Promise<void> => {
 
 router.post("/inr-withdrawals", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
-  const { bankId, amount } = req.body ?? {};
+  const { bankId, amount, otpId } = req.body ?? {};
   const amt = Number(amount);
   if (!bankId || !Number.isFinite(amt) || amt <= 0) {
     res.status(400).json({ error: "bankId and positive amount required" }); return;
   }
   if (amt < 100) { res.status(400).json({ error: "Minimum withdrawal is ₹100" }); return; }
+  if (!otpId) { res.status(400).json({ error: "OTP verification required (otpId missing)" }); return; }
 
   const fee = Math.max(10, +(amt * 0.001).toFixed(2));
 
   try {
     const created = await db.transaction(async (tx) => {
+      // Atomic OTP consume (single-use, verified, fresh)
+      const otpRes = await consumeVerifiedOtp({ otpId: Number(otpId), purpose: "withdraw", userId, tx });
+      if (!otpRes.ok) { const e: any = new Error(otpRes.error); e.code = 400; throw e; }
       // Lock bank
       const [bank] = await tx.select().from(bankAccountsTable)
         .where(and(eq(bankAccountsTable.id, Number(bankId)), eq(bankAccountsTable.userId, userId)))
@@ -177,7 +185,7 @@ router.get("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> =
 
 router.post("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
-  const { coinId, networkId, amount, toAddress, memo } = req.body ?? {};
+  const { coinId, networkId, amount, toAddress, memo, otpId } = req.body ?? {};
   const amt = Number(amount);
   if (!coinId || !networkId || !Number.isFinite(amt) || amt <= 0 || !toAddress) {
     res.status(400).json({ error: "coinId, networkId, positive amount, toAddress required" }); return;
@@ -185,9 +193,12 @@ router.post("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> 
   if (String(toAddress).trim().length < 20) {
     res.status(400).json({ error: "Recipient address looks invalid" }); return;
   }
+  if (!otpId) { res.status(400).json({ error: "OTP verification required (otpId missing)" }); return; }
 
   try {
     const created = await db.transaction(async (tx) => {
+      const otpRes = await consumeVerifiedOtp({ otpId: Number(otpId), purpose: "withdraw", userId, tx });
+      if (!otpRes.ok) { const e: any = new Error(otpRes.error); e.code = 400; throw e; }
       const [network] = await tx.select().from(networksTable).where(eq(networksTable.id, Number(networkId))).limit(1);
       if (!network) { const e: any = new Error("Network not found"); e.code = 404; throw e; }
       if (network.coinId !== Number(coinId)) { const e: any = new Error("Network does not belong to this coin"); e.code = 400; throw e; }
@@ -234,5 +245,81 @@ router.post("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> 
     throw e;
   }
 });
+
+// ─── KYC ──────────────────────────────────────────────────────────────────────
+router.get("/kyc/settings", async (_req, res): Promise<void> => {
+  const rows = await db.select().from(kycSettingsTable).orderBy(kycSettingsTable.level);
+  res.json(rows);
+});
+
+router.get("/kyc/my", requireAuth, async (req, res): Promise<void> => {
+  const rows = await db.select().from(kycRecordsTable)
+    .where(eq(kycRecordsTable.userId, req.user!.id))
+    .orderBy(desc(kycRecordsTable.createdAt));
+  res.json(rows);
+});
+
+router.post("/kyc/submit", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const { level, fullName, dob, address, panNumber, aadhaarNumber, panDocUrl, aadhaarDocUrl, selfieUrl } = req.body ?? {};
+  const lvl = Number(level);
+  if (![1, 2, 3].includes(lvl)) { res.status(400).json({ error: "level must be 1, 2 or 3" }); return; }
+
+  // Per-level required fields
+  if (lvl >= 1) {
+    if (!fullName || !dob) { res.status(400).json({ error: "fullName and dob required" }); return; }
+    if (!panNumber || !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(panNumber).toUpperCase())) {
+      res.status(400).json({ error: "Valid PAN required (format: AAAAA1111A)" }); return;
+    }
+  }
+  if (lvl >= 2) {
+    if (!aadhaarNumber || !/^\d{12}$/.test(String(aadhaarNumber).replace(/\s+/g, ""))) {
+      res.status(400).json({ error: "Valid 12-digit Aadhaar required" }); return;
+    }
+    if (!panDocUrl || !aadhaarDocUrl) { res.status(400).json({ error: "PAN and Aadhaar document URLs required" }); return; }
+  }
+  if (lvl >= 3) {
+    if (!selfieUrl || !address) { res.status(400).json({ error: "Selfie and address required for L3" }); return; }
+  }
+
+  // Block duplicate pending submission for same level
+  const existing = await db.select().from(kycRecordsTable)
+    .where(and(eq(kycRecordsTable.userId, userId), eq(kycRecordsTable.level, lvl), eq(kycRecordsTable.status, "pending")))
+    .limit(1);
+  if (existing.length > 0) { res.status(409).json({ error: "You already have a pending submission for this level" }); return; }
+
+  const [rec] = await db.insert(kycRecordsTable).values({
+    userId, level: lvl, status: "pending",
+    fullName: fullName ?? null, dob: dob ?? null, address: address ?? null,
+    panNumber: panNumber ? String(panNumber).toUpperCase() : null,
+    aadhaarNumber: aadhaarNumber ? String(aadhaarNumber).replace(/\s+/g, "") : null,
+    panDocUrl: panDocUrl ?? null, aadhaarDocUrl: aadhaarDocUrl ?? null, selfieUrl: selfieUrl ?? null,
+  }).returning();
+  res.status(201).json(rec);
+});
+
+// ─── Referral stats ───────────────────────────────────────────────────────────
+router.get("/refer/stats", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const me = await db.select({ code: usersTable.referralCode }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  const referredCount = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(usersTable)
+    .where(eq(usersTable.referredBy, userId));
+  const referredUsers = await db
+    .select({ id: usersTable.id, name: usersTable.name, kycLevel: usersTable.kycLevel, createdAt: usersTable.createdAt })
+    .from(usersTable).where(eq(usersTable.referredBy, userId)).orderBy(desc(usersTable.createdAt)).limit(50);
+
+  res.json({
+    referralCode: me[0]?.code ?? null,
+    referredCount: referredCount[0]?.c ?? 0,
+    referredKycCount: referredUsers.filter(u => (u.kycLevel ?? 0) >= 1).length,
+    estimatedEarnings: 0, // placeholder until commissions ledger exists
+    recent: referredUsers,
+  });
+});
+
+// ─── OTP-protected withdraw confirm (optional convenience) ────────────────────
+// Real OTP wiring lives inside the withdraw POSTs above when an `otpId` is supplied.
 
 export default router;

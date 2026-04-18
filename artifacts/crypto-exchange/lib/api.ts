@@ -94,6 +94,26 @@ export type ApiCoin = {
   currentPrice: string;
 };
 
+export type ApiKycRecord = {
+  id: number; userId: number; level: number; status: 'pending' | 'approved' | 'rejected' | string;
+  fullName: string | null; dob: string | null; address: string | null;
+  panNumber: string | null; aadhaarNumber: string | null;
+  panDocUrl: string | null; aadhaarDocUrl: string | null; selfieUrl: string | null;
+  rejectReason: string | null; reviewedAt: string | null; createdAt: string;
+};
+
+export type ApiReferStats = {
+  referralCode: string | null;
+  referredCount: number;
+  referredKycCount: number;
+  estimatedEarnings: number;
+  recent: { id: number; name: string; kycLevel: number | null; createdAt: string }[];
+};
+
+export type ApiOtpSendRes = {
+  otpId: number; expiresInSec: number; delivered: boolean; devCode?: string; message: string;
+};
+
 export type ApiNetwork = {
   id: number;
   coinId: number;

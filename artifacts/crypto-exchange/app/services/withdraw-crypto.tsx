@@ -7,6 +7,7 @@ import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import type { ApiNetwork } from '@/lib/api';
+import { OtpModal } from '@/components/OtpModal';
 
 export default function WithdrawCrypto() {
   const colors = useColors();
@@ -25,6 +26,7 @@ export default function WithdrawCrypto() {
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [otpOpen, setOtpOpen] = useState(false);
 
   useEffect(() => {
     if (!coinId && withdrawableCoins[0]) setCoinId(withdrawableCoins[0].id);
@@ -59,7 +61,7 @@ export default function WithdrawCrypto() {
     if (Platform.OS !== 'web') Alert.alert('Error', m);
   };
 
-  const handleWithdraw = async () => {
+  const handleWithdraw = () => {
     setErrorMsg('');
     if (!coinId || !networkId || !network || !coin) { showError('Select coin and network'); return; }
     if (!amt || amt <= 0) { showError('Enter valid amount'); return; }
@@ -67,10 +69,16 @@ export default function WithdrawCrypto() {
     if (amt > balance) { showError('Insufficient balance'); return; }
     if (!address || address.trim().length < 20) { showError('Enter valid recipient address'); return; }
     if (requiresMemo && !memo.trim()) { showError('Memo / Destination tag required for this network'); return; }
+    if (!user.phone && !user.email) { showError('Phone or email required for OTP'); return; }
+    setOtpOpen(true);
+  };
+
+  const submitWithdraw = async (otpId: number) => {
+    setOtpOpen(false);
     setLoading(true);
     try {
-      const res: any = await withdrawCryptoApi({ coinId, networkId, amount: amt, toAddress: address.trim(), memo: requiresMemo ? memo.trim() || undefined : undefined });
-      if (Platform.OS !== 'web') {
+      const res: any = await withdrawCryptoApi({ coinId: coinId!, networkId: networkId!, amount: amt, toAddress: address.trim(), memo: requiresMemo ? memo.trim() || undefined : undefined, otpId });
+      if (Platform.OS !== 'web' && coin) {
         Alert.alert('Withdrawal Submitted', `Ref ${res?.id}. ${receive.toFixed(6)} ${coin.symbol} will be sent after approval.`);
       }
       setAmount(''); setAddress(''); setMemo('');
@@ -174,6 +182,14 @@ export default function WithdrawCrypto() {
           <Text style={[s.ctaText, { color: '#000' }]}>{loading ? 'Processing...' : 'Confirm Withdrawal'}</Text>
         </TouchableOpacity>
       </ScrollView>
+      <OtpModal
+        visible={otpOpen}
+        channel={user.phone ? 'sms' : 'email'}
+        purpose="withdraw"
+        recipient={user.phone || user.email || ''}
+        onClose={() => setOtpOpen(false)}
+        onVerified={(otpId) => { void submitWithdraw(otpId); }}
+      />
     </SafeAreaView>
   );
 }

@@ -5,6 +5,7 @@ import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { OtpModal } from '@/components/OtpModal';
 
 export default function WithdrawInr() {
   const colors = useColors();
@@ -19,6 +20,7 @@ export default function WithdrawInr() {
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [otpOpen, setOtpOpen] = useState(false);
 
   useEffect(() => {
     if (!bankId && verifiedBanks[0]) setBankId(verifiedBanks[0].id);
@@ -36,14 +38,20 @@ export default function WithdrawInr() {
     if (Platform.OS !== 'web') Alert.alert('Error', m);
   };
 
-  const handleWithdraw = async () => {
+  const handleWithdraw = () => {
     setErrorMsg('');
     if (!amt || amt < 100) { showError('Minimum withdraw ₹100'); return; }
     if (amt > inrBal) { showError('Insufficient balance'); return; }
     if (!bankId) { showError('Add a verified bank first'); return; }
+    if (!user.phone && !user.email) { showError('Phone or email required for OTP'); return; }
+    setOtpOpen(true);
+  };
+
+  const submitWithdraw = async (otpId: number) => {
+    setOtpOpen(false);
     setLoading(true);
     try {
-      const res: any = await withdrawInrApi(bankId, amt);
+      const res: any = await withdrawInrApi(bankId!, amt, otpId);
       if (Platform.OS !== 'web') {
         Alert.alert('Withdrawal Requested', `Ref ${res?.refId}. ₹${receive.toLocaleString('en-IN')} will be credited within 30 mins.`);
       } else {
@@ -57,6 +65,9 @@ export default function WithdrawInr() {
       setLoading(false);
     }
   };
+
+  const otpRecipient = user.phone || user.email || '';
+  const otpChannel: 'sms' | 'email' = user.phone ? 'sms' : 'email';
 
   const s = styles(colors);
   return (
@@ -131,6 +142,14 @@ export default function WithdrawInr() {
           <Text style={[s.ctaText, { color: '#000' }]}>{loading ? 'Processing...' : 'Confirm Withdrawal'}</Text>
         </TouchableOpacity>
       </ScrollView>
+      <OtpModal
+        visible={otpOpen}
+        channel={otpChannel}
+        purpose="withdraw"
+        recipient={otpRecipient}
+        onClose={() => setOtpOpen(false)}
+        onVerified={(otpId) => { void submitWithdraw(otpId); }}
+      />
     </SafeAreaView>
   );
 }

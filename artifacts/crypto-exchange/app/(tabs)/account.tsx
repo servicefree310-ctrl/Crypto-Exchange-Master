@@ -253,6 +253,13 @@ export default function AccountScreen() {
           {tab === 'refer' && (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Refer & Earn</Text>
+              <TouchableOpacity onPress={() => router.push('/services/refer' as any)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.primary + '15', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="external-link" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_700Bold' }}>Open full referral dashboard</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.primary} />
+              </TouchableOpacity>
               <View style={s.referCard}>
                 <MaterialCommunityIcons name="gift" size={40} color={colors.primary} />
                 <Text style={s.referTitle}>Invite friends, earn rewards</Text>
