@@ -345,28 +345,22 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Live Ticker */}
-      {tickerData.length > 0 && (
-        <View style={[styles.ticker, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[styles.tickerLive, { backgroundColor: colors.success + "22" }]}>
-            <View style={[styles.tickerDot, { backgroundColor: colors.success }]} />
-            <Text style={[styles.tickerLiveTxt, { color: colors.success }]}>LIVE</Text>
-          </View>
-          <View style={{ flex: 1, overflow: "hidden" }}>
-            <Animated.View style={{ flexDirection: "row", transform: [{ translateX: tickerX }] }}>
-              {[...tickerData, ...tickerData].map((c: any, i: number) => (
-                <View key={`${c.symbol}-${i}`} style={styles.tickerItem}>
-                  <Text style={[styles.tickerSym, { color: colors.mutedForeground }]}>{c.base}/{c.quote}</Text>
-                  <Text style={[styles.tickerPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
-                  <Text style={[styles.tickerChange, { color: c.change24h >= 0 ? colors.success : colors.destructive }]}>
-                    {c.change24h >= 0 ? "+" : ""}{c.change24h.toFixed(2)}%
-                  </Text>
-                </View>
-              ))}
-            </Animated.View>
-          </View>
-        </View>
-      )}
+      {/* Search bar (replaces the live ticker that used to live here) */}
+      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Feather name="search" size={14} color={colors.mutedForeground} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search BTC, ETH, SOL..."
+          placeholderTextColor={colors.mutedForeground}
+          style={[styles.searchInput, { color: colors.foreground }]}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Feather name="x-circle" size={14} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Hero — Asset Card / Login CTA */}
       {user?.isLoggedIn ? (
@@ -434,23 +428,6 @@ export default function HomeScreen() {
           <View style={styles.loginCtaArrow}><Feather name="arrow-right" size={16} color="#fff" /></View>
         </TouchableOpacity>
       )}
-
-      {/* Search bar */}
-      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Feather name="search" size={14} color={colors.mutedForeground} />
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search BTC, ETH, SOL..."
-          placeholderTextColor={colors.mutedForeground}
-          style={[styles.searchInput, { color: colors.foreground }]}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch("")}>
-            <Feather name="x-circle" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        )}
-      </View>
 
       {/* Quick Actions */}
       <View style={[styles.actionsGrid, { backgroundColor: colors.card }]}>
