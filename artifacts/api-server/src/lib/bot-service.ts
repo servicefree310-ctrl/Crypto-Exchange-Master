@@ -105,6 +105,14 @@ async function tick() {
   const uid = await getBotUserId();
   if (!uid) { logger.warn("bot: no admin user available, skipping tick"); return; }
   for (const bot of bots) {
+    if (bot.startAt && new Date(bot.startAt).getTime() > Date.now()) {
+      await db.update(marketBotsTable).set({ status: "scheduled", lastError: null }).where(eq(marketBotsTable.id, bot.id));
+      continue;
+    }
+    if (!bot.spotEnabled && !bot.futuresEnabled) {
+      await db.update(marketBotsTable).set({ status: "disabled", lastError: "neither spot nor futures enabled" }).where(eq(marketBotsTable.id, bot.id));
+      continue;
+    }
     const last = bot.lastRunAt ? new Date(bot.lastRunAt).getTime() : 0;
     if (Date.now() - last < bot.refreshSec * 1000) continue;
     try { await runBotForPair(bot, uid); }

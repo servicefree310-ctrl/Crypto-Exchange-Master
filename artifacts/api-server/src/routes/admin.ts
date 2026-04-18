@@ -251,6 +251,9 @@ router.post("/admin/bots", adminOnly, async (req, res): Promise<void> => {
       refreshSec: Number(b.refreshSec ?? 8),
       maxOrderAgeSec: Number(b.maxOrderAgeSec ?? 60),
       fillOnCross: b.fillOnCross !== false,
+      spotEnabled: b.spotEnabled !== false,
+      futuresEnabled: !!b.futuresEnabled,
+      startAt: b.startAt ? new Date(b.startAt) : null,
     }).returning();
     res.status(201).json(row);
   } catch (e: any) {
@@ -259,13 +262,14 @@ router.post("/admin/bots", adminOnly, async (req, res): Promise<void> => {
 });
 router.patch("/admin/bots/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const allowed = ["enabled", "spreadBps", "levels", "priceStepBps", "orderSize", "refreshSec", "maxOrderAgeSec", "fillOnCross"];
+  const allowed = ["enabled", "spreadBps", "levels", "priceStepBps", "orderSize", "refreshSec", "maxOrderAgeSec", "fillOnCross", "spotEnabled", "futuresEnabled", "startAt"];
   const b: Record<string, any> = {};
   for (const k of allowed) if (req.body[k] !== undefined) b[k] = req.body[k];
   if (b.orderSize !== undefined) b.orderSize = String(b.orderSize);
   for (const k of ["spreadBps", "levels", "priceStepBps", "refreshSec", "maxOrderAgeSec"]) {
     if (b[k] !== undefined) b[k] = Number(b[k]);
   }
+  if (b.startAt !== undefined) b.startAt = b.startAt ? new Date(b.startAt) : null;
   if (Object.keys(b).length === 0) { res.status(400).json({ error: "No updatable fields" }); return; }
   const [row] = await db.update(marketBotsTable).set(b).where(eq(marketBotsTable.id, id)).returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
