@@ -422,8 +422,8 @@ export default function HomeScreen() {
       ) : (
         <TouchableOpacity onPress={goLogin} style={[styles.loginCta, { backgroundColor: colors.primary }]}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.loginCtaTitle, { color: "#000" }]}>Login or Sign Up</Text>
-            <Text style={[styles.loginCtaSub, { color: "#0009" }]}>Start trading INR & USDT pairs · Get ₹100 bonus</Text>
+            <Text style={[styles.loginCtaTitle, { color: "#fff" }]}>Login or Sign Up</Text>
+            <Text style={[styles.loginCtaSub, { color: "#ffffffcc" }]}>Start trading INR & USDT pairs · Get ₹100 bonus</Text>
           </View>
           <View style={styles.loginCtaArrow}><Feather name="arrow-right" size={16} color="#fff" /></View>
         </TouchableOpacity>
@@ -513,8 +513,8 @@ export default function HomeScreen() {
           )}
           {(["spot", "futures"] as MarketKind[]).map(k => (
             <TouchableOpacity key={k} onPress={() => { Haptics.selectionAsync(); setMarketKind(k); }} style={styles.segmentBtn}>
-              <Feather name={k === "spot" ? "bar-chart-2" : "zap"} size={12} color={marketKind === k ? "#000" : colors.mutedForeground} />
-              <Text style={[styles.segmentTxt, { color: marketKind === k ? "#000" : colors.mutedForeground }]}>{k === "spot" ? "Spot" : "Futures"}</Text>
+              <Feather name={k === "spot" ? "bar-chart-2" : "zap"} size={12} color={marketKind === k ? colors.primaryForeground : colors.mutedForeground} />
+              <Text style={[styles.segmentTxt, { color: marketKind === k ? colors.primaryForeground : colors.mutedForeground }]}>{k === "spot" ? "Spot" : "Futures"}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -707,7 +707,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 6 },
   brandRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
   brandLogo: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  brandLogoTxt: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#0b0e11", lineHeight: 20 },
+  brandLogoTxt: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#ffffff", lineHeight: 20 },
   brandName: { fontSize: 18, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   greeting: { fontSize: 11, fontFamily: "Inter_400Regular" },
   brand: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 2 },

@@ -25,21 +25,23 @@ export type Palette = {
   input: string;
 };
 
+// Brand: ZEBVIX — primary blue, accent orange, success green.
+// Destructive (red) kept for trading PnL semantics.
 const dark: Palette = {
   text: "#eaecef",
-  tint: "#fcd535",
+  tint: "#ff8a3d",
   background: "#0b0e11",
   foreground: "#eaecef",
   card: "#161a1e",
   cardForeground: "#eaecef",
-  primary: "#fcd535",
-  primaryForeground: "#0b0e11",
+  primary: "#1772f0",
+  primaryForeground: "#ffffff",
   secondary: "#1e2329",
   secondaryForeground: "#eaecef",
   muted: "#1e2329",
   mutedForeground: "#848e9c",
-  accent: "#2b2f36",
-  accentForeground: "#eaecef",
+  accent: "#ff8a3d",
+  accentForeground: "#0b0e11",
   destructive: "#f6465d",
   destructiveForeground: "#ffffff",
   success: "#0ecb81",
@@ -50,25 +52,25 @@ const dark: Palette = {
 
 const light: Palette = {
   text: "#1e2329",
-  tint: "#fcd535",
+  tint: "#ff7a26",
   background: "#ffffff",
   foreground: "#1e2329",
-  card: "#f5f5f5",
+  card: "#f5f7fb",
   cardForeground: "#1e2329",
-  primary: "#fcd535",
-  primaryForeground: "#1e2329",
-  secondary: "#eff2f5",
+  primary: "#1366e0",
+  primaryForeground: "#ffffff",
+  secondary: "#eef3fb",
   secondaryForeground: "#1e2329",
   muted: "#f5f5f5",
   mutedForeground: "#707a8a",
-  accent: "#eaecef",
-  accentForeground: "#1e2329",
+  accent: "#ff7a26",
+  accentForeground: "#ffffff",
   destructive: "#cf304a",
   destructiveForeground: "#ffffff",
   success: "#03a66d",
   successForeground: "#ffffff",
-  border: "#eaecef",
-  input: "#eaecef",
+  border: "#e3e7ee",
+  input: "#e3e7ee",
 };
 
 const colors = { light, dark, radius: 8 };
