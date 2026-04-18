@@ -10,6 +10,7 @@ import { CandleChart } from '@/components/CandleChart';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { api, ApiError } from '@/lib/api';
 
 type OrderType = 'market' | 'limit' | 'stop';
 type ChartPeriod = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
@@ -28,10 +29,22 @@ export default function TradingScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const router = useRouter();
   const colors = useColors();
-  const { coins, addOrder, walletBalances, botEnabled, orders, cancelOrder } = useApp();
+  const { coins, addOrder, walletBalances, botEnabled, orders, cancelOrder, user, refreshWallets } = useApp();
 
   const base = symbol?.replace('INR', '') || 'BTC';
   const coin = coins.find(c => c.symbol === base) || coins[0];
+
+  const [pairId, setPairId] = React.useState<number | null>(null);
+  const [submitting, setSubmitting] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    api.get<any[]>('/pairs').then(rows => {
+      if (!alive) return;
+      const p = rows.find((r: any) => r.symbol === `${base}INR`) || rows.find((r: any) => r.symbol?.startsWith(base));
+      if (p) setPairId(p.id);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [base]);
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<OrderType>('limit');
@@ -55,38 +68,33 @@ export default function TradingScreen() {
     time: new Date(Date.now() - i * 8000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
   })), [coin?.price]);
 
-  const handleOrder = () => {
+  const handleOrder = async () => {
+    if (submitting) return;
+    if (!user.isLoggedIn) { router.push('/(auth)/login'); return; }
     if (!qty || parseFloat(qty) <= 0) { Alert.alert('Error', 'Enter valid quantity'); return; }
-    const orderPrice = orderType === 'market' ? coin.price : parseFloat(price);
+    if (!pairId) { Alert.alert('Error', 'Pair not loaded yet, retry'); return; }
+    setSubmitting(true);
     const qtyNum = parseFloat(qty);
-    const total = orderPrice * qtyNum;
-    const fee = total * 0.002;
-    const isMarket = orderType === 'market';
-    const tds = isMarket && side === 'sell' ? total * 0.01 : 0;
-    const invoice = `INV-${Date.now().toString().slice(-8)}`;
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    addOrder({
-      id: 'ORD' + Date.now(),
-      symbol: `${base}/INR`,
-      type: orderType,
-      side,
-      price: orderPrice,
-      quantity: qtyNum,
-      filled: isMarket ? qtyNum : 0,
-      status: isMarket ? 'filled' : 'open',
-      timestamp: Date.now(),
-      fee,
-      tds,
-      total,
-      invoiceId: invoice,
-    });
-
-    Alert.alert(
-      'Order Placed',
-      `${side === 'buy' ? 'Buy' : 'Sell'} ${qty} ${base}\nPrice: ₹${orderPrice.toLocaleString('en-IN')}\nTotal: ₹${total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}\nFee: ₹${fee.toFixed(2)}${tds > 0 ? `\nTDS (1%): ₹${tds.toFixed(2)}` : ''}\n\nInvoice: ${invoice}`
-    );
-    setQty('');
+    const orderPrice = orderType === 'market' ? coin.price : parseFloat(price);
+    try {
+      const created = await api.post<any>('/orders', {
+        pairId, side, type: orderType === 'stop' ? 'limit' : orderType,
+        price: orderPrice, qty: qtyNum,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const total = Number(created.price) * Number(created.qty);
+      Alert.alert(
+        created.status === 'filled' ? 'Order Filled' : 'Order Placed',
+        `${side.toUpperCase()} ${qtyNum} ${base}\nPrice: ₹${Number(created.price).toLocaleString('en-IN')}\nTotal: ₹${total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}\nFee: ${Number(created.fee || 0).toFixed(4)}\nStatus: ${created.status}`
+      );
+      setQty('');
+      refreshWallets().catch(() => {});
+    } catch (e) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Order Failed', e instanceof ApiError ? e.message : 'Network error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const s = styles(colors);

@@ -7,6 +7,12 @@ import publicUserRouter from "./public-user";
 import otpRouter from "./otp";
 import marketsRouter from "./markets";
 import paymentsRouter from "./payments";
+import ordersRouter from "./orders";
+import positionsRouter from "./positions";
+import transferRouter from "./transfer";
+import earnUserRouter from "./earn-user";
+import feesRouter from "./fees";
+import securityRouter from "./security";
 
 const router: IRouter = Router();
 
@@ -18,5 +24,11 @@ router.use(publicUserRouter);
 router.use(otpRouter);
 router.use(marketsRouter);
 router.use(paymentsRouter);
+router.use(ordersRouter);
+router.use(positionsRouter);
+router.use(transferRouter);
+router.use(earnUserRouter);
+router.use(feesRouter);
+router.use(securityRouter);
 
 export default router;

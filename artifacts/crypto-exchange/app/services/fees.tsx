@@ -1,15 +1,48 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, ActivityIndicator } from 'react-native';
 import { Header } from '@/components/Header';
 import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LoginRequired } from '@/components/LoginRequired';
+import { api } from '@/lib/api';
+
+type FeeTier = { level: number; name: string; minVolume: number; spotMaker: number; spotTaker: number; futuresMaker: number; futuresTaker: number; withdrawDiscount: number };
+type FeeMy = { volume30dUsdt: number; totalFeesUsdt: number; currentTier: FeeTier; nextTier: FeeTier | null; tiers: FeeTier[] };
 
 export default function Fees() {
   const colors = useColors();
-  const { feeTiers, currentFeeTier, user } = useApp();
-  const nextTier = feeTiers.find(t => t.level > currentFeeTier.level);
-  const progress = nextTier ? (user.monthlyVolume / nextTier.minVolume) * 100 : 100;
+  const { user } = useApp();
+  const [data, setData] = useState<FeeMy | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const load = React.useCallback(() => {
+    if (!user.isLoggedIn) return;
+    setLoading(true); setError(null);
+    api.get<FeeMy>('/fees/my').then(setData).catch(e => setError(e?.message || 'Failed to load fees')).finally(() => setLoading(false));
+  }, [user.isLoggedIn]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!user.isLoggedIn) return <LoginRequired feature="fee schedule" />;
+  if (loading) return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
+      <ActivityIndicator color={colors.primary} />
+    </SafeAreaView>
+  );
+  if (error || !data) return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <Feather name="alert-circle" size={32} color={colors.warning} />
+      <Text style={{ color: colors.foreground, fontFamily: 'Inter_600SemiBold', marginTop: 12, textAlign: 'center' }}>{error || 'No data'}</Text>
+      <View style={{ marginTop: 14, borderRadius: 8, overflow: 'hidden' }}>
+        <Text onPress={load} style={{ backgroundColor: colors.primary, color: '#000', paddingHorizontal: 18, paddingVertical: 10, fontFamily: 'Inter_700Bold' }}>Retry</Text>
+      </View>
+    </SafeAreaView>
+  );
+
+  const { currentTier: currentFeeTier, nextTier, tiers: feeTiers, volume30dUsdt } = data;
+  // INR ≈ USDT * 83 for display
+  const monthlyVolumeInr = volume30dUsdt * 83;
+  const progress = nextTier ? (volume30dUsdt / nextTier.minVolume) * 100 : 100;
 
   const s = styles(colors);
   return (
@@ -26,7 +59,8 @@ export default function Fees() {
             <Text style={s.heroLvl}>Tier {currentFeeTier.level}</Text>
           </View>
           <Text style={s.heroVolLbl}>30-Day Trading Volume</Text>
-          <Text style={s.heroVol}>₹{user.monthlyVolume.toLocaleString('en-IN')}</Text>
+          <Text style={s.heroVol}>${volume30dUsdt.toLocaleString('en-US', { maximumFractionDigits: 2 })}</Text>
+          <Text style={[s.progressText, { marginTop: 0, marginBottom: 8 }]}>≈ ₹{monthlyVolumeInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</Text>
 
           {nextTier && (
             <>
@@ -34,7 +68,7 @@ export default function Fees() {
                 <View style={[s.progressFill, { width: `${Math.min(100, progress)}%`, backgroundColor: colors.primary }]} />
               </View>
               <Text style={s.progressText}>
-                ₹{(nextTier.minVolume - user.monthlyVolume).toLocaleString('en-IN')} more to {nextTier.name}
+                ${(nextTier.minVolume - volume30dUsdt).toLocaleString('en-US', { maximumFractionDigits: 0 })} more to {nextTier.name}
               </Text>
             </>
           )}
@@ -83,7 +117,7 @@ export default function Fees() {
                 <View style={[{ flex: 0.8 }]}>
                   <Text style={[s.tdCell, isCurrent && { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>{t.name}</Text>
                 </View>
-                <Text style={[s.tdCell, { flex: 1.5 }]}>≥ ₹{t.minVolume >= 100000 ? `${(t.minVolume/100000).toFixed(0)}L` : t.minVolume.toLocaleString('en-IN')}</Text>
+                <Text style={[s.tdCell, { flex: 1.5 }]}>≥ ${t.minVolume >= 1000000 ? `${(t.minVolume/1000000).toFixed(0)}M` : t.minVolume >= 1000 ? `${(t.minVolume/1000).toFixed(0)}K` : t.minVolume.toLocaleString()}</Text>
                 <Text style={[s.tdCell, { color: colors.success }]}>{t.spotMaker}%</Text>
                 <Text style={[s.tdCell, { color: colors.success }]}>{t.spotTaker}%</Text>
               </View>

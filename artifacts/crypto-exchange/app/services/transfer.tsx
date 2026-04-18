@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Header } from '@/components/Header';
 import { useColors } from '@/hooks/useColors';
 import { useApp, WalletType } from '@/context/AppContext';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather } from '@expo/vector-icons';
+import { LoginRequired } from '@/components/LoginRequired';
+import { api, ApiError } from '@/lib/api';
 
 const WALLETS: { id: WalletType; name: string; desc: string }[] = [
   { id: 'spot', name: 'Spot Wallet', desc: 'Trading' },
@@ -15,29 +17,33 @@ const WALLETS: { id: WalletType; name: string; desc: string }[] = [
 
 export default function Transfer() {
   const colors = useColors();
-  const { walletBalances, updateBalance, addTransaction } = useApp();
+  const { user, walletBalances, refreshWallets } = useApp();
   const [from, setFrom] = useState<WalletType>('spot');
   const [to, setTo] = useState<WalletType>('futures');
   const [coin, setCoin] = useState('USDT');
   const [amount, setAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const fromBal = walletBalances.find(b => b.symbol === coin && b.walletType === from)?.available || 0;
+
+  if (!user.isLoggedIn) return <LoginRequired feature="internal transfers" />;
 
   const swap = () => { const t = from; setFrom(to); setTo(t); };
 
-  const handleTransfer = () => {
+  const handleTransfer = async () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { Alert.alert('Error', 'Enter valid amount'); return; }
-    if (amt > fromBal) { Alert.alert('Error', 'Insufficient balance'); return; }
     if (from === to) { Alert.alert('Error', 'Select different wallets'); return; }
-    updateBalance(coin, from, -amt);
-    updateBalance(coin, to, amt);
-    addTransaction({
-      id: 'TXN' + Date.now(), type: 'transfer', symbol: coin, amount: amt,
-      status: 'completed', timestamp: Date.now(), fee: 0,
-      address: `${from} → ${to}`, walletType: from,
-    });
-    Alert.alert('Transfer Successful', `${amt} ${coin} moved from ${from} to ${to} wallet`);
-    setAmount('');
+    setSubmitting(true);
+    try {
+      await api.post('/transfer', { fromWallet: from, toWallet: to, coinSymbol: coin, amount: amt });
+      Alert.alert('Transfer Successful', `${amt} ${coin} moved from ${from} to ${to}`);
+      setAmount('');
+      await refreshWallets();
+    } catch (e) {
+      Alert.alert('Transfer Failed', e instanceof ApiError ? e.message : 'Network error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const s = styles(colors);
@@ -51,11 +57,9 @@ export default function Transfer() {
             <Text style={s.walletName}>{WALLETS.find(w => w.id === from)?.name}</Text>
             <Text style={s.walletBal}>{fromBal.toFixed(4)} {coin}</Text>
           </View>
-
           <TouchableOpacity style={[s.swapBtn, { backgroundColor: colors.primary }]} onPress={swap}>
             <Feather name="repeat" size={18} color="#000" />
           </TouchableOpacity>
-
           <View style={s.walletBox}>
             <Text style={s.walletLbl}>To</Text>
             <Text style={s.walletName}>{WALLETS.find(w => w.id === to)?.name}</Text>
@@ -83,7 +87,7 @@ export default function Transfer() {
 
         <Text style={s.sectionTitle}>Coin</Text>
         <View style={s.coinRow}>
-          {['USDT', 'BTC', 'ETH', 'BNB', 'INR'].map(c => (
+          {(from === 'inr' || to === 'inr' ? ['INR'] : ['USDT', 'BTC', 'ETH', 'BNB']).map(c => (
             <TouchableOpacity key={c} style={[s.coinPill, coin === c && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]} onPress={() => setCoin(c)}>
               <CryptoIcon symbol={c} size={20} />
               <Text style={[s.coinPillText, coin === c && { color: colors.primary }]}>{c}</Text>
@@ -105,8 +109,10 @@ export default function Transfer() {
           <Text style={s.noteText}>Internal transfers are instant and free between your own wallets.</Text>
         </View>
 
-        <TouchableOpacity style={[s.cta, { backgroundColor: colors.primary }]} onPress={handleTransfer}>
-          <Text style={[s.ctaText, { color: '#000' }]}>Confirm Transfer</Text>
+        <TouchableOpacity disabled={submitting} style={[s.cta, { backgroundColor: colors.primary, opacity: submitting ? 0.6 : 1 }]} onPress={handleTransfer}>
+          {submitting
+            ? <ActivityIndicator color="#000" />
+            : <Text style={[s.ctaText, { color: '#000' }]}>Confirm Transfer</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

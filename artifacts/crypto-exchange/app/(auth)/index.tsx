@@ -7,13 +7,13 @@ import { useApp } from '@/context/AppContext';
 export default function AuthIndex() {
   const router = useRouter();
   const colors = useColors();
-  const { user, authBootstrapped } = useApp();
+  const { authBootstrapped } = useApp();
 
   useEffect(() => {
     if (!authBootstrapped) return;
-    if (user.isLoggedIn) router.replace('/(tabs)');
-    else router.replace('/(auth)/login');
-  }, [user.isLoggedIn, authBootstrapped]);
+    // Always land in tabs — guest browse mode (Binance-style)
+    router.replace('/(tabs)');
+  }, [authBootstrapped]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>

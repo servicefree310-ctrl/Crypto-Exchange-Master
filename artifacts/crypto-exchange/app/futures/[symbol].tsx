@@ -10,6 +10,7 @@ import { CandleChart } from '@/components/CandleChart';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { api, ApiError } from '@/lib/api';
 
 type OrderType = 'market' | 'limit';
 type ChartPeriod = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
@@ -18,10 +19,22 @@ export default function FuturesScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const router = useRouter();
   const colors = useColors();
-  const { coins, positions, botEnabled } = useApp();
+  const { coins, positions, botEnabled, user, refreshWallets } = useApp();
 
   const base = symbol?.replace('USDT', '') || 'BTC';
   const coin = coins.find(c => c.symbol === base) || coins[0];
+
+  const [pairId, setPairId] = React.useState<number | null>(null);
+  const [submitting, setSubmitting] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    api.get<any[]>('/pairs').then(rows => {
+      if (!alive) return;
+      const p = rows.find((r: any) => r.symbol === `${base}USDT` && r.futuresEnabled);
+      if (p) setPairId(p.id);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [base]);
   const usdtPrice = (coin?.price || 0) / 83;
 
   const [side, setSide] = useState<'long' | 'short'>('long');
@@ -41,16 +54,29 @@ export default function FuturesScreen() {
     qty: parseFloat((Math.random() * 5).toFixed(3)),
   })), [usdtPrice]);
 
-  const handleOpenPosition = () => {
+  const handleOpenPosition = async () => {
+    if (submitting) return;
+    if (!user.isLoggedIn) { router.push('/(auth)/login'); return; }
     if (!qty || parseFloat(qty) <= 0) { Alert.alert('Error', 'Enter valid quantity'); return; }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const margin = parseFloat(qty) * usdtPrice / leverage;
-    const fee = parseFloat(qty) * usdtPrice * 0.0004;
-    Alert.alert(
-      'Position Opened',
-      `${side === 'long' ? 'Long' : 'Short'} ${qty} ${base}/USDT\nPrice: $${usdtPrice.toFixed(2)}\nLeverage: ${leverage}x\nMargin: $${margin.toFixed(2)}\nFee: $${fee.toFixed(4)}\nLiquidation: $${(usdtPrice * (side === 'long' ? 0.9 : 1.1)).toFixed(2)}`
-    );
-    setQty('');
+    if (!pairId) { Alert.alert('Error', 'Futures pair not available'); return; }
+    setSubmitting(true);
+    try {
+      const pos = await api.post<any>('/positions/open', {
+        pairId, side, leverage, qty: parseFloat(qty), marginType: 'isolated',
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Position Opened',
+        `${side.toUpperCase()} ${qty} ${base}/USDT\nEntry: $${Number(pos.entryPrice).toFixed(2)}\nLeverage: ${pos.leverage}x\nMargin: $${Number(pos.marginAmount).toFixed(2)}\nLiq Price: $${Number(pos.liquidationPrice).toFixed(2)}`
+      );
+      setQty('');
+      refreshWallets().catch(() => {});
+    } catch (e) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Open Failed', e instanceof ApiError ? e.message : 'Network error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const s = styles(colors);

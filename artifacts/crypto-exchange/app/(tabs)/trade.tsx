@@ -8,6 +8,7 @@ import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { LoginRequired } from '@/components/LoginRequired';
 
 function formatPrice(p: number) {
   if (p < 1) return `₹${p.toFixed(4)}`;
@@ -17,9 +18,11 @@ function formatPrice(p: number) {
 
 export default function TradeScreen() {
   const colors = useColors();
-  const { coins, orders, positions } = useApp();
+  const { coins, orders, positions, user } = useApp();
   const router = useRouter();
   const [tab, setTab] = useState<'spot' | 'futures'>('spot');
+
+  if (!user.isLoggedIn) return <LoginRequired feature="trading & orders" />;
 
   const popularCoins = coins.slice(0, 8);
   const openOrders = orders.filter(o => o.status === 'open' || o.status === 'partial');

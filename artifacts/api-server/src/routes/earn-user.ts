@@ -1,0 +1,150 @@
+import { Router, type IRouter } from "express";
+import { eq, and, desc, sql } from "drizzle-orm";
+import { db, earnProductsTable, earnPositionsTable, walletsTable, coinsTable } from "@workspace/db";
+import { requireAuth } from "../middlewares/auth";
+
+const router: IRouter = Router();
+
+router.get("/earn/positions", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const rows = await db
+    .select({
+      id: earnPositionsTable.id, productId: earnPositionsTable.productId, amount: earnPositionsTable.amount,
+      totalEarned: earnPositionsTable.totalEarned, autoMaturity: earnPositionsTable.autoMaturity,
+      status: earnPositionsTable.status, startedAt: earnPositionsTable.startedAt,
+      maturedAt: earnPositionsTable.maturedAt, closedAt: earnPositionsTable.closedAt,
+      coinSymbol: coinsTable.symbol, productName: earnProductsTable.name,
+      apy: earnProductsTable.apy, durationDays: earnProductsTable.durationDays,
+      type: earnProductsTable.type,
+    })
+    .from(earnPositionsTable)
+    .innerJoin(earnProductsTable, eq(earnPositionsTable.productId, earnProductsTable.id))
+    .innerJoin(coinsTable, eq(earnProductsTable.coinId, coinsTable.id))
+    .where(eq(earnPositionsTable.userId, userId))
+    .orderBy(desc(earnPositionsTable.startedAt));
+  res.json(rows);
+});
+
+router.post("/earn/subscribe", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const { productId, amount, autoMaturity } = req.body ?? {};
+  const amt = Number(amount);
+  if (!productId || !Number.isFinite(amt) || amt <= 0) { res.status(400).json({ error: "productId and positive amount required" }); return; }
+
+  try {
+    const created = await db.transaction(async (tx) => {
+      const [p] = await tx.select().from(earnProductsTable).where(eq(earnProductsTable.id, Number(productId))).limit(1);
+      if (!p) { const e: any = new Error("Product not found"); e.code = 404; throw e; }
+      if (p.status !== "active") { const e: any = new Error("Product not active"); e.code = 400; throw e; }
+      const min = Number(p.minAmount), max = Number(p.maxAmount);
+      if (min > 0 && amt < min) { const e: any = new Error(`Min amount is ${min}`); e.code = 400; throw e; }
+      if (max > 0 && amt > max) { const e: any = new Error(`Max amount is ${max}`); e.code = 400; throw e; }
+      const cap = Number(p.totalCap), used = Number(p.currentSubscribed);
+      if (cap > 0 && used + amt > cap) { const e: any = new Error("Product cap reached"); e.code = 400; throw e; }
+      if ((req.user!.vipTier ?? 0) < (p.minVipTier ?? 0)) { const e: any = new Error(`Requires VIP ${p.minVipTier}+`); e.code = 403; throw e; }
+
+      // Lock funds: debit spot wallet of product coin, credit earn wallet
+      const [src] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, p.coinId), eq(walletsTable.walletType, "spot")))
+        .for("update").limit(1);
+      if (!src) { const e: any = new Error("Spot wallet not found"); e.code = 400; throw e; }
+      if (Number(src.balance) < amt) { const e: any = new Error(`Insufficient spot balance (${Number(src.balance).toFixed(8)})`); e.code = 400; throw e; }
+
+      await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} - ${amt}`, updatedAt: new Date(),
+      }).where(eq(walletsTable.id, src.id));
+
+      const [earnW] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, p.coinId), eq(walletsTable.walletType, "earn")))
+        .for("update").limit(1);
+      if (earnW) {
+        await tx.update(walletsTable).set({
+          locked: sql`${walletsTable.locked} + ${amt}`, updatedAt: new Date(),
+        }).where(eq(walletsTable.id, earnW.id));
+      } else {
+        await tx.insert(walletsTable).values({ userId, coinId: p.coinId, walletType: "earn", balance: "0", locked: String(amt) });
+      }
+
+      // Update product subscribed total
+      await tx.update(earnProductsTable).set({
+        currentSubscribed: sql`${earnProductsTable.currentSubscribed} + ${amt}`,
+      }).where(eq(earnProductsTable.id, p.id));
+
+      const maturedAt = p.durationDays > 0 ? new Date(Date.now() + p.durationDays * 86400_000) : null;
+      const [pos] = await tx.insert(earnPositionsTable).values({
+        userId, productId: p.id, amount: String(amt),
+        autoMaturity: !!autoMaturity, status: "active", maturedAt,
+      }).returning();
+      return pos;
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+router.post("/earn/positions/:id/redeem", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const id = Number(req.params.id);
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [pos] = await tx.select().from(earnPositionsTable)
+        .where(and(eq(earnPositionsTable.id, id), eq(earnPositionsTable.userId, userId)))
+        .for("update").limit(1);
+      if (!pos) { const e: any = new Error("Position not found"); e.code = 404; throw e; }
+      if (pos.status !== "active" && pos.status !== "matured") { const e: any = new Error(`Cannot redeem — status is ${pos.status}`); e.code = 400; throw e; }
+      const [p] = await tx.select().from(earnProductsTable).where(eq(earnProductsTable.id, pos.productId)).limit(1);
+      if (!p) { const e: any = new Error("Product missing"); e.code = 500; throw e; }
+
+      const principal = Number(pos.amount);
+      const apy = Number(p.apy) / 100;
+      const elapsedDays = (Date.now() - pos.startedAt.getTime()) / 86400_000;
+      const isMatured = pos.maturedAt ? Date.now() >= pos.maturedAt.getTime() : true;
+      const earned = principal * apy * elapsedDays / 365;
+      let payout = principal + earned;
+      let earlyPenalty = 0;
+      if (!isMatured && p.durationDays > 0) {
+        if (!p.earlyRedemption) { const e: any = new Error("Early redemption not allowed"); e.code = 400; throw e; }
+        earlyPenalty = principal * Number(p.earlyRedemptionPenaltyPct) / 100;
+        payout = principal + earned - earlyPenalty;
+      }
+
+      // Release earn locked, credit spot
+      const [earnW] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, p.coinId), eq(walletsTable.walletType, "earn")))
+        .for("update").limit(1);
+      if (earnW) {
+        await tx.update(walletsTable).set({
+          locked: sql`${walletsTable.locked} - ${principal}`, updatedAt: new Date(),
+        }).where(eq(walletsTable.id, earnW.id));
+      }
+      const [spotW] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, p.coinId), eq(walletsTable.walletType, "spot")))
+        .for("update").limit(1);
+      if (spotW) {
+        await tx.update(walletsTable).set({
+          balance: sql`${walletsTable.balance} + ${payout}`, updatedAt: new Date(),
+        }).where(eq(walletsTable.id, spotW.id));
+      } else {
+        await tx.insert(walletsTable).values({ userId, coinId: p.coinId, walletType: "spot", balance: String(payout), locked: "0" });
+      }
+      await tx.update(earnProductsTable).set({
+        currentSubscribed: sql`GREATEST(0, ${earnProductsTable.currentSubscribed} - ${principal})`,
+      }).where(eq(earnProductsTable.id, p.id));
+
+      const [updated] = await tx.update(earnPositionsTable).set({
+        status: isMatured ? "redeemed" : "early_redeemed",
+        totalEarned: String(Math.max(0, earned - earlyPenalty)),
+        closedAt: new Date(),
+      }).where(eq(earnPositionsTable.id, id)).returning();
+      return { ...updated, payout, earned, earlyPenalty };
+    });
+    res.json(result);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+export default router;

@@ -6,6 +6,7 @@ import { useApp, WalletType } from '@/context/AppContext';
 import { useFocusEffect } from 'expo-router';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LoginRequired } from '@/components/LoginRequired';
 
 const WALLET_TYPES: { id: WalletType; name: string; icon: any; color: string }[] = [
   { id: 'spot', name: 'Spot', icon: 'wallet-outline', color: '#F0B90B' },
@@ -22,6 +23,8 @@ export default function Wallet() {
   const [hideBalance, setHideBalance] = useState(false);
 
   useFocusEffect(React.useCallback(() => { if (user.isLoggedIn) refreshWallets(); }, [user.isLoggedIn]));
+
+  if (!user.isLoggedIn) return <LoginRequired feature="your wallet" />;
 
   const allBalances = apiWallets.map(w => {
     const available = Number(w.balance);

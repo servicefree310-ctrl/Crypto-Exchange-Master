@@ -8,6 +8,7 @@ import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
 import { MaterialIcons, Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useApp as useAppHook } from '@/context/AppContext';
+import { LoginRequired } from '@/components/LoginRequired';
 
 type AccountTab = 'profile' | 'kyc' | 'security' | 'subscription' | 'refer' | 'bank' | 'tds' | 'settings';
 
@@ -38,6 +39,8 @@ export default function AccountScreen() {
   const [bankSubmitting, setBankSubmitting] = useState(false);
 
   React.useEffect(() => { if (user.isLoggedIn && tab === 'bank') refreshBanks(); }, [user.isLoggedIn, tab]);
+
+  if (!user.isLoggedIn) return <LoginRequired feature="your account" />;
 
   const handleAddBank = async () => {
     if (!bankHolder || !bankAcct || !bankIFSC || !bankName) { Alert.alert('Error', 'Fill all fields'); return; }

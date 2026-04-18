@@ -1,51 +1,95 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, TextInput, Alert, Switch } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, TextInput, Alert, Switch, ActivityIndicator } from 'react-native';
 import { Header } from '@/components/Header';
 import { useColors } from '@/hooks/useColors';
-import { useApp, EarnProduct } from '@/context/AppContext';
+import { useApp } from '@/context/AppContext';
 import { CryptoIcon } from '@/components/CryptoIcon';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LoginRequired } from '@/components/LoginRequired';
+import { api, ApiError } from '@/lib/api';
+
+type ApiProduct = {
+  id: number; coinId: number; name: string; description: string;
+  type: 'simple' | 'advanced'; durationDays: number; apy: string;
+  minAmount: string; maxAmount: string; status: string;
+  earlyRedemption: boolean; earlyRedemptionPenaltyPct: string;
+  minVipTier: number;
+};
+
+type ApiPosition = {
+  id: number; productId: number; amount: string; totalEarned: string;
+  autoMaturity: boolean; status: string; startedAt: string;
+  maturedAt: string | null; closedAt: string | null;
+  coinSymbol: string; productName: string; apy: string;
+  durationDays: number; type: 'simple' | 'advanced';
+};
 
 export default function Earn() {
   const colors = useColors();
-  const { earnProducts, earnPositions, addEarnPosition, updateBalance, addTransaction } = useApp();
+  const { user, refreshWallets, coins } = useApp();
   const [tab, setTab] = useState<'simple' | 'advanced' | 'positions'>('simple');
-  const [selectedProduct, setSelectedProduct] = useState<EarnProduct | null>(null);
+  const [products, setProducts] = useState<ApiProduct[]>([]);
+  const [positions, setPositions] = useState<ApiPosition[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedProduct, setSelectedProduct] = useState<ApiProduct | null>(null);
   const [stakeAmount, setStakeAmount] = useState('');
   const [autoMaturity, setAutoMaturity] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const totalStaked = earnPositions.reduce((s, p) => s + p.amount, 0);
-  const totalEarned = earnPositions.reduce((s, p) => s + p.earned, 0);
-  const filtered = earnProducts.filter(p => p.type === tab);
+  const productSymbol = (p: ApiProduct) => coins.find(c => c.symbol && (c as any).id === p.coinId)?.symbol
+    || coinSymbolFallback(p.coinId);
 
-  const handleStake = () => {
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const [pr, ps] = await Promise.all([
+        api.get<ApiProduct[]>('/earn-products'),
+        user.isLoggedIn ? api.get<ApiPosition[]>('/earn/positions') : Promise.resolve([] as ApiPosition[]),
+      ]);
+      setProducts(pr.filter(p => p.status === 'active'));
+      setPositions(ps);
+    } catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { refresh(); }, [user.isLoggedIn]);
+
+  if (!user.isLoggedIn) return <LoginRequired feature="Earn — staking & savings" />;
+
+  const totalStaked = positions.reduce((s, p) => s + Number(p.amount), 0);
+  const totalEarned = positions.reduce((s, p) => s + Number(p.totalEarned), 0);
+  const filtered = products.filter(p => p.type === tab);
+
+  const handleStake = async () => {
     if (!selectedProduct) return;
     const amt = parseFloat(stakeAmount);
-    if (!amt || amt < selectedProduct.minAmount) {
-      Alert.alert('Error', `Minimum stake: ${selectedProduct.minAmount} ${selectedProduct.symbol}`);
-      return;
-    }
-    addEarnPosition({
-      id: 'EP' + Date.now(),
-      productId: selectedProduct.id,
-      symbol: selectedProduct.symbol,
-      type: selectedProduct.type,
-      amount: amt,
-      apy: selectedProduct.apy,
-      startDate: Date.now(),
-      endDate: selectedProduct.duration ? Date.now() + selectedProduct.duration * 86400000 : undefined,
-      earned: 0,
-      status: 'active',
-      autoMaturity: selectedProduct.type === 'advanced' ? autoMaturity : false,
-    });
-    updateBalance(selectedProduct.symbol, 'spot', -amt);
-    updateBalance(selectedProduct.symbol, 'earn', amt);
-    addTransaction({
-      id: 'TXN' + Date.now(), type: 'earn', symbol: selectedProduct.symbol, amount: amt,
-      status: 'completed', timestamp: Date.now(), fee: 0, walletType: 'earn',
-    });
-    Alert.alert('Success', `${amt} ${selectedProduct.symbol} staked at ${selectedProduct.apy}% APY`);
-    setSelectedProduct(null); setStakeAmount('');
+    const min = Number(selectedProduct.minAmount);
+    if (!amt || amt < min) { Alert.alert('Error', `Minimum stake: ${min}`); return; }
+    setSubmitting(true);
+    try {
+      await api.post('/earn/subscribe', { productId: selectedProduct.id, amount: amt, autoMaturity });
+      Alert.alert('Success', `Staked ${amt} at ${selectedProduct.apy}% APY`);
+      setSelectedProduct(null); setStakeAmount('');
+      await Promise.all([refresh(), refreshWallets()]);
+    } catch (e) {
+      Alert.alert('Stake Failed', e instanceof ApiError ? e.message : 'Network error');
+    } finally { setSubmitting(false); }
+  };
+
+  const handleRedeem = async (pos: ApiPosition) => {
+    const isMatured = pos.maturedAt ? Date.now() >= new Date(pos.maturedAt).getTime() : true;
+    Alert.alert(isMatured ? 'Redeem' : 'Early Redeem',
+      isMatured ? 'Funds will be moved to spot wallet' : 'Early redemption may incur a penalty. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', style: isMatured ? 'default' : 'destructive', onPress: async () => {
+          try {
+            const r: any = await api.post(`/earn/positions/${pos.id}/redeem`);
+            Alert.alert('Redeemed', `Payout: ${Number(r.payout).toFixed(6)} ${pos.coinSymbol}\nEarned: ${Number(r.earned).toFixed(6)}${r.earlyPenalty > 0 ? `\nPenalty: -${Number(r.earlyPenalty).toFixed(6)}` : ''}`);
+            await Promise.all([refresh(), refreshWallets()]);
+          } catch (e) {
+            Alert.alert('Redeem Failed', e instanceof ApiError ? e.message : 'Network error');
+          }
+        }},
+      ]);
   };
 
   const s = styles(colors);
@@ -53,27 +97,25 @@ export default function Earn() {
     <SafeAreaView style={s.container}>
       <Header title="Earn" subtitle="Grow your crypto holdings" />
       <ScrollView contentContainerStyle={s.content}>
-        {/* Stats */}
         <View style={s.statsCard}>
           <View style={{ flex: 1 }}>
             <Text style={s.statLbl}>Total Earnings</Text>
-            <Text style={[s.statVal, { color: colors.success }]}>+${totalEarned.toFixed(2)}</Text>
+            <Text style={[s.statVal, { color: colors.success }]}>+{totalEarned.toFixed(4)}</Text>
             <Text style={s.statSub}>Lifetime rewards</Text>
           </View>
           <View style={s.statDivider} />
           <View style={{ flex: 1 }}>
             <Text style={s.statLbl}>Total Staked</Text>
-            <Text style={s.statVal}>${totalStaked.toFixed(2)}</Text>
-            <Text style={s.statSub}>{earnPositions.length} active</Text>
+            <Text style={s.statVal}>{totalStaked.toFixed(4)}</Text>
+            <Text style={s.statSub}>{positions.filter(p => p.status === 'active').length} active</Text>
           </View>
         </View>
 
-        {/* Tabs */}
         <View style={s.tabs}>
           {([
-            { key: 'simple', label: 'Simple Earn', icon: 'lock-open' as const },
-            { key: 'advanced', label: 'Fixed Term', icon: 'lock' as const },
-            { key: 'positions', label: 'My Earnings', icon: 'wallet' as const },
+            { key: 'simple', label: 'Flexible', icon: 'lock-open' as const },
+            { key: 'advanced', label: 'Locked', icon: 'lock' as const },
+            { key: 'positions', label: 'My Earn', icon: 'wallet' as const },
           ] as const).map(t => (
             <TouchableOpacity key={t.key} style={[s.tab, tab === t.key && { backgroundColor: colors.primary }]} onPress={() => setTab(t.key)}>
               <Feather name={t.icon} size={13} color={tab === t.key ? '#000' : colors.mutedForeground} />
@@ -82,160 +124,126 @@ export default function Earn() {
           ))}
         </View>
 
-        {/* Simple Tab */}
-        {tab === 'simple' && (
+        {loading && <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />}
+
+        {(tab === 'simple' || tab === 'advanced') && !loading && (
           <>
-            <View style={s.infoBanner}>
-              <MaterialCommunityIcons name="lock-open-outline" size={20} color={colors.success} />
+            <View style={[s.infoBanner, tab === 'advanced' && { backgroundColor: colors.primary + '15' }]}>
+              <MaterialCommunityIcons name={tab === 'simple' ? 'lock-open-outline' : 'trending-up'} size={20} color={tab === 'simple' ? colors.success : colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={s.bannerTitle}>Flexible Savings</Text>
-                <Text style={s.bannerDesc}>Unlock anytime • Daily interest • No fixed term</Text>
+                <Text style={s.bannerTitle}>{tab === 'simple' ? 'Flexible Savings' : 'Fixed Income (Locked)'}</Text>
+                <Text style={s.bannerDesc}>{tab === 'simple' ? 'Unlock anytime • Daily interest' : 'Higher APY • Auto-maturity option'}</Text>
               </View>
             </View>
-            {filtered.map(p => (
-              <TouchableOpacity key={p.id} style={s.productCard} onPress={() => setSelectedProduct(p)}>
-                <CryptoIcon symbol={p.symbol} size={36} />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={s.prodSym}>{p.symbol}</Text>
-                  <Text style={s.prodDesc}>Min: {p.minAmount} {p.symbol} • Flexible</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[s.prodApy, { color: colors.success }]}>{p.apy}%</Text>
-                  <Text style={s.prodApyLbl}>Est. APY</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
-
-        {/* Advanced Tab */}
-        {tab === 'advanced' && (
-          <>
-            <View style={[s.infoBanner, { backgroundColor: colors.primary + '15' }]}>
-              <MaterialCommunityIcons name="trending-up" size={20} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.bannerTitle}>Fixed Income (Locked)</Text>
-                <Text style={s.bannerDesc}>Higher APY • Auto-maturity • Monthly lock-in</Text>
-              </View>
-            </View>
-            {filtered.map(p => (
-              <TouchableOpacity key={p.id} style={s.productCard} onPress={() => setSelectedProduct(p)}>
-                <CryptoIcon symbol={p.symbol} size={36} />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={s.prodSym}>{p.symbol}</Text>
-                  <View style={s.lockBadge}>
-                    <Feather name="lock" size={10} color={colors.warning} />
-                    <Text style={[s.lockText, { color: colors.warning }]}>{p.duration}D Lock</Text>
-                  </View>
-                  <Text style={s.prodDesc}>Min: {p.minAmount} {p.symbol}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[s.prodApy, { color: colors.primary }]}>{p.apy}%</Text>
-                  <Text style={s.prodApyLbl}>Fixed APY</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
-
-        {/* My Positions */}
-        {tab === 'positions' && (
-          <>
-            {earnPositions.length === 0 ? (
-              <View style={s.empty}>
-                <MaterialCommunityIcons name="piggy-bank-outline" size={50} color={colors.mutedForeground} />
-                <Text style={s.emptyText}>No active earnings yet</Text>
-              </View>
-            ) : earnPositions.map(p => {
-              const days = p.endDate ? Math.max(0, Math.ceil((p.endDate - Date.now()) / 86400000)) : 0;
+            {filtered.length === 0 ? (
+              <View style={s.empty}><Text style={s.emptyText}>No products available</Text></View>
+            ) : filtered.map(p => {
+              const sym = productSymbol(p);
               return (
-                <View key={p.id} style={s.posCard}>
-                  <View style={s.posHeader}>
-                    <CryptoIcon symbol={p.symbol} size={32} />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={s.posSym}>{p.symbol} {p.type === 'simple' ? 'Flexible' : `${days}D Locked`}</Text>
-                      <Text style={s.posDate}>Started {new Date(p.startDate).toLocaleDateString('en-IN')}</Text>
-                    </View>
-                    <View style={[s.statusBadge, { backgroundColor: colors.success + '22' }]}>
-                      <Text style={[s.statusText, { color: colors.success }]}>{p.status.toUpperCase()}</Text>
-                    </View>
+                <TouchableOpacity key={p.id} style={s.productCard} onPress={() => { setSelectedProduct(p); setAutoMaturity(false); setStakeAmount(''); }}>
+                  <CryptoIcon symbol={sym} size={36} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={s.prodSym}>{sym} {p.name && `· ${p.name}`}</Text>
+                    {p.type === 'advanced' && (
+                      <View style={s.lockBadge}>
+                        <Feather name="lock" size={10} color={colors.warning} />
+                        <Text style={[s.lockText, { color: colors.warning }]}>{p.durationDays}D Lock</Text>
+                      </View>
+                    )}
+                    <Text style={s.prodDesc}>Min: {Number(p.minAmount)} {sym}{p.minVipTier > 0 ? ` · VIP ${p.minVipTier}+` : ''}</Text>
                   </View>
-                  <View style={s.posGrid}>
-                    <View style={s.posItem}><Text style={s.posLbl}>Amount</Text><Text style={s.posValue}>{p.amount} {p.symbol}</Text></View>
-                    <View style={s.posItem}><Text style={s.posLbl}>APY</Text><Text style={[s.posValue, { color: colors.success }]}>{p.apy}%</Text></View>
-                    <View style={s.posItem}><Text style={s.posLbl}>Earned</Text><Text style={[s.posValue, { color: colors.success }]}>+{p.earned.toFixed(4)}</Text></View>
-                    <View style={s.posItem}><Text style={s.posLbl}>Auto Maturity</Text><Text style={s.posValue}>{p.autoMaturity ? 'On' : 'Off'}</Text></View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[s.prodApy, { color: tab === 'simple' ? colors.success : colors.primary }]}>{Number(p.apy)}%</Text>
+                    <Text style={s.prodApyLbl}>{tab === 'simple' ? 'Est. APY' : 'Fixed APY'}</Text>
                   </View>
-                  <TouchableOpacity style={[s.redeemBtn, { borderColor: p.type === 'simple' ? colors.success : colors.warning }]}
-                    onPress={() => Alert.alert(p.type === 'simple' ? 'Redeemed' : 'Early Redeem', p.type === 'simple' ? 'Funds moved to spot wallet' : 'Early redemption may incur penalty')}>
-                    <Text style={[s.redeemText, { color: p.type === 'simple' ? colors.success : colors.warning }]}>
-                      {p.type === 'simple' ? 'Redeem' : 'Early Redeem'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               );
             })}
           </>
         )}
 
-        {/* Stake Modal */}
+        {tab === 'positions' && !loading && (
+          positions.length === 0 ? (
+            <View style={s.empty}>
+              <MaterialCommunityIcons name="piggy-bank-outline" size={50} color={colors.mutedForeground} />
+              <Text style={s.emptyText}>No active earnings yet</Text>
+            </View>
+          ) : positions.map(p => {
+            const days = p.maturedAt ? Math.max(0, Math.ceil((new Date(p.maturedAt).getTime() - Date.now()) / 86400000)) : 0;
+            const active = p.status === 'active' || p.status === 'matured';
+            return (
+              <View key={p.id} style={s.posCard}>
+                <View style={s.posHeader}>
+                  <CryptoIcon symbol={p.coinSymbol} size={32} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={s.posSym}>{p.coinSymbol} {p.type === 'simple' ? 'Flexible' : `${days}D Locked`}</Text>
+                    <Text style={s.posDate}>Started {new Date(p.startedAt).toLocaleDateString('en-IN')}</Text>
+                  </View>
+                  <View style={[s.statusBadge, { backgroundColor: (active ? colors.success : colors.mutedForeground) + '22' }]}>
+                    <Text style={[s.statusText, { color: active ? colors.success : colors.mutedForeground }]}>{p.status.toUpperCase()}</Text>
+                  </View>
+                </View>
+                <View style={s.posGrid}>
+                  <View style={s.posItem}><Text style={s.posLbl}>Amount</Text><Text style={s.posValue}>{Number(p.amount)} {p.coinSymbol}</Text></View>
+                  <View style={s.posItem}><Text style={s.posLbl}>APY</Text><Text style={[s.posValue, { color: colors.success }]}>{Number(p.apy)}%</Text></View>
+                  <View style={s.posItem}><Text style={s.posLbl}>Earned</Text><Text style={[s.posValue, { color: colors.success }]}>+{Number(p.totalEarned).toFixed(6)}</Text></View>
+                  <View style={s.posItem}><Text style={s.posLbl}>Auto Maturity</Text><Text style={s.posValue}>{p.autoMaturity ? 'On' : 'Off'}</Text></View>
+                </View>
+                {active && (
+                  <TouchableOpacity style={[s.redeemBtn, { borderColor: p.type === 'simple' ? colors.success : colors.warning }]} onPress={() => handleRedeem(p)}>
+                    <Text style={[s.redeemText, { color: p.type === 'simple' ? colors.success : colors.warning }]}>
+                      {p.type === 'simple' || days === 0 ? 'Redeem' : 'Early Redeem'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })
+        )}
+
         {selectedProduct && (
           <View style={s.stakeModal}>
             <View style={s.modalHeader}>
-              <CryptoIcon symbol={selectedProduct.symbol} size={32} />
+              <CryptoIcon symbol={productSymbol(selectedProduct)} size={32} />
               <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={s.modalTitle}>Stake {selectedProduct.symbol}</Text>
-                <Text style={s.modalSub}>{selectedProduct.type === 'simple' ? 'Flexible • Unlock anytime' : `${selectedProduct.duration}D Locked`}</Text>
+                <Text style={s.modalTitle}>Stake {productSymbol(selectedProduct)}</Text>
+                <Text style={s.modalSub}>{selectedProduct.type === 'simple' ? 'Flexible · Unlock anytime' : `${selectedProduct.durationDays}D Locked`}</Text>
               </View>
               <TouchableOpacity onPress={() => setSelectedProduct(null)}>
                 <Feather name="x" size={20} color={colors.foreground} />
               </TouchableOpacity>
             </View>
             <View style={s.apyBox}>
-              <Text style={s.apyLbl}>Estimated APY</Text>
-              <Text style={[s.apyValue, { color: colors.success }]}>{selectedProduct.apy}%</Text>
+              <Text style={s.apyLbl}>APY</Text>
+              <Text style={[s.apyValue, { color: colors.success }]}>{Number(selectedProduct.apy)}%</Text>
             </View>
             <View style={s.inputBox}>
               <TextInput style={s.input} placeholder="0.00" placeholderTextColor={colors.mutedForeground} value={stakeAmount} onChangeText={setStakeAmount} keyboardType="decimal-pad" />
-              <Text style={s.unit}>{selectedProduct.symbol}</Text>
+              <Text style={s.unit}>{productSymbol(selectedProduct)}</Text>
             </View>
-            <Text style={s.minNote}>Minimum: {selectedProduct.minAmount} {selectedProduct.symbol}</Text>
-
+            <Text style={s.minNote}>Min: {Number(selectedProduct.minAmount)} {productSymbol(selectedProduct)}</Text>
             {selectedProduct.type === 'advanced' && (
               <View style={s.autoRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.autoTitle}>Auto Maturity</Text>
-                  <Text style={s.autoDesc}>Automatically reinvest when matured</Text>
+                  <Text style={s.autoDesc}>Reinvest at end of lock</Text>
                 </View>
                 <Switch value={autoMaturity} onValueChange={setAutoMaturity} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#fff" />
               </View>
             )}
-
-            {parseFloat(stakeAmount || '0') > 0 && (
-              <View style={s.estBox}>
-                <View style={s.estRow}>
-                  <Text style={s.estLbl}>Daily</Text>
-                  <Text style={s.estVal}>+{(parseFloat(stakeAmount) * selectedProduct.apy / 100 / 365).toFixed(6)}</Text>
-                </View>
-                <View style={s.estRow}>
-                  <Text style={s.estLbl}>Monthly</Text>
-                  <Text style={s.estVal}>+{(parseFloat(stakeAmount) * selectedProduct.apy / 100 / 12).toFixed(4)}</Text>
-                </View>
-                <View style={s.estRow}>
-                  <Text style={s.estLbl}>Yearly</Text>
-                  <Text style={[s.estVal, { color: colors.success }]}>+{(parseFloat(stakeAmount) * selectedProduct.apy / 100).toFixed(4)}</Text>
-                </View>
-              </View>
-            )}
-
-            <TouchableOpacity style={[s.cta, { backgroundColor: colors.primary }]} onPress={handleStake}>
-              <Text style={[s.ctaText, { color: '#000' }]}>Confirm Stake</Text>
+            <TouchableOpacity disabled={submitting} style={[s.cta, { backgroundColor: colors.primary, opacity: submitting ? 0.6 : 1 }]} onPress={handleStake}>
+              {submitting ? <ActivityIndicator color="#000" /> : <Text style={[s.ctaText, { color: '#000' }]}>Confirm Stake</Text>}
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function coinSymbolFallback(coinId: number): string {
+  const map: Record<number, string> = { 1: 'INR', 2: 'USDT', 3: 'BTC', 4: 'ETH', 5: 'SOL', 6: 'BNB', 7: 'XRP' };
+  return map[coinId] || 'USDT';
 }
 
 const styles = (c: ReturnType<typeof useColors>) => StyleSheet.create({
@@ -287,10 +295,6 @@ const styles = (c: ReturnType<typeof useColors>) => StyleSheet.create({
   autoRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.secondary, borderRadius: 10, padding: 12, marginTop: 12 },
   autoTitle: { fontSize: 13, color: c.foreground, fontFamily: 'Inter_600SemiBold' },
   autoDesc: { fontSize: 11, color: c.mutedForeground, marginTop: 2 },
-  estBox: { backgroundColor: c.secondary, borderRadius: 10, padding: 12, marginTop: 12, gap: 6 },
-  estRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  estLbl: { fontSize: 12, color: c.mutedForeground, fontFamily: 'Inter_400Regular' },
-  estVal: { fontSize: 12, color: c.foreground, fontFamily: 'Inter_600SemiBold' },
   cta: { borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
   ctaText: { fontSize: 14, fontFamily: 'Inter_700Bold' },
 });

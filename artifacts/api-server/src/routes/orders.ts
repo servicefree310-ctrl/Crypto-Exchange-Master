@@ -1,0 +1,202 @@
+import { Router, type IRouter } from "express";
+import { eq, and, desc, sql } from "drizzle-orm";
+import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } from "@workspace/db";
+import { requireAuth } from "../middlewares/auth";
+
+const router: IRouter = Router();
+
+const VIP_FEES: Record<number, { maker: number; taker: number }> = {
+  0: { maker: 0.0020, taker: 0.0025 },
+  1: { maker: 0.0016, taker: 0.0020 },
+  2: { maker: 0.0012, taker: 0.0015 },
+  3: { maker: 0.0008, taker: 0.0010 },
+  4: { maker: 0.0006, taker: 0.0008 },
+  5: { maker: 0.0004, taker: 0.0006 },
+};
+
+async function ensureWallet(tx: any, userId: number, coinId: number, walletType: string) {
+  const [w] = await tx.select().from(walletsTable)
+    .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, coinId), eq(walletsTable.walletType, walletType)))
+    .for("update").limit(1);
+  if (w) return w;
+  const [created] = await tx.insert(walletsTable).values({
+    userId, coinId, walletType, balance: "0", locked: "0",
+  }).returning();
+  // Re-lock the just-created row
+  const [locked] = await tx.select().from(walletsTable).where(eq(walletsTable.id, created.id)).for("update").limit(1);
+  return locked;
+}
+
+router.get("/orders", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const status = (req.query.status as string) || "all";
+  const rows = status === "all"
+    ? await db.select().from(ordersTable).where(eq(ordersTable.userId, userId)).orderBy(desc(ordersTable.createdAt)).limit(200)
+    : await db.select().from(ordersTable).where(and(eq(ordersTable.userId, userId), eq(ordersTable.status, status))).orderBy(desc(ordersTable.createdAt)).limit(200);
+  res.json(rows);
+});
+
+router.get("/trades", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const rows = await db.select().from(tradesTable).where(eq(tradesTable.userId, userId)).orderBy(desc(tradesTable.createdAt)).limit(200);
+  res.json(rows);
+});
+
+router.post("/orders", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const vipTier = Math.max(0, Math.min(5, req.user!.vipTier ?? 0));
+  const { pairId, side, type, price, qty } = req.body ?? {};
+  if (!pairId || !["buy","sell"].includes(side) || !["limit","market"].includes(type)) {
+    res.status(400).json({ error: "pairId, side(buy/sell), type(limit/market) required" }); return;
+  }
+  const qtyNum = Number(qty);
+  if (!Number.isFinite(qtyNum) || qtyNum <= 0) { res.status(400).json({ error: "qty must be positive" }); return; }
+
+  try {
+    const created = await db.transaction(async (tx) => {
+      const [pair] = await tx.select().from(pairsTable).where(eq(pairsTable.id, Number(pairId))).limit(1);
+      if (!pair) { const e: any = new Error("Pair not found"); e.code = 404; throw e; }
+      if (!pair.tradingEnabled || pair.status !== "active") { const e: any = new Error("Trading disabled for this pair"); e.code = 400; throw e; }
+      if (pair.tradingStartAt && pair.tradingStartAt.getTime() > Date.now()) {
+        const e: any = new Error("Trading not yet started"); e.code = 400; throw e;
+      }
+      const minQty = Number(pair.minQty);
+      if (minQty > 0 && qtyNum < minQty) { const e: any = new Error(`Min qty is ${minQty}`); e.code = 400; throw e; }
+
+      // Determine effective price
+      let effPrice: number;
+      if (type === "market") {
+        effPrice = Number(pair.lastPrice);
+        if (!Number.isFinite(effPrice) || effPrice <= 0) { const e: any = new Error("Market price unavailable"); e.code = 400; throw e; }
+      } else {
+        effPrice = Number(price);
+        if (!Number.isFinite(effPrice) || effPrice <= 0) { const e: any = new Error("limit price required"); e.code = 400; throw e; }
+      }
+
+      const fees = VIP_FEES[vipTier] ?? VIP_FEES[0];
+      const feeRate = type === "market" ? fees.taker : fees.maker;
+      const isMarket = type === "market";
+
+      // Lock balances
+      let baseW: any = null, quoteW: any = null;
+      const notional = effPrice * qtyNum;
+
+      if (side === "buy") {
+        // Lock quote: notional + (taker fee on notional if market)
+        const lockQuote = notional * (isMarket ? (1 + feeRate) : 1);
+        quoteW = await ensureWallet(tx, userId, pair.quoteCoinId, "spot");
+        const bal = Number(quoteW.balance);
+        if (bal < lockQuote) { const e: any = new Error(`Insufficient quote balance (have ${bal.toFixed(8)}, need ${lockQuote.toFixed(8)})`); e.code = 400; throw e; }
+        await tx.update(walletsTable).set({
+          balance: sql`${walletsTable.balance} - ${lockQuote}`,
+          locked: sql`${walletsTable.locked} + ${lockQuote}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, quoteW.id));
+      } else {
+        // Sell: lock base = qty
+        baseW = await ensureWallet(tx, userId, pair.baseCoinId, "spot");
+        const bal = Number(baseW.balance);
+        if (bal < qtyNum) { const e: any = new Error(`Insufficient base balance (have ${bal.toFixed(8)}, need ${qtyNum.toFixed(8)})`); e.code = 400; throw e; }
+        await tx.update(walletsTable).set({
+          balance: sql`${walletsTable.balance} - ${qtyNum}`,
+          locked: sql`${walletsTable.locked} + ${qtyNum}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, baseW.id));
+      }
+
+      const [o] = await tx.insert(ordersTable).values({
+        userId, pairId: pair.id, side, type,
+        price: String(effPrice), qty: String(qtyNum),
+        status: isMarket ? "open" : "open",
+      }).returning();
+
+      // Market orders fill immediately at lastPrice
+      if (isMarket) {
+        const fee = notional * feeRate; // fee in quote currency
+        if (side === "buy") {
+          // Debit locked quote (notional+fee), credit base (qty)
+          const totalDebit = notional + fee;
+          await tx.update(walletsTable).set({
+            locked: sql`${walletsTable.locked} - ${totalDebit}`,
+            updatedAt: new Date(),
+          }).where(eq(walletsTable.id, quoteW.id));
+          const recvBase = await ensureWallet(tx, userId, pair.baseCoinId, "spot");
+          await tx.update(walletsTable).set({
+            balance: sql`${walletsTable.balance} + ${qtyNum}`,
+            updatedAt: new Date(),
+          }).where(eq(walletsTable.id, recvBase.id));
+        } else {
+          // Sell: release locked base; credit quote (notional - fee)
+          const credit = notional - fee;
+          await tx.update(walletsTable).set({
+            locked: sql`${walletsTable.locked} - ${qtyNum}`,
+            updatedAt: new Date(),
+          }).where(eq(walletsTable.id, baseW.id));
+          const recvQuote = await ensureWallet(tx, userId, pair.quoteCoinId, "spot");
+          await tx.update(walletsTable).set({
+            balance: sql`${walletsTable.balance} + ${credit}`,
+            updatedAt: new Date(),
+          }).where(eq(walletsTable.id, recvQuote.id));
+        }
+
+        await tx.insert(tradesTable).values({
+          orderId: o.id, userId, pairId: pair.id, side,
+          price: String(effPrice), qty: String(qtyNum), fee: String(fee),
+        });
+        const [filled] = await tx.update(ordersTable).set({
+          status: "filled", filledQty: String(qtyNum), avgPrice: String(effPrice),
+          fee: String(fee), updatedAt: new Date(),
+        }).where(eq(ordersTable.id, o.id)).returning();
+        return filled;
+      }
+      return o;
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "id required" }); return; }
+  try {
+    const cancelled = await db.transaction(async (tx) => {
+      const [o] = await tx.select().from(ordersTable).where(and(eq(ordersTable.id, id), eq(ordersTable.userId, userId))).for("update").limit(1);
+      if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
+      if (o.status !== "open" && o.status !== "partial") { const e: any = new Error(`Cannot cancel — status is ${o.status}`); e.code = 400; throw e; }
+      const [pair] = await tx.select().from(pairsTable).where(eq(pairsTable.id, o.pairId)).limit(1);
+      if (!pair) { const e: any = new Error("Pair missing"); e.code = 500; throw e; }
+      const remainingQty = Number(o.qty) - Number(o.filledQty);
+      const remainingPrice = Number(o.price);
+      if (o.side === "buy") {
+        // Released amount = remainingQty * price (limit orders don't pre-pay maker fee)
+        const release = remainingQty * remainingPrice;
+        const w = await ensureWallet(tx, userId, pair.quoteCoinId, "spot");
+        await tx.update(walletsTable).set({
+          balance: sql`${walletsTable.balance} + ${release}`,
+          locked: sql`${walletsTable.locked} - ${release}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      } else {
+        const w = await ensureWallet(tx, userId, pair.baseCoinId, "spot");
+        await tx.update(walletsTable).set({
+          balance: sql`${walletsTable.balance} + ${remainingQty}`,
+          locked: sql`${walletsTable.locked} - ${remainingQty}`,
+          updatedAt: new Date(),
+        }).where(eq(walletsTable.id, w.id));
+      }
+      const [updated] = await tx.update(ordersTable).set({ status: "cancelled", updatedAt: new Date() }).where(eq(ordersTable.id, id)).returning();
+      return updated;
+    });
+    res.json(cancelled);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+void coinsTable;
+export default router;
