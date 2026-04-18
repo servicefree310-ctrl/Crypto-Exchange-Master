@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { tradingApi } from "@/lib/api";
+import { tradingApi, api } from "@/lib/api";
 
 interface Candle { open: number; high: number; low: number; close: number; vol: number; time: string }
 interface OrderEntry { price: string; amount: string; total: string; depth: number }
@@ -27,59 +27,64 @@ const PAIR_CHANGE: Record<string, number> = {
   "ADA/USDT":-0.5,"XRP/USDT":1.8,"DOGE/USDT":3.1
 };
 
-function genCandles(base: number, n = 50): Candle[] {
-  const out: Candle[] = [];
-  let p = base * 0.96;
-  const now = Date.now();
-  for (let i = 0; i < n; i++) {
-    const open = p;
-    const move = (Math.random() - 0.47) * base * 0.014;
-    const close = Math.max(base * 0.5, open + move);
-    const high = Math.max(open, close) + Math.random() * base * 0.004;
-    const low  = Math.min(open, close) - Math.random() * base * 0.004;
-    const vol = Math.random() * 120 + 8;
-    const d = new Date(now - (n - i) * 3600000);
-    out.push({ open, high, low, close, vol, time: `${d.getHours()}:00` });
-    p = close;
-  }
-  return out;
+// UI ⇄ API mappers — live data from Redis-backed endpoints, no demo generation.
+const UI_TO_API_INTERVAL: Record<string, string> = {
+  "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+  "1H": "1h", "4H": "4h", "1D": "1d", "1W": "1w",
+};
+function fmtTime(ts: number, withSec = false): string {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (!withSec) return `${hh}:${mm}`;
+  return `${hh}:${mm}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
-
-function genOrderBook(base: number) {
-  const asks: OrderEntry[] = Array.from({ length: 10 }, (_, i) => {
-    const price = base + (10 - i) * base * 0.00018;
-    const amount = Math.random() * 3 + 0.05;
+function apiToUiCandles(raw: any[]): Candle[] {
+  return (raw || []).map((c: any) => {
+    const t = Number(c.time ?? c.ts ?? c.t ?? 0);
     return {
-      price: price.toFixed(base < 1 ? 5 : 2),
-      amount: amount.toFixed(base < 1 ? 0 : 4),
-      total: (price * amount).toFixed(2),
-      depth: Math.random() * 80 + 10,
+      open: Number(c.open) || 0,
+      high: Number(c.high) || 0,
+      low: Number(c.low) || 0,
+      close: Number(c.close) || 0,
+      vol: Number(c.volume ?? c.vol ?? 0),
+      time: t ? fmtTime(t) : "",
     };
   });
-  const bids: OrderEntry[] = Array.from({ length: 10 }, (_, i) => {
-    const price = base - i * base * 0.00018;
-    const amount = Math.random() * 3 + 0.05;
-    return {
-      price: price.toFixed(base < 1 ? 5 : 2),
-      amount: amount.toFixed(base < 1 ? 0 : 4),
-      total: (price * amount).toFixed(2),
-      depth: Math.random() * 80 + 10,
-    };
-  });
-  return { asks, bids };
 }
-
-function genTrades(base: number): Trade[] {
-  const now = Date.now();
-  return Array.from({ length: 20 }, (_, i) => {
-    const price = base * (1 + (Math.random() - 0.5) * 0.003);
-    const up = Math.random() > 0.45;
-    const d = new Date(now - i * 4000);
+function apiToUiBook(
+  bidsRaw: any[],
+  asksRaw: any[],
+  pricePrecision: number,
+  qtyPrecision: number
+): { asks: OrderEntry[]; bids: OrderEntry[] } {
+  const norm = (rows: any[]): [number, number][] =>
+    (rows || []).map((r: any) => Array.isArray(r) ? [Number(r[0]), Number(r[1])] : [Number(r.price), Number(r.qty ?? r.amount)] as [number, number]);
+  const bids = norm(bidsRaw).filter(([p, q]) => p > 0 && q > 0).slice(0, 10);
+  const asks = norm(asksRaw).filter(([p, q]) => p > 0 && q > 0).slice(0, 10);
+  const allQ = [...bids, ...asks].map(([, q]) => q);
+  const maxQ = Math.max(1e-9, ...allQ);
+  const map = ([p, q]: [number, number]): OrderEntry => ({
+    price: p.toFixed(pricePrecision),
+    amount: q.toFixed(qtyPrecision),
+    total: (p * q).toFixed(2),
+    depth: Math.min(100, (q / maxQ) * 100),
+  });
+  return { asks: asks.map(map).reverse(), bids: bids.map(map) };
+}
+function apiToUiTrades(raw: any[], pricePrecision: number, qtyPrecision: number): Trade[] {
+  let prev = 0;
+  return (raw || []).map((t: any, i: number) => {
+    const price = Number(t.price) || 0;
+    const qty = Number(t.qty ?? t.amount) || 0;
+    const ts = Number(t.ts ?? t.time ?? Date.now());
+    const up = t.side === "buy" || (price >= prev && prev > 0) || (i === 0 && t.side !== "sell");
+    prev = price;
     return {
-      id: `t${i}`,
-      price: price.toFixed(base < 1 ? 5 : 2),
-      amount: (Math.random() * 0.8 + 0.01).toFixed(4),
-      time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`,
+      id: String(t.id ?? `${ts}-${i}`),
+      price: price.toFixed(pricePrecision),
+      amount: qty.toFixed(qtyPrecision),
+      time: fmtTime(ts, true),
       up,
     };
   });
@@ -253,9 +258,9 @@ export default function TradeScreen() {
   }, [livePairs, queryPair]);
   const [showPairModal, setShowPairModal] = useState(false);
   const [interval_, setInterval_] = useState("1H");
-  const [candles, setCandles] = useState<Candle[]>(() => genCandles(64250));
-  const [orderBook, setOrderBook] = useState(() => genOrderBook(64250));
-  const [trades, setTrades] = useState<Trade[]>(() => genTrades(64250));
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [orderBook, setOrderBook] = useState<{ asks: OrderEntry[]; bids: OrderEntry[] }>({ asks: [], bids: [] });
+  const [trades, setTrades] = useState<Trade[]>([]);
   const [currentPrice, setCurrentPrice] = useState(64250.50);
   const prevPrice = useRef(64250.50);
   const [side, setSide] = useState<"buy"|"sell">("buy");
@@ -288,26 +293,73 @@ export default function TradeScreen() {
   const total = price && amount ? (parseFloat(price||"0")*parseFloat(amount||"0")).toFixed(2) : "0.00";
   const priceUp = currentPrice >= prevPrice.current;
 
-  useEffect(() => {
-    setCurrentPrice(basePrice);
-    setPrice(basePrice.toFixed(2));
-    setCandles(genCandles(basePrice));
-    setOrderBook(genOrderBook(basePrice));
-    setTrades(genTrades(basePrice));
-  }, [pair]);
+  // Precision for price/qty display, derived from quote
+  const pricePrec = isInr ? 2 : (basePrice >= 1 ? 2 : 5);
+  const qtyPrec = basePrice >= 1000 ? 4 : (basePrice >= 1 ? 4 : 2);
 
+  // Drive currentPrice from WS-fed livePriceMap; reset price input on pair change
   useEffect(() => {
-    const iv = setInterval(() => {
-      const next = currentPrice * (1 + (Math.random() - 0.499) * 0.0008);
-      prevPrice.current = currentPrice;
-      setCurrentPrice(next);
-      setOrderBook(genOrderBook(next));
-      setTrades(prev => {
-        const t = genTrades(next);
-        return [t[0], ...prev.slice(0, 19)];
-      });
-    }, 1200);
-    return () => clearInterval(iv);
+    if (!basePrice) return;
+    prevPrice.current = currentPrice || basePrice;
+    setCurrentPrice(basePrice);
+    setPrice(basePrice.toFixed(pricePrec));
+  }, [basePrice]);
+
+  // Initial + interval/pair change: fetch live candles, orderbook, recent trades
+  useEffect(() => {
+    let cancel = false;
+    const sym = pair.replace("/", "").toUpperCase();
+    const apiInt = UI_TO_API_INTERVAL[interval_] || "1m";
+    (async () => {
+      try {
+        const [cRes, ob, tr] = await Promise.all([
+          api.get<any>(`/klines?symbol=${encodeURIComponent(sym)}&interval=${apiInt}&limit=80&source=auto`).catch(() => null),
+          tradingApi.getOrderbook(sym).catch(() => ({ bids: [], asks: [] })),
+          tradingApi.getTrades(sym).catch(() => []),
+        ]);
+        if (cancel) return;
+        const rawCandles = (cRes?.candles ?? cRes ?? []) as any[];
+        setCandles(apiToUiCandles(rawCandles));
+        setOrderBook(apiToUiBook(ob.bids, ob.asks, pricePrec, qtyPrec));
+        setTrades(apiToUiTrades(tr, pricePrec, qtyPrec));
+      } catch { /* keep previous */ }
+    })();
+    return () => { cancel = true; };
+  }, [pair, interval_, pricePrec, qtyPrec]);
+
+  // Poll Redis-backed orderbook + recent trades every 1.5s for live updates
+  useEffect(() => {
+    const sym = pair.replace("/", "").toUpperCase();
+    const tick = async () => {
+      try {
+        const [ob, tr] = await Promise.all([
+          tradingApi.getOrderbook(sym),
+          tradingApi.getTrades(sym),
+        ]);
+        setOrderBook(apiToUiBook(ob.bids, ob.asks, pricePrec, qtyPrec));
+        setTrades(apiToUiTrades(tr, pricePrec, qtyPrec));
+      } catch {}
+    };
+    const id = setInterval(tick, 1500);
+    return () => clearInterval(id);
+  }, [pair, pricePrec, qtyPrec]);
+
+  // Live-update last candle's close/high/low from WS price ticks
+  useEffect(() => {
+    if (!currentPrice) return;
+    setCandles(prev => {
+      if (!prev.length) return prev;
+      const last = prev[prev.length - 1];
+      const close = currentPrice;
+      if (close === last.close) return prev;
+      const updated: Candle = {
+        ...last,
+        close,
+        high: Math.max(last.high, close),
+        low: last.low > 0 ? Math.min(last.low, close) : close,
+      };
+      return [...prev.slice(0, -1), updated];
+    });
   }, [currentPrice]);
 
   const handlePct = useCallback((p: number) => {
@@ -364,7 +416,7 @@ export default function TradeScreen() {
         <View style={[styles.intervalRow, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 2 }}>
             {INTERVALS.map(iv => (
-              <TouchableOpacity key={iv} onPress={() => { setInterval_(iv); setCandles(genCandles(basePrice)); }}>
+              <TouchableOpacity key={iv} onPress={() => { setInterval_(iv); }}>
                 <Text style={[styles.intervalTab, { color: interval_ === iv ? colors.primary : colors.mutedForeground, borderBottomColor: interval_ === iv ? colors.primary : "transparent" }]}>{iv}</Text>
               </TouchableOpacity>
             ))}

@@ -176,8 +176,8 @@ export const marketApi = {
     const m = new Map(coins.map(c => [c.id, c]));
     return pairs.map(p => pairToMarket(p, m));
   },
-  getCandles: async (symbol: string, count = 100): Promise<any[]> => {
-    const data = await api.get<any>(`/klines?symbol=${encodeURIComponent(symbol)}&interval=1m&limit=${count}&source=auto`);
+  getCandles: async (symbol: string, count = 100, interval = "1m"): Promise<any[]> => {
+    const data = await api.get<any>(`/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${count}&source=auto`);
     const candles = Array.isArray(data) ? data : (data?.candles ?? []);
     return candles.map((c: any) => ({
       time: c.time ?? c.t ?? c[0],
@@ -189,12 +189,15 @@ export const marketApi = {
     }));
   },
   getOrderbook: async (symbol: string): Promise<{ bids: [number, number][]; asks: [number, number][] }> => {
-    const r = await api.get<any>(`/orderbook?symbol=${encodeURIComponent(symbol)}`);
+    // Redis-backed endpoint — symbol is no-slash form (e.g. BTCINR, BTCUSDT)
+    const sym = String(symbol).replace("/", "").toUpperCase();
+    const r = await api.get<any>(`/orderbook/${encodeURIComponent(sym)}?levels=20`);
     return { bids: r?.bids ?? [], asks: r?.asks ?? [] };
   },
   getTrades: async (symbol: string): Promise<any[]> => {
-    const r = await api.get<any[]>(`/recent-trades?symbol=${encodeURIComponent(symbol)}`);
-    return Array.isArray(r) ? r : [];
+    const sym = String(symbol).replace("/", "").toUpperCase();
+    const r = await api.get<any>(`/trades/${encodeURIComponent(sym)}/recent?limit=30`);
+    return Array.isArray(r?.trades) ? r.trades : (Array.isArray(r) ? r : []);
   },
 };
 
