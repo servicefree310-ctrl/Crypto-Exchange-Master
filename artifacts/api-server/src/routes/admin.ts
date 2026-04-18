@@ -32,6 +32,7 @@ import { sanitizeUser } from "../lib/auth";
 import { encryptSecret, maskSecret, decryptSecret } from "../lib/crypto-vault";
 import { testNode } from "../lib/node-test";
 import { getSweeperStatus, manualScan, sweepAllNetworks, startDepositSweeper, stopDepositSweeper } from "../lib/deposit-sweeper";
+import { broadcastWithdrawal, getHotWalletBalance, isEvmChain, BroadcastError } from "../lib/auto-broadcaster";
 import { walletAddressesTable } from "@workspace/db";
 import { isVaultPasswordSet, setVaultPassword, verifyVaultPassword } from "../lib/admin-vault";
 import { isMnemonicConfigured, getMnemonicForReveal } from "../lib/hd-wallet";
@@ -788,6 +789,60 @@ router.patch("/admin/crypto-deposits/:id", adminOnly, async (req, res): Promise<
 });
 router.get("/admin/crypto-withdrawals", supportPlus, async (_req, res): Promise<void> => {
   res.json(await db.select().from(cryptoWithdrawalsTable).orderBy(desc(cryptoWithdrawalsTable.createdAt)).limit(500));
+});
+router.get("/admin/crypto-withdrawals/stats", supportPlus, async (_req, res): Promise<void> => {
+  const all = await db.select().from(cryptoWithdrawalsTable);
+  const since = Date.now() - 24 * 3600 * 1000;
+  const pending = all.filter((w) => w.status === "pending");
+  const today = all.filter((w) => new Date(w.createdAt).getTime() >= since);
+  const completed = all.filter((w) => w.status === "completed");
+  const rejected = all.filter((w) => w.status === "rejected");
+  const totalLocked = pending.reduce((s, w) => s + Number(w.amount), 0);
+  res.json({
+    pending: pending.length,
+    completed: completed.length,
+    rejected: rejected.length,
+    today: today.length,
+    todayVolume: today.reduce((s, w) => s + Number(w.amount), 0),
+    totalLocked,
+  });
+});
+router.post("/admin/crypto-withdrawals/:id/auto-send", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  try {
+    const result = await broadcastWithdrawal(id, req.user!.id);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e instanceof BroadcastError) { res.status(e.code).json({ error: e.message }); return; }
+    res.status(500).json({ error: (e as Error).message || "Broadcast failed" });
+  }
+});
+router.get("/admin/networks/:id/hot-wallet", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  try {
+    const bal = await getHotWalletBalance(id);
+    res.json(bal);
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+router.get("/admin/networks/auto-send-supported", supportPlus, async (_req, res): Promise<void> => {
+  const networks = await db.select().from(networksTable);
+  res.json(networks.map((n) => ({
+    id: n.id,
+    name: n.name,
+    chain: n.chain,
+    coinId: n.coinId,
+    autoSendSupported: isEvmChain(n.chain) && !!n.hotWalletAddress && !!n.hotWalletPrivateKeyEnc && !!n.nodeAddress,
+    hotWalletConfigured: !!n.hotWalletAddress && !!n.hotWalletPrivateKeyEnc,
+    rpcConfigured: !!n.nodeAddress,
+    isEvm: isEvmChain(n.chain),
+    minWithdraw: n.minWithdraw,
+    withdrawFee: n.withdrawFee,
+    withdrawEnabled: n.withdrawEnabled,
+  })));
 });
 router.patch("/admin/crypto-withdrawals/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
