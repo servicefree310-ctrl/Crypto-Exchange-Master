@@ -1,0 +1,58 @@
+import { pgTable, text, serial, timestamp, integer, boolean, numeric } from "drizzle-orm/pg-core";
+
+export const coinsTable = pgTable("coins", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull().unique(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("crypto"),
+  decimals: integer("decimals").notNull().default(8),
+  logoUrl: text("logo_url"),
+  description: text("description"),
+  status: text("status").notNull().default("active"),
+  isListed: boolean("is_listed").notNull().default(true),
+  listingAt: timestamp("listing_at", { withTimezone: true }),
+  marketCapRank: integer("market_cap_rank"),
+  currentPrice: numeric("current_price", { precision: 24, scale: 8 }).notNull().default("0"),
+  change24h: numeric("change_24h", { precision: 10, scale: 4 }).notNull().default("0"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type Coin = typeof coinsTable.$inferSelect;
+
+export const networksTable = pgTable("networks", {
+  id: serial("id").primaryKey(),
+  coinId: integer("coin_id").notNull(),
+  name: text("name").notNull(),
+  chain: text("chain").notNull(),
+  contractAddress: text("contract_address"),
+  minDeposit: numeric("min_deposit", { precision: 24, scale: 8 }).notNull().default("0"),
+  minWithdraw: numeric("min_withdraw", { precision: 24, scale: 8 }).notNull().default("0"),
+  withdrawFee: numeric("withdraw_fee", { precision: 24, scale: 8 }).notNull().default("0"),
+  confirmations: integer("confirmations").notNull().default(12),
+  depositEnabled: boolean("deposit_enabled").notNull().default(true),
+  withdrawEnabled: boolean("withdraw_enabled").notNull().default(true),
+  nodeAddress: text("node_address"),
+  memoRequired: boolean("memo_required").notNull().default(false),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Network = typeof networksTable.$inferSelect;
+
+export const pairsTable = pgTable("pairs", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull().unique(),
+  baseCoinId: integer("base_coin_id").notNull(),
+  quoteCoinId: integer("quote_coin_id").notNull(),
+  minQty: numeric("min_qty", { precision: 24, scale: 8 }).notNull().default("0"),
+  maxQty: numeric("max_qty", { precision: 24, scale: 8 }).notNull().default("0"),
+  pricePrecision: integer("price_precision").notNull().default(2),
+  qtyPrecision: integer("qty_precision").notNull().default(4),
+  takerFee: numeric("taker_fee", { precision: 6, scale: 4 }).notNull().default("0.001"),
+  makerFee: numeric("maker_fee", { precision: 6, scale: 4 }).notNull().default("0.001"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Pair = typeof pairsTable.$inferSelect;
