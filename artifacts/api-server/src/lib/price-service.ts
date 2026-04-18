@@ -107,6 +107,8 @@ async function tick() {
       const base = coins.find(x => x.id === p.baseCoinId);
       const quote = coins.find(x => x.id === p.quoteCoinId);
       if (!base || !quote) continue;
+      // Skip auto-update if base coin uses manual price — admin's manual pair edit should persist
+      if (base.priceSource === "manual") continue;
       const bPx = cache.get(base.symbol)?.usdt ?? 0;
       const qPx = cache.get(quote.symbol)?.usdt ?? 1;
       if (bPx > 0 && qPx > 0) {

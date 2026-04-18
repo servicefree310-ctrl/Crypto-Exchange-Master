@@ -63,6 +63,9 @@ function PairForm({ initial, coins, onSubmit }: { initial?: Partial<Pair>; coins
         <div><Label>Qty Precision</Label><Input type="number" value={v.qtyPrecision ?? 4} onChange={(e) => setV({ ...v, qtyPrecision: Number(e.target.value) })} /></div>
         <div><Label>Taker Fee (decimal)</Label><Input value={v.takerFee || "0.001"} onChange={(e) => setV({ ...v, takerFee: e.target.value })} /></div>
         <div><Label>Maker Fee (decimal)</Label><Input value={v.makerFee || "0.001"} onChange={(e) => setV({ ...v, makerFee: e.target.value })} /></div>
+        <div><Label>Last Price (manual override)</Label><Input value={v.lastPrice ?? ""} onChange={(e) => setV({ ...v, lastPrice: e.target.value })} placeholder="auto from feed" /></div>
+        <div><Label>24h Change %</Label><Input value={v.change24h ?? ""} onChange={(e) => setV({ ...v, change24h: e.target.value })} placeholder="auto" /></div>
+        <div><Label>24h Volume</Label><Input value={v.volume24h ?? ""} onChange={(e) => setV({ ...v, volume24h: e.target.value })} placeholder="auto" /></div>
         <div><Label>Spot Trading Start</Label><Input type="datetime-local" value={v.tradingStartAt ? new Date(v.tradingStartAt).toISOString().slice(0,16) : ""} onChange={(e) => setV({ ...v, tradingStartAt: e.target.value || null })} /></div>
         <div><Label>Futures Start</Label><Input type="datetime-local" value={v.futuresStartAt ? new Date(v.futuresStartAt).toISOString().slice(0,16) : ""} onChange={(e) => setV({ ...v, futuresStartAt: e.target.value || null })} /></div>
         <div><Label>Status</Label>
