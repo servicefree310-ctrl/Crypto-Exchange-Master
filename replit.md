@@ -69,3 +69,10 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 - Mobile chain wired: OtpModal returns otpId → withdraw screens pass it to AppContext.withdrawInrApi/withdrawCryptoApi → /api includes it in body
 - KYC admin approval changed to monotonic: `kycLevel = GREATEST(users.kycLevel, rec.level)` — approving older lower-level record never downgrades user
 - E2E verified: withdraw without otpId → 400; with valid otpId → success (wallet 49000/1000); replay same otpId → "OTP already used or expired"; submit L1+L2 then approve L2 first then L1 → final kycLevel stays at 2
+
+## Phase 6 Complete (Apr 18 2026) — Deposits (INR + Crypto)
+- Backend: `/gateways?direction=deposit` (public), `/inr-deposits` GET+POST (UTR ≥6ch + min/max), `/crypto-deposits` GET, `/crypto-deposits/notify` POST (requires deposit-address); admin PATCH `/admin/inr-deposits/:id` and `/admin/crypto-deposits/:id` credit wallets atomically on completion
+- Seeded 4 deposit gateways (UPI, IMPS, NEFT, RTGS) with JSON config (UPI ID/account/IFSC/bank)
+- Mobile (deposit-inr.tsx, deposit-crypto.tsx): live gateways + form + history; deterministic crypto address via API + tx-hash claim
+- Admin (crypto-deposits.tsx): Approve/Reject with confirmations prompt
+- Hardening: wallet credit uses `onConflictDoUpdate` keyed on (userId, walletType, coinId) for race-safe upsert; `/crypto-deposits/notify` rejects duplicate (networkId, txHash) with 409

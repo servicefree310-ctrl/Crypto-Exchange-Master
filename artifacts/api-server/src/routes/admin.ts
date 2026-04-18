@@ -409,6 +409,44 @@ router.patch("/admin/inr-withdrawals/:id", adminOnly, async (req, res): Promise<
 router.get("/admin/crypto-deposits", supportPlus, async (_req, res): Promise<void> => {
   res.json(await db.select().from(cryptoDepositsTable).orderBy(desc(cryptoDepositsTable.createdAt)).limit(500));
 });
+router.patch("/admin/crypto-deposits/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const { status, confirmations } = req.body ?? {};
+  if (!["completed", "rejected", "pending"].includes(status)) {
+    res.status(400).json({ error: "Invalid status" }); return;
+  }
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(cryptoDepositsTable).where(eq(cryptoDepositsTable.id, id)).for("update").limit(1);
+      if (!current) { const e: any = new Error("Not found"); e.code = 404; throw e; }
+      if (current.status === status) return current;
+      if (current.status !== "pending") {
+        const e: any = new Error("Can only transition pending deposits"); e.code = 400; throw e;
+      }
+      // Credit on completion — atomic upsert keyed on the (userId, walletType, coinId) unique index
+      if (status === "completed") {
+        const amt = Number(current.amount);
+        await tx.insert(walletsTable).values({
+          userId: current.userId, coinId: current.coinId, walletType: "spot",
+          balance: String(amt), locked: "0",
+        }).onConflictDoUpdate({
+          target: [walletsTable.userId, walletsTable.walletType, walletsTable.coinId],
+          set: { balance: sql`${walletsTable.balance} + ${amt}`, updatedAt: new Date() },
+        });
+      }
+      const [d] = await tx.update(cryptoDepositsTable).set({
+        status,
+        confirmations: typeof confirmations === "number" ? confirmations : current.confirmations,
+        processedAt: new Date(),
+      }).where(eq(cryptoDepositsTable.id, id)).returning();
+      return d;
+    });
+    res.json(updated);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
 router.get("/admin/crypto-withdrawals", supportPlus, async (_req, res): Promise<void> => {
   res.json(await db.select().from(cryptoWithdrawalsTable).orderBy(desc(cryptoWithdrawalsTable.createdAt)).limit(500));
 });

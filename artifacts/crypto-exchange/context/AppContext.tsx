@@ -185,6 +185,12 @@ interface AppContextType {
   removeBankApi: (id: number) => Promise<void>;
   withdrawInrApi: (bankId: number, amount: number, otpId: number) => Promise<any>;
   withdrawCryptoApi: (data: { coinId: number; networkId: number; amount: number; toAddress: string; memo?: string; otpId: number }) => Promise<any>;
+  fetchDepositGateways: () => Promise<any[]>;
+  submitInrDepositApi: (data: { gatewayId: number; amount: number; utr?: string; notes?: string }) => Promise<any>;
+  fetchInrDeposits: () => Promise<any[]>;
+  fetchDepositAddress: (coinId: number, networkId: number) => Promise<any>;
+  notifyCryptoDepositApi: (data: { coinId: number; networkId: number; amount: number; txHash: string }) => Promise<any>;
+  fetchCryptoDeposits: () => Promise<any[]>;
   coins: Coin[];
   walletBalances: WalletBalance[];
   updateBalance: (symbol: string, walletType: WalletType, delta: number) => void;
@@ -385,6 +391,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return wd;
   };
 
+  const fetchDepositGateways = async () => {
+    try { return await api.get<any[]>('/gateways?direction=deposit'); } catch { return []; }
+  };
+  const submitInrDepositApi = async (data: { gatewayId: number; amount: number; utr?: string; notes?: string }) => {
+    return await api.post('/inr-deposits', data);
+  };
+  const fetchInrDeposits = async () => {
+    try { return await api.get<any[]>('/inr-deposits'); } catch { return []; }
+  };
+  const fetchDepositAddress = async (coinId: number, networkId: number) => {
+    return await api.get<any>(`/deposit-address?coinId=${coinId}&networkId=${networkId}`);
+  };
+  const notifyCryptoDepositApi = async (data: { coinId: number; networkId: number; amount: number; txHash: string }) => {
+    return await api.post('/crypto-deposits/notify', data);
+  };
+  const fetchCryptoDeposits = async () => {
+    try { return await api.get<any[]>('/crypto-deposits'); } catch { return []; }
+  };
+
   const apiUserToUser = (u: ApiUser): User => ({
     ...defaultUser,
     uid: u.uid,
@@ -523,6 +548,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apiWallets, apiBanks, apiCoins,
       refreshWallets, refreshBanks, refreshCoins, fetchNetworks,
       addBankApi, removeBankApi, withdrawInrApi, withdrawCryptoApi,
+      fetchDepositGateways, submitInrDepositApi, fetchInrDeposits,
+      fetchDepositAddress, notifyCryptoDepositApi, fetchCryptoDeposits,
       coins, walletBalances, updateBalance,
       orders, addOrder, cancelOrder, updateOrderFill,
       positions, transactions, addTransaction,

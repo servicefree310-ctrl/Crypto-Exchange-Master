@@ -7,10 +7,14 @@ import {
   bankAccountsTable,
   inrWithdrawalsTable,
   cryptoWithdrawalsTable,
+  inrDepositsTable,
+  cryptoDepositsTable,
   networksTable,
   kycRecordsTable,
   kycSettingsTable,
   usersTable,
+  gatewaysTable,
+  depositAddressesTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { consumeVerifiedOtp } from "./otp";
@@ -321,5 +325,118 @@ router.get("/refer/stats", requireAuth, async (req, res): Promise<void> => {
 
 // ─── OTP-protected withdraw confirm (optional convenience) ────────────────────
 // Real OTP wiring lives inside the withdraw POSTs above when an `otpId` is supplied.
+
+// ─── Payment gateways (public list — only active deposit gateways) ────────────
+router.get("/gateways", async (req, res): Promise<void> => {
+  const direction = typeof req.query.direction === "string" ? req.query.direction : "deposit";
+  const rows = await db
+    .select({
+      id: gatewaysTable.id, code: gatewaysTable.code, name: gatewaysTable.name,
+      type: gatewaysTable.type, direction: gatewaysTable.direction,
+      minAmount: gatewaysTable.minAmount, maxAmount: gatewaysTable.maxAmount,
+      feeFlat: gatewaysTable.feeFlat, feePercent: gatewaysTable.feePercent,
+      processingTime: gatewaysTable.processingTime, isAuto: gatewaysTable.isAuto,
+      config: gatewaysTable.config,
+    })
+    .from(gatewaysTable)
+    .where(and(eq(gatewaysTable.status, "active"), eq(gatewaysTable.direction, direction)))
+    .orderBy(gatewaysTable.id);
+  res.json(rows);
+});
+
+// ─── INR Deposits ─────────────────────────────────────────────────────────────
+router.get("/inr-deposits", requireAuth, async (req, res): Promise<void> => {
+  const rows = await db.select().from(inrDepositsTable)
+    .where(eq(inrDepositsTable.userId, req.user!.id))
+    .orderBy(desc(inrDepositsTable.createdAt));
+  res.json(rows);
+});
+
+router.post("/inr-deposits", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const { gatewayId, amount, utr, notes } = req.body ?? {};
+  const amt = Number(amount);
+  if (!gatewayId || !Number.isFinite(amt) || amt <= 0) {
+    res.status(400).json({ error: "gatewayId and positive amount required" }); return;
+  }
+  const [g] = await db.select().from(gatewaysTable).where(eq(gatewaysTable.id, Number(gatewayId))).limit(1);
+  if (!g) { res.status(404).json({ error: "Gateway not found" }); return; }
+  if (g.status !== "active" || g.direction !== "deposit") {
+    res.status(400).json({ error: "Gateway not available for deposits" }); return;
+  }
+  const min = Number(g.minAmount), max = Number(g.maxAmount);
+  if (min > 0 && amt < min) { res.status(400).json({ error: `Minimum deposit is ₹${min}` }); return; }
+  if (max > 0 && amt > max) { res.status(400).json({ error: `Maximum deposit is ₹${max}` }); return; }
+
+  // Manual gateways (UPI/IMPS/NEFT/RTGS) need a UTR claim. Auto gateways may not.
+  if (!g.isAuto && (!utr || String(utr).trim().length < 6)) {
+    res.status(400).json({ error: "UTR / Transaction reference required (min 6 chars)" }); return;
+  }
+
+  const fee = +(Number(g.feeFlat) + (amt * Number(g.feePercent) / 100)).toFixed(2);
+  const refId = `DINR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+
+  try {
+    const [row] = await db.insert(inrDepositsTable).values({
+      userId, gatewayId: Number(gatewayId), amount: String(amt), fee: String(fee),
+      refId, utr: utr ? String(utr).trim() : null, status: "pending",
+      notes: notes ? String(notes).slice(0, 500) : null,
+    }).returning();
+    res.status(201).json(row);
+  } catch (e: any) {
+    if (typeof e?.message === "string" && e.message.includes("ref_id")) {
+      res.status(409).json({ error: "Duplicate reference, please retry" }); return;
+    }
+    throw e;
+  }
+});
+
+// ─── Crypto Deposits ──────────────────────────────────────────────────────────
+router.get("/crypto-deposits", requireAuth, async (req, res): Promise<void> => {
+  const rows = await db.select().from(cryptoDepositsTable)
+    .where(eq(cryptoDepositsTable.userId, req.user!.id))
+    .orderBy(desc(cryptoDepositsTable.createdAt));
+  res.json(rows);
+});
+
+router.post("/crypto-deposits/notify", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const { coinId, networkId, amount, txHash } = req.body ?? {};
+  const amt = Number(amount);
+  if (!coinId || !networkId || !Number.isFinite(amt) || amt <= 0 || !txHash) {
+    res.status(400).json({ error: "coinId, networkId, positive amount, txHash required" }); return;
+  }
+  const tx = String(txHash).trim();
+  if (tx.length < 10) { res.status(400).json({ error: "Invalid txHash" }); return; }
+
+  const [network] = await db.select().from(networksTable).where(eq(networksTable.id, Number(networkId))).limit(1);
+  if (!network) { res.status(404).json({ error: "Network not found" }); return; }
+  if (network.coinId !== Number(coinId)) { res.status(400).json({ error: "Network does not belong to this coin" }); return; }
+  if (network.status !== "active") { res.status(400).json({ error: "Network is not active" }); return; }
+  const minDep = Number(network.minDeposit ?? 0);
+  if (minDep > 0 && amt < minDep) { res.status(400).json({ error: `Minimum deposit is ${minDep}` }); return; }
+
+  // Reuse user's deterministic address (must already exist via /deposit-address)
+  const [addr] = await db.select().from(depositAddressesTable).where(and(
+    eq(depositAddressesTable.userId, userId),
+    eq(depositAddressesTable.coinId, Number(coinId)),
+    eq(depositAddressesTable.networkId, Number(networkId)),
+  )).limit(1);
+  if (!addr) { res.status(400).json({ error: "Generate a deposit address first" }); return; }
+
+  // Idempotency: reject if a deposit with this txHash on this network already exists
+  const [dup] = await db.select({ id: cryptoDepositsTable.id }).from(cryptoDepositsTable).where(and(
+    eq(cryptoDepositsTable.networkId, Number(networkId)),
+    eq(cryptoDepositsTable.txHash, tx),
+  )).limit(1);
+  if (dup) { res.status(409).json({ error: "This transaction hash has already been submitted" }); return; }
+
+  const [row] = await db.insert(cryptoDepositsTable).values({
+    userId, coinId: Number(coinId), networkId: Number(networkId),
+    amount: String(amt), address: addr.address, txHash: tx,
+    confirmations: 0, status: "pending",
+  }).returning();
+  res.status(201).json(row);
+});
 
 export default router;
