@@ -18,6 +18,22 @@ export const settingsTable = pgTable("app_settings", {
 
 export type AppSetting = typeof settingsTable.$inferSelect;
 
+export const cacheConfigsTable = pgTable("cache_configs", {
+  cacheKey: text("cache_key").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description").notNull().default(""),
+  category: text("category").notNull().default("misc"),
+  ttlSec: integer("ttl_sec").notNull().default(60),
+  enabled: boolean("enabled").notNull().default(true),
+  cacheOnServer: boolean("cache_on_server").notNull().default(true),
+  cacheOnMobile: boolean("cache_on_mobile").notNull().default(true),
+  cacheOnWeb: boolean("cache_on_web").notNull().default(true),
+  pattern: text("pattern").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type CacheConfig = typeof cacheConfigsTable.$inferSelect;
+
 export const referralsTable = pgTable("referrals", {
   id: serial("id").primaryKey(),
   referrerId: integer("referrer_id").notNull(),

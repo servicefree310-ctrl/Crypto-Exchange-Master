@@ -15,6 +15,7 @@ import feesRouter from "./fees";
 import securityRouter from "./security";
 import klinesRouter from "./klines";
 import promoRouter from "./promo";
+import redisAdminRouter from "./redis-admin";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(feesRouter);
 router.use(securityRouter);
 router.use(klinesRouter);
 router.use(promoRouter);
+router.use("/admin", redisAdminRouter);
 
 export default router;

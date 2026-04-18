@@ -8,6 +8,7 @@ import { startDepositSweeper } from "./lib/deposit-sweeper";
 import { startWithdrawalWatcher } from "./lib/withdrawal-watcher";
 import { startFuturesEngine } from "./lib/futures-engine";
 import { initRedis, shutdownRedis } from "./lib/redis";
+import { seedCacheConfigs } from "./routes/redis-admin";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -29,6 +30,7 @@ wss.on("connection", (ws) => {
 server.listen(port, async () => {
   logger.info({ port }, "Server listening (HTTP + WS /api/ws/prices)");
   await initRedis();
+  try { await seedCacheConfigs(); } catch (e: any) { logger.warn({ err: e?.message }, "cache config seed failed"); }
   startPriceService(1000);
   startBotService(3000);
   startDepositSweeper(30000);

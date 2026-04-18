@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Users, Coins as CoinsIcon, Network, ArrowLeftRight, Wallet, ShieldCheck,
   Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark, PiggyBank,
-  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Megaphone, Trophy
+  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Megaphone, Trophy, Database
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ const NAV = [
   { href: "/earn", label: "Earn Products", icon: PiggyBank, roles: ["support", "admin", "superadmin"] },
   { href: "/banners", label: "Home Banners", icon: Megaphone, roles: ["admin", "superadmin"] },
   { href: "/promotions", label: "Promotions", icon: Trophy, roles: ["admin", "superadmin"] },
+  { href: "/redis", label: "Redis Cache", icon: Database, roles: ["admin", "superadmin"] },
   { href: "/legal", label: "Legal CMS", icon: FileText, roles: ["support", "admin", "superadmin"] },
   { href: "/chat", label: "Live Chat", icon: MessageSquare, roles: ["support", "admin", "superadmin"] },
   { href: "/login-logs", label: "Login Logs", icon: Activity, roles: ["support", "admin", "superadmin"] },

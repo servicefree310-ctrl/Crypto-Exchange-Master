@@ -31,6 +31,7 @@ import OrdersPage from "@/pages/orders";
 import UserAddressesPage from "@/pages/user-addresses";
 import BannersPage from "@/pages/banners";
 import PromotionsPage from "@/pages/promotions";
+import RedisPage from "@/pages/redis";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -82,6 +83,7 @@ function Protected() {
         <Route path="/earn" component={EarnPage} />
         <Route path="/banners" component={BannersPage} />
         <Route path="/promotions" component={PromotionsPage} />
+        <Route path="/redis" component={RedisPage} />
         <Route path="/legal" component={LegalPage} />
         <Route path="/chat" component={ChatPage} />
         <Route path="/login-logs" component={LoginLogsPage} />
