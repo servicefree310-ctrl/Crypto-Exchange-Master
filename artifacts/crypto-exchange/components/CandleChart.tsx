@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ActivityIndicator, Dimensions, StyleSheet, Platform } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { View, Text, ActivityIndicator, Dimensions, StyleSheet, Platform, PanResponder, TouchableOpacity } from 'react-native';
 import Svg, { Rect, Line, Text as SvgText, Path, G } from 'react-native-svg';
+import { Feather } from '@expo/vector-icons';
 import { api } from '@/lib/api';
 import { useColors } from '@/hooks/useColors';
 
@@ -48,6 +49,38 @@ export function CandleChart({ symbol, interval, livePrice, height = 280, quoteSy
   const [error, setError] = useState<string | null>(null);
   const [width, setWidth] = useState(Dimensions.get('window').width - 32);
   const fetchedKey = useRef('');
+
+  // Zoom & pan state
+  const MIN_VISIBLE = 15;
+  const MAX_VISIBLE = 300;
+  const [visibleCount, setVisibleCount] = useState(90);
+  const [endOffset, setEndOffset] = useState(0); // candles back from latest (0 = latest)
+  const containerRef = useRef<View>(null);
+  const panState = useRef({ startCount: 90, startOffset: 0, startPinchDist: 0, startTwoFingerCount: 90 });
+
+  const clampVisible = (n: number) => Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, Math.round(n)));
+  const clampOffset = (o: number, total: number, vis: number) => Math.max(0, Math.min(o, Math.max(0, total - vis)));
+
+  const zoomIn = useCallback(() => setVisibleCount(v => clampVisible(v / 1.4)), []);
+  const zoomOut = useCallback(() => setVisibleCount(v => clampVisible(v * 1.4)), []);
+  const reset = useCallback(() => { setVisibleCount(90); setEndOffset(0); }, []);
+
+  // Web mouse wheel zoom
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node: any = containerRef.current;
+    if (!node) return;
+    const el: HTMLElement | null = (typeof (node as any).getBoundingClientRect === 'function') ? (node as any) : ((node as any)._nativeTag ? document.querySelector(`[data-chart-zoom="1"]`) : null);
+    const target: HTMLElement | null = el || (document.querySelector('[data-chart-zoom="1"]') as HTMLElement | null);
+    if (!target) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+      setVisibleCount(v => clampVisible(v * factor));
+    };
+    target.addEventListener('wheel', onWheel, { passive: false });
+    return () => target.removeEventListener('wheel', onWheel);
+  }, [width]);
 
   useEffect(() => {
     const sub = Dimensions.addEventListener('change', ({ window }) => setWidth(Math.min(window.width - 32, 1200)));
@@ -123,6 +156,39 @@ export function CandleChart({ symbol, interval, livePrice, height = 280, quoteSy
     volume: c.volume,
   })), [displayCandles, factor]);
 
+  // PanResponder must be created before any early return to keep hook order stable
+  const panResponderRef = useRef({ visibleCount: 90, endOffset: 0, candleW: 1, total: 0 });
+  panResponderRef.current = { visibleCount, endOffset, candleW: 1, total: scaled.length };
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2 || (g.numberActiveTouches ?? 0) >= 2,
+    onPanResponderGrant: (e) => {
+      panState.current.startCount = panResponderRef.current.visibleCount;
+      panState.current.startOffset = panResponderRef.current.endOffset;
+      const touches = (e.nativeEvent as any).touches || [];
+      if (touches.length >= 2) {
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        panState.current.startPinchDist = Math.hypot(dx, dy) || 1;
+        panState.current.startTwoFingerCount = panResponderRef.current.visibleCount;
+      }
+    },
+    onPanResponderMove: (e, g) => {
+      const touches = (e.nativeEvent as any).touches || [];
+      const cur = panResponderRef.current;
+      if (touches.length >= 2) {
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        const dist = Math.hypot(dx, dy) || 1;
+        const ratio = panState.current.startPinchDist / dist;
+        setVisibleCount(clampVisible(panState.current.startTwoFingerCount * ratio));
+      } else {
+        const dxCandles = Math.round((g.dx / Math.max(1, cur.candleW)) || 0);
+        setEndOffset(clampOffset(panState.current.startOffset + dxCandles, cur.total, cur.visibleCount));
+      }
+    },
+  }), []);
+
   if (loading && !scaled.length) {
     return (
       <View style={[chartStyles(colors).box, { height }]}>
@@ -153,8 +219,13 @@ export function CandleChart({ symbol, interval, livePrice, height = 280, quoteSy
   const priceHeight = height - padding.top - padding.bottom - volHeight - gap;
   const innerW = width - padding.left - padding.right;
 
-  const visible = scaled.slice(-90);
-  const candleW = innerW / visible.length;
+  const total = scaled.length;
+  const safeOffset = clampOffset(endOffset, total, visibleCount);
+  const endIdx = total - safeOffset;
+  const startIdx = Math.max(0, endIdx - visibleCount);
+  const visible = scaled.slice(startIdx, endIdx);
+  const candleW = innerW / Math.max(1, visible.length);
+  panResponderRef.current.candleW = candleW;
   const bodyGap = Math.max(0.5, candleW * 0.18);
 
   const highs = visible.map(c => c.high);
@@ -210,8 +281,12 @@ export function CandleChart({ symbol, interval, livePrice, height = 280, quoteSy
 
   return (
     <View
+      ref={containerRef}
+      // @ts-ignore web-only attribute used for wheel handler
+      dataSet={{ chartZoom: '1' }}
       style={[chartStyles(c).box, { height, padding: 0 }]}
       onLayout={(e) => setWidth(Math.max(280, e.nativeEvent.layout.width))}
+      {...panResponder.panHandlers}
     >
       <Svg width={width} height={height}>
         {/* Background grid */}
@@ -280,7 +355,22 @@ export function CandleChart({ symbol, interval, livePrice, height = 280, quoteSy
         <View style={{ width: 12 }} />
         <View style={[chartStyles(c).dot, { backgroundColor: '#0ECB81' }]} />
         <Text style={chartStyles(c).legendText}>Vol</Text>
-        {Platform.OS !== 'web' ? null : null}
+      </View>
+
+      {/* Zoom controls */}
+      <View style={chartStyles(c).zoomRow}>
+        <TouchableOpacity onPress={zoomIn} style={chartStyles(c).zoomBtn}>
+          <Feather name="zoom-in" size={13} color={c.foreground} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={zoomOut} style={chartStyles(c).zoomBtn}>
+          <Feather name="zoom-out" size={13} color={c.foreground} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={reset} style={chartStyles(c).zoomBtn}>
+          <Feather name="maximize-2" size={13} color={c.foreground} />
+        </TouchableOpacity>
+        <View style={chartStyles(c).zoomInfo}>
+          <Text style={chartStyles(c).zoomInfoText}>{visible.length}{safeOffset > 0 ? ` ←${safeOffset}` : ''}</Text>
+        </View>
       </View>
     </View>
   );
@@ -293,4 +383,8 @@ const chartStyles = (c: ReturnType<typeof useColors>) => StyleSheet.create({
   legendRow: { position: 'absolute', top: 26, left: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { color: c.mutedForeground, fontSize: 9, marginLeft: 3 },
+  zoomRow: { position: 'absolute', top: 8, right: 70, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  zoomBtn: { width: 24, height: 24, borderRadius: 6, backgroundColor: c.secondary + 'cc', alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: c.border },
+  zoomInfo: { paddingHorizontal: 6, height: 24, borderRadius: 6, backgroundColor: c.secondary + 'cc', alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: c.border, marginLeft: 2 },
+  zoomInfoText: { color: c.mutedForeground, fontSize: 9, fontWeight: '600' },
 });
