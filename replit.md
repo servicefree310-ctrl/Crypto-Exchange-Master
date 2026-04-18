@@ -33,7 +33,8 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 - **artifacts/crypto-exchange** — Expo mobile app (Binance/CoinDCX style: spot, futures planned, multi-wallet, KYC L0–3, VIP tiers, Earn, INR + crypto deposits/withdrawals, 1% TDS) — currently still uses mock context (next migration target)
 - **artifacts/admin** — Full admin web panel (dark navy + yellow Binance theme): 17 pages — dashboard, users, KYC reviews + level settings, banks approval, coins/networks/pairs/gateways CRUD, INR/crypto deposits + withdrawals approval, earn products, legal CMS (Markdown), settings KV, OTP providers, login logs, live chat with thread sidebar
 - **artifacts/api-server** — Express API: cookie sessions (`cx_session`), bcryptjs auth, `/auth`, `/admin`, `/public` routers, role-based middleware (`requireRole`)
-- **lib/db** — Drizzle schema (11 modules): users, kyc, banks, wallets, coins/networks/pairs, orders/trades, deposits/withdrawals (INR + crypto), gateways, earn, legal, settings, OTP providers, chat, login logs
+  - Public endpoints (auth-required where noted): `GET /coins`, `GET /networks?coinId`, `GET /pairs`, `GET /legal/:slug`, `GET /settings/:key`, `GET /earn-products`, `GET /deposit-address?coinId&networkId` (auth, deterministic + cached in DB), `GET /orders?status` (auth), `POST /orders` (auth, validates qty/price, market order uses live coin.currentPrice for fee/tds), `DELETE /orders/:id` (auth, only open/partial)
+- **lib/db** — Drizzle schema (12 modules): users, kyc, banks, wallets, coins/networks/pairs, orders/trades, deposits/withdrawals (INR + crypto), gateways, earn, legal, settings, OTP providers, chat, login logs, depositAddresses (unique per user/coin/network)
 - **scripts/src/seed.ts** — Idempotent seed: creates `admin@cryptox.in` (Admin@123, superadmin) and `demo@cryptox.in` (Demo@123, user); seeds 10 coins, 8 networks, 11 pairs, 5 gateways, 4 KYC levels, 4 legal pages, 5 earn products
 
 ### Roles

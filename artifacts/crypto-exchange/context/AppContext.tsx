@@ -174,6 +174,8 @@ interface AppContextType {
   updateBalance: (symbol: string, walletType: WalletType, delta: number) => void;
   orders: Order[];
   addOrder: (o: Order) => void;
+  cancelOrder: (id: string) => void;
+  updateOrderFill: (id: string, filled: number) => void;
   positions: Position[];
   transactions: Transaction[];
   addTransaction: (t: Transaction) => void;
@@ -403,6 +405,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addOrder = (o: Order) => setOrders(prev => [o, ...prev]);
+  const cancelOrder = (id: string) => setOrders(prev => prev.map(o => o.id === id && (o.status === 'open' || o.status === 'partial') ? { ...o, status: 'cancelled' } : o));
+  const updateOrderFill = (id: string, filled: number) => setOrders(prev => prev.map(o => {
+    if (o.id !== id) return o;
+    const fillPct = filled / o.quantity;
+    return { ...o, filled, status: fillPct >= 1 ? 'filled' : fillPct > 0 ? 'partial' : 'open' };
+  }));
   const addTransaction = (t: Transaction) => setTransactions(prev => [t, ...prev]);
   const addBank = (b: Bank) => setBanks(prev => [...prev, b]);
   const updateBankStatus = (id: string, status: Bank['status']) => {
@@ -420,7 +428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       language, setLanguage,
       user, setUser,
       coins, walletBalances, updateBalance,
-      orders, addOrder,
+      orders, addOrder, cancelOrder, updateOrderFill,
       positions, transactions, addTransaction,
       banks, addBank, updateBankStatus,
       loginLogs, activeSessions,

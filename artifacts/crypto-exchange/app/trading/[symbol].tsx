@@ -28,7 +28,7 @@ export default function TradingScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const router = useRouter();
   const colors = useColors();
-  const { coins, addOrder, walletBalances, botEnabled } = useApp();
+  const { coins, addOrder, walletBalances, botEnabled, orders, cancelOrder } = useApp();
 
   const base = symbol?.replace('INR', '') || 'BTC';
   const coin = coins.find(c => c.symbol === base) || coins[0];
@@ -58,9 +58,11 @@ export default function TradingScreen() {
   const handleOrder = () => {
     if (!qty || parseFloat(qty) <= 0) { Alert.alert('Error', 'Enter valid quantity'); return; }
     const orderPrice = orderType === 'market' ? coin.price : parseFloat(price);
-    const total = orderPrice * parseFloat(qty);
+    const qtyNum = parseFloat(qty);
+    const total = orderPrice * qtyNum;
     const fee = total * 0.002;
-    const tds = side === 'sell' ? total * 0.01 : 0;
+    const isMarket = orderType === 'market';
+    const tds = isMarket && side === 'sell' ? total * 0.01 : 0;
     const invoice = `INV-${Date.now().toString().slice(-8)}`;
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -70,13 +72,14 @@ export default function TradingScreen() {
       type: orderType,
       side,
       price: orderPrice,
-      quantity: parseFloat(qty),
-      filled: orderType === 'market' ? parseFloat(qty) : 0,
-      status: orderType === 'market' ? 'filled' : 'open',
+      quantity: qtyNum,
+      filled: isMarket ? qtyNum : 0,
+      status: isMarket ? 'filled' : 'open',
       timestamp: Date.now(),
       fee,
       tds,
       total,
+      invoiceId: invoice,
     });
 
     Alert.alert(
@@ -182,6 +185,70 @@ export default function TradingScreen() {
                 <Text style={s.obTotal}>{(b.total / 1000).toFixed(1)}K</Text>
               </View>
             ))}
+          </View>
+        )}
+
+        {tab === 'orders' && (
+          <View style={s.tradesSection}>
+            {orders.filter(o => o.symbol === `${base}/INR`).length === 0 ? (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <Feather name="inbox" size={28} color={colors.mutedForeground} />
+                <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 12, marginTop: 8 }}>No orders for {base}/INR</Text>
+              </View>
+            ) : (
+              orders.filter(o => o.symbol === `${base}/INR`).slice(0, 20).map(o => {
+                const fillPct = Math.min(100, Math.round((o.filled / o.quantity) * 100));
+                const statusColor = o.status === 'filled' ? colors.success : o.status === 'cancelled' ? colors.mutedForeground : o.status === 'partial' ? colors.warning : colors.primary;
+                return (
+                  <View key={o.id} style={s.myOrderCard}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: (o.side === 'buy' ? colors.success : colors.danger) + '22' }}>
+                          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: o.side === 'buy' ? colors.success : colors.danger, textTransform: 'uppercase' }}>{o.side} {o.type}</Text>
+                        </View>
+                        <Text style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: 'Inter_500Medium' }}>{new Date(o.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+                      </View>
+                      <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: statusColor + '22' }}>
+                        <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: statusColor, textTransform: 'uppercase' }}>{o.status}</Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <View>
+                        <Text style={s.myOrderLbl}>Price</Text>
+                        <Text style={s.myOrderVal}>₹{o.price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text>
+                      </View>
+                      <View>
+                        <Text style={s.myOrderLbl}>Qty</Text>
+                        <Text style={s.myOrderVal}>{o.quantity.toFixed(4)} {base}</Text>
+                      </View>
+                      <View>
+                        <Text style={s.myOrderLbl}>Total</Text>
+                        <Text style={s.myOrderVal}>₹{o.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text>
+                      </View>
+                    </View>
+                    <View style={{ marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={s.myOrderLbl}>Filled</Text>
+                        <Text style={[s.myOrderLbl, { color: colors.foreground, fontFamily: 'Inter_700Bold' }]}>{fillPct}% • {o.filled.toFixed(4)} {base}</Text>
+                      </View>
+                      <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' }}>
+                        <View style={{ height: '100%', width: `${fillPct}%`, backgroundColor: o.status === 'filled' ? colors.success : colors.primary }} />
+                      </View>
+                    </View>
+                    {(o.status === 'open' || o.status === 'partial') && (
+                      <TouchableOpacity onPress={() => {
+                        Alert.alert('Cancel Order?', `Cancel ${o.side} ${o.quantity} ${base} @ ₹${o.price}?`, [
+                          { text: 'Keep', style: 'cancel' },
+                          { text: 'Cancel Order', style: 'destructive', onPress: () => { cancelOrder(o.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } },
+                        ]);
+                      }} style={{ alignSelf: 'flex-end', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.danger }}>
+                        <Text style={{ color: colors.danger, fontFamily: 'Inter_600SemiBold', fontSize: 11 }}>Cancel</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })
+            )}
           </View>
         )}
 
@@ -358,4 +425,7 @@ const styles = (colors: ReturnType<typeof useColors>) => StyleSheet.create({
   totalValue: { fontSize: 12, color: colors.foreground, fontFamily: 'Inter_600SemiBold' },
   submitBtn: { borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_700Bold', color: '#fff' },
+  myOrderCard: { backgroundColor: colors.card, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: colors.border },
+  myOrderLbl: { fontSize: 10, color: colors.mutedForeground, fontFamily: 'Inter_500Medium', textTransform: 'uppercase' },
+  myOrderVal: { fontSize: 12, color: colors.foreground, fontFamily: 'Inter_700Bold', marginTop: 2 },
 });
