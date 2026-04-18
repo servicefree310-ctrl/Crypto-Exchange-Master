@@ -41,6 +41,14 @@ export const networksTable = pgTable("networks", {
   lastNodeCheckAt: timestamp("last_node_check_at", { withTimezone: true }),
   memoRequired: boolean("memo_required").notNull().default(false),
   status: text("status").notNull().default("active"),
+  providerType: text("provider_type").notNull().default("custom"),
+  rpcApiKey: text("rpc_api_key"),
+  hotWalletAddress: text("hot_wallet_address"),
+  hotWalletPrivateKeyEnc: text("hot_wallet_private_key_enc"),
+  explorerUrl: text("explorer_url"),
+  lastBlockHeight: integer("last_block_height"),
+  lastBlockScanned: integer("last_block_scanned"),
+  blockHeightCheckedAt: timestamp("block_height_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

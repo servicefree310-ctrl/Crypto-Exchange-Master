@@ -29,6 +29,8 @@ import {
 } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
+import { encryptSecret, maskSecret } from "../lib/crypto-vault";
+import { testNode } from "../lib/node-test";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -147,7 +149,29 @@ router.get("/admin/networks", supportPlus, async (req, res): Promise<void> => {
   const rows = coinId
     ? await db.select().from(networksTable).where(eq(networksTable.coinId, coinId))
     : await db.select().from(networksTable);
-  res.json(rows);
+  // Mask secrets before returning
+  const masked = rows.map(n => ({
+    ...n,
+    rpcApiKey: n.rpcApiKey ? maskSecret(n.rpcApiKey) : null,
+    rpcApiKeySet: !!n.rpcApiKey,
+    hotWalletPrivateKeyEnc: undefined,
+    hotWalletKeySet: !!n.hotWalletPrivateKeyEnc,
+  }));
+  res.json(masked);
+});
+
+router.post("/admin/networks/:id/test", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const [n] = await db.select().from(networksTable).where(eq(networksTable.id, id)).limit(1);
+  if (!n) { res.status(404).json({ error: "Not found" }); return; }
+  const result = await testNode({ providerType: n.providerType, chain: n.chain, rpcUrl: n.nodeAddress || "", apiKeyEnc: n.rpcApiKey });
+  await db.update(networksTable).set({
+    nodeStatus: result.ok ? "online" : "offline",
+    lastNodeCheckAt: new Date(),
+    lastBlockHeight: result.blockHeight ?? n.lastBlockHeight,
+    blockHeightCheckedAt: result.blockHeight ? new Date() : n.blockHeightCheckedAt,
+  }).where(eq(networksTable.id, id));
+  res.json(result);
 });
 router.post("/admin/networks", adminOnly, async (req, res): Promise<void> => {
   const b = req.body ?? {};
@@ -173,9 +197,23 @@ router.post("/admin/networks", adminOnly, async (req, res): Promise<void> => {
 });
 router.patch("/admin/networks/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const [n] = await db.update(networksTable).set(req.body).where(eq(networksTable.id, id)).returning();
+  const allowed = ["name", "chain", "contractAddress", "minDeposit", "minWithdraw", "withdrawFee",
+    "confirmations", "depositEnabled", "withdrawEnabled", "nodeAddress", "memoRequired", "status",
+    "providerType", "hotWalletAddress", "explorerUrl"];
+  const b: Record<string, any> = {};
+  for (const k of allowed) if (req.body[k] !== undefined) b[k] = req.body[k];
+  // Encrypted fields: only set if provided & non-empty (allows clearing with explicit null)
+  if (req.body.rpcApiKey !== undefined) {
+    b.rpcApiKey = req.body.rpcApiKey ? encryptSecret(String(req.body.rpcApiKey)) : null;
+  }
+  if (req.body.hotWalletPrivateKey !== undefined) {
+    b.hotWalletPrivateKeyEnc = req.body.hotWalletPrivateKey ? encryptSecret(String(req.body.hotWalletPrivateKey)) : null;
+  }
+  for (const k of ["minDeposit", "minWithdraw", "withdrawFee"]) if (b[k] !== undefined) b[k] = String(b[k]);
+  if (b.confirmations !== undefined) b.confirmations = Number(b.confirmations);
+  const [n] = await db.update(networksTable).set(b).where(eq(networksTable.id, id)).returning();
   if (!n) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(n);
+  res.json({ ...n, rpcApiKey: maskSecret(n.rpcApiKey), hotWalletPrivateKeyEnc: undefined, hotWalletKeySet: !!n.hotWalletPrivateKeyEnc, rpcApiKeySet: !!n.rpcApiKey });
 });
 router.delete("/admin/networks/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
