@@ -21,7 +21,7 @@ export default function TradingScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const router = useRouter();
   const colors = useColors();
-  const { coins, walletBalances, botEnabled, orders, cancelOrder, user, refreshWallets, apiPairs, apiCoins } = useApp();
+  const { coins, walletBalances, botEnabled, orders, cancelOrder, user, refreshWallets, apiPairs, apiCoins, inrUsdtRate } = useApp();
 
   // Resolve pair from URL symbol (e.g. BTCINR, BTCUSDT)
   const pair = useMemo(() => {
@@ -192,7 +192,14 @@ export default function TradingScreen() {
 
         {/* Candle Chart */}
         <View style={s.chartContainer}>
-          <CandleChart basePrice={displayPrice} positive={change24h >= 0} height={200} />
+          <CandleChart
+            symbol={base}
+            interval={period}
+            livePrice={displayPrice}
+            quoteSymbol={quoteSym as 'USDT' | 'INR'}
+            inrRate={inrUsdtRate}
+            height={280}
+          />
         </View>
 
         {/* Order Book / Trades */}
