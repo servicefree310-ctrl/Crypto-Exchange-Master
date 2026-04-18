@@ -403,7 +403,7 @@ export default function HomeScreen() {
           </View>
 
           {/* KYC progress */}
-          {kycLevel < 3 && (
+          {kycLevel === 0 && (
             <TouchableOpacity onPress={() => router.push("/services/kyc" as any)} style={[styles.kycBar, { backgroundColor: colors.secondary }]}>
               <View style={{ flex: 1 }}>
                 <View style={styles.kycHead}>
