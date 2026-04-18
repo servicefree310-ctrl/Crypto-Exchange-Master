@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, numeric, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const inrDepositsTable = pgTable("inr_deposits", {
   id: serial("id").primaryKey(),
@@ -41,12 +41,19 @@ export const cryptoDepositsTable = pgTable("crypto_deposits", {
   networkId: integer("network_id").notNull(),
   amount: numeric("amount", { precision: 28, scale: 8 }).notNull(),
   address: text("address").notNull(),
+  fromAddress: text("from_address"),
   txHash: text("tx_hash"),
+  blockNumber: integer("block_number"),
+  logIndex: integer("log_index"),
   confirmations: integer("confirmations").notNull().default(0),
+  requiredConfirmations: integer("required_confirmations").notNull().default(12),
   status: text("status").notNull().default("pending"),
+  detectedBy: text("detected_by").notNull().default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
-});
+}, (t) => ({
+  uniqTx: uniqueIndex("crypto_deposits_tx_log_uniq").on(t.networkId, t.txHash, t.logIndex),
+}));
 
 export type CryptoDeposit = typeof cryptoDepositsTable.$inferSelect;
 

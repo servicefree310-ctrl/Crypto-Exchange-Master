@@ -31,6 +31,7 @@ import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
 import { encryptSecret, maskSecret } from "../lib/crypto-vault";
 import { testNode } from "../lib/node-test";
+import { getSweeperStatus, manualScan, sweepAllNetworks, startDepositSweeper, stopDepositSweeper } from "../lib/deposit-sweeper";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -564,8 +565,61 @@ router.patch("/admin/inr-withdrawals/:id", adminOnly, async (req, res): Promise<
   }
 });
 
-router.get("/admin/crypto-deposits", supportPlus, async (_req, res): Promise<void> => {
-  res.json(await db.select().from(cryptoDepositsTable).orderBy(desc(cryptoDepositsTable.createdAt)).limit(500));
+router.get("/admin/crypto-deposits", supportPlus, async (req, res): Promise<void> => {
+  const status = typeof req.query.status === "string" ? req.query.status : null;
+  const detectedBy = typeof req.query.detectedBy === "string" ? req.query.detectedBy : null;
+  const conds: any[] = [];
+  if (status) conds.push(eq(cryptoDepositsTable.status, status));
+  if (detectedBy) conds.push(eq(cryptoDepositsTable.detectedBy, detectedBy));
+  const q = db.select().from(cryptoDepositsTable);
+  const rows = conds.length
+    ? await q.where(and(...conds)).orderBy(desc(cryptoDepositsTable.createdAt)).limit(500)
+    : await q.orderBy(desc(cryptoDepositsTable.createdAt)).limit(500);
+  res.json(rows);
+});
+
+router.get("/admin/crypto-deposits/stats", supportPlus, async (_req, res): Promise<void> => {
+  const rows = await db.select({
+    status: cryptoDepositsTable.status,
+    detectedBy: cryptoDepositsTable.detectedBy,
+    count: sql<number>`count(*)::int`,
+    sum: sql<string>`coalesce(sum(${cryptoDepositsTable.amount}), 0)::text`,
+  }).from(cryptoDepositsTable).groupBy(cryptoDepositsTable.status, cryptoDepositsTable.detectedBy);
+  let total = 0, pending = 0, completed = 0, rejected = 0, autoDetected = 0, manualCount = 0;
+  let totalAmount = 0, pendingAmount = 0;
+  for (const r of rows) {
+    total += r.count;
+    if (r.status === "pending") { pending += r.count; pendingAmount += Number(r.sum); }
+    else if (r.status === "completed") { completed += r.count; totalAmount += Number(r.sum); }
+    else if (r.status === "rejected") rejected += r.count;
+    if (r.detectedBy === "sweeper") autoDetected += r.count;
+    else manualCount += r.count;
+  }
+  res.json({ total, pending, completed, rejected, autoDetected, manual: manualCount, totalAmount, pendingAmount });
+});
+
+// Deposit Sweeper status & control
+router.get("/admin/sweeper/status", supportPlus, async (_req, res): Promise<void> => {
+  res.json(getSweeperStatus());
+});
+router.post("/admin/sweeper/start", adminOnly, async (req, res): Promise<void> => {
+  const intervalMs = Number(req.body?.intervalMs) || 30000;
+  startDepositSweeper(intervalMs);
+  res.json({ ok: true, ...getSweeperStatus() });
+});
+router.post("/admin/sweeper/stop", adminOnly, async (_req, res): Promise<void> => {
+  stopDepositSweeper();
+  res.json({ ok: true, ...getSweeperStatus() });
+});
+router.post("/admin/sweeper/scan", adminOnly, async (_req, res): Promise<void> => {
+  const results = await sweepAllNetworks();
+  res.json({ ok: true, results });
+});
+router.post("/admin/sweeper/scan/:networkId", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.networkId) ? req.params.networkId[0] : req.params.networkId);
+  if (!id) { res.status(400).json({ error: "Invalid network id" }); return; }
+  const result = await manualScan(id);
+  res.json({ ok: true, result });
 });
 router.patch("/admin/crypto-deposits/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
