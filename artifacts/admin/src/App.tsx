@@ -26,6 +26,7 @@ import ChatPage from "@/pages/chat";
 import FundingRatesPage from "@/pages/funding-rates";
 import ApiKeysPage from "@/pages/api-keys";
 import BotsPage from "@/pages/bots";
+import OrdersPage from "@/pages/orders";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -66,6 +67,7 @@ function Protected() {
         <Route path="/funding-rates" component={FundingRatesPage} />
         <Route path="/api-keys" component={ApiKeysPage} />
         <Route path="/bots" component={BotsPage} />
+        <Route path="/orders" component={OrdersPage} />
         <Route path="/gateways" component={GatewaysPage} />
         <Route path="/inr-deposits" component={InrDepositsPage} />
         <Route path="/inr-withdrawals" component={InrWithdrawalsPage} />

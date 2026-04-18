@@ -25,6 +25,7 @@ import {
   chatThreadsTable,
   chatMessagesTable,
   marketBotsTable,
+  tradesTable,
 } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
@@ -269,6 +270,57 @@ router.delete("/admin/bots/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   await db.delete(marketBotsTable).where(eq(marketBotsTable.id, id));
   res.sendStatus(204);
+});
+
+// Orders & Trades (read-only for admin)
+router.get("/admin/orders", supportPlus, async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const conds: any[] = [];
+  if (q.status) conds.push(eq(ordersTable.status, q.status));
+  if (q.side) conds.push(eq(ordersTable.side, q.side));
+  if (q.pairId) conds.push(eq(ordersTable.pairId, Number(q.pairId)));
+  if (q.userId) conds.push(eq(ordersTable.userId, Number(q.userId)));
+  if (q.isBot === "1") conds.push(sql`${ordersTable.isBot} = 1`);
+  if (q.isBot === "0") conds.push(sql`${ordersTable.isBot} = 0`);
+  const limit = Math.min(Number(q.limit ?? 200), 500);
+  const where = conds.length ? and(...conds) : undefined;
+  const rows = where
+    ? await db.select().from(ordersTable).where(where).orderBy(desc(ordersTable.id)).limit(limit)
+    : await db.select().from(ordersTable).orderBy(desc(ordersTable.id)).limit(limit);
+  res.json(rows);
+});
+
+router.get("/admin/orders/stats", supportPlus, async (_req, res): Promise<void> => {
+  const stats = await db.execute(sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE status = 'open')::int AS open_count,
+      COUNT(*) FILTER (WHERE status = 'filled')::int AS filled_count,
+      COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_count,
+      COUNT(*) FILTER (WHERE side = 'buy')::int AS buy_count,
+      COUNT(*) FILTER (WHERE side = 'sell')::int AS sell_count,
+      COUNT(*) FILTER (WHERE is_bot = 1)::int AS bot_count,
+      COUNT(*) FILTER (WHERE is_bot = 0)::int AS user_count,
+      COUNT(*) FILTER (WHERE status = 'filled' AND is_bot = 1)::int AS bot_filled,
+      COUNT(*) FILTER (WHERE status = 'filled' AND is_bot = 0)::int AS user_filled,
+      COALESCE(SUM(filled_qty * avg_price) FILTER (WHERE status = 'filled'), 0) AS filled_value
+    FROM orders
+  `);
+  res.json((stats as any).rows?.[0] ?? stats[0] ?? {});
+});
+
+router.get("/admin/trades", supportPlus, async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const conds: any[] = [];
+  if (q.pairId) conds.push(eq(tradesTable.pairId, Number(q.pairId)));
+  if (q.userId) conds.push(eq(tradesTable.userId, Number(q.userId)));
+  if (q.side) conds.push(eq(tradesTable.side, q.side));
+  const limit = Math.min(Number(q.limit ?? 200), 500);
+  const where = conds.length ? and(...conds) : undefined;
+  const rows = where
+    ? await db.select().from(tradesTable).where(where).orderBy(desc(tradesTable.id)).limit(limit)
+    : await db.select().from(tradesTable).orderBy(desc(tradesTable.id)).limit(limit);
+  res.json(rows);
 });
 
 // Gateways
