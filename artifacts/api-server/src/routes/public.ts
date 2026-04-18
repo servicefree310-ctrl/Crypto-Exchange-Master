@@ -12,7 +12,9 @@ import {
   depositAddressesTable,
   walletAddressesTable,
   ordersTable,
+  tradesTable,
 } from "@workspace/db";
+import { sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { deriveEvmWallet } from "../lib/hd-wallet";
 import { encryptSecret } from "../lib/crypto-vault";
@@ -142,5 +144,64 @@ router.get("/deposit-address", requireAuth, async (req, res): Promise<void> => {
 });
 
 // Orders endpoints moved to routes/orders.ts (transactional with wallet locks)
+
+// Aggregated order book from open orders (top 20 bids + top 20 asks)
+router.get("/orderbook", async (req, res): Promise<void> => {
+  const pairId = Number(req.query.pairId);
+  const depth = Math.max(1, Math.min(Number(req.query.depth) || 20, 50));
+  if (!pairId) { res.status(400).json({ error: "pairId required" }); return; }
+
+  const bidRows = await db.execute(sql`
+    SELECT price::text AS price, SUM(qty - filled_qty)::text AS qty
+    FROM ${ordersTable}
+    WHERE pair_id = ${pairId} AND side = 'buy' AND status IN ('open', 'partial') AND type = 'limit'
+    GROUP BY price
+    ORDER BY price DESC
+    LIMIT ${depth}
+  `);
+  const askRows = await db.execute(sql`
+    SELECT price::text AS price, SUM(qty - filled_qty)::text AS qty
+    FROM ${ordersTable}
+    WHERE pair_id = ${pairId} AND side = 'sell' AND status IN ('open', 'partial') AND type = 'limit'
+    GROUP BY price
+    ORDER BY price ASC
+    LIMIT ${depth}
+  `);
+  const mapRow = (r: any) => {
+    const price = Number(r.price);
+    const qty = Number(r.qty);
+    return { price, qty, total: price * qty };
+  };
+  res.json({
+    pairId,
+    bids: (bidRows as any).rows.map(mapRow).filter((r: any) => r.qty > 0),
+    asks: (askRows as any).rows.map(mapRow).filter((r: any) => r.qty > 0),
+    ts: Date.now(),
+  });
+});
+
+// Public recent trades for a pair (no PII)
+router.get("/recent-trades", async (req, res): Promise<void> => {
+  const pairId = Number(req.query.pairId);
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 30, 100));
+  if (!pairId) { res.status(400).json({ error: "pairId required" }); return; }
+  const rows = await db.select({
+    id: tradesTable.id,
+    price: tradesTable.price,
+    qty: tradesTable.qty,
+    side: tradesTable.side,
+    createdAt: tradesTable.createdAt,
+  }).from(tradesTable)
+    .where(eq(tradesTable.pairId, pairId))
+    .orderBy(desc(tradesTable.createdAt))
+    .limit(limit);
+  res.json(rows.map(r => ({
+    id: r.id,
+    price: Number(r.price),
+    qty: Number(r.qty),
+    side: r.side,
+    ts: new Date(r.createdAt).getTime(),
+  })));
+});
 
 export default router;

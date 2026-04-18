@@ -15,27 +15,31 @@ import { api, ApiError } from '@/lib/api';
 type OrderType = 'market' | 'limit';
 type ChartPeriod = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
+type BookLevel = { price: number; qty: number; total: number };
+
 export default function FuturesScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const router = useRouter();
   const colors = useColors();
-  const { coins, positions, botEnabled, user, refreshWallets } = useApp();
+  const { coins, positions, botEnabled, user, refreshWallets, apiPairs, apiCoins } = useApp();
 
-  const base = symbol?.replace('USDT', '') || 'BTC';
-  const coin = coins.find(c => c.symbol === base) || coins[0];
+  const pair = useMemo(() => {
+    if (!symbol) return null;
+    return apiPairs.find((p: any) => p.symbol === symbol && p.futuresEnabled) || apiPairs.find((p: any) => p.symbol === symbol) || null;
+  }, [symbol, apiPairs]);
 
-  const [pairId, setPairId] = React.useState<number | null>(null);
+  const baseCoinApi = useMemo(() => pair ? apiCoins.find(c => c.id === pair.baseCoinId) || null : null, [pair, apiCoins]);
+  const base = baseCoinApi?.symbol || symbol?.replace(/USDT$|INR$/, '') || 'BTC';
+  const coin = coins.find(c => c.symbol === base);
+
+  const usdtPrice = useMemo(() => {
+    if (baseCoinApi?.currentPrice) return Number(baseCoinApi.currentPrice);
+    return Number(coin?.price) || 0;
+  }, [baseCoinApi, coin]);
+  const change24h = Number(baseCoinApi?.change24h ?? coin?.change24h ?? 0);
+
+  const pairId = pair?.id ?? null;
   const [submitting, setSubmitting] = React.useState(false);
-  React.useEffect(() => {
-    let alive = true;
-    api.get<any[]>('/pairs').then(rows => {
-      if (!alive) return;
-      const p = rows.find((r: any) => r.symbol === `${base}USDT` && r.futuresEnabled);
-      if (p) setPairId(p.id);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [base]);
-  const usdtPrice = (coin?.price || 0) / 83;
 
   const [side, setSide] = useState<'long' | 'short'>('long');
   const [orderType, setOrderType] = useState<OrderType>('market');
@@ -44,15 +48,24 @@ export default function FuturesScreen() {
   const [period, setPeriod] = useState<ChartPeriod>('1h');
   const [tab, setTab] = useState<'orderbook' | 'positions' | 'holdings'>('orderbook');
 
-  const asks = useMemo(() => Array.from({ length: 6 }, (_, i) => ({
-    price: usdtPrice * (1 + (i + 1) * 0.0003),
-    qty: parseFloat((Math.random() * 5).toFixed(3)),
-  })), [usdtPrice]);
+  const [bids, setBids] = useState<BookLevel[]>([]);
+  const [asks, setAsks] = useState<BookLevel[]>([]);
 
-  const bids = useMemo(() => Array.from({ length: 6 }, (_, i) => ({
-    price: usdtPrice * (1 - (i + 1) * 0.0003),
-    qty: parseFloat((Math.random() * 5).toFixed(3)),
-  })), [usdtPrice]);
+  React.useEffect(() => {
+    if (!pairId) return;
+    let alive = true;
+    const fetchBook = async () => {
+      try {
+        const ob: any = await api.get(`/orderbook?pairId=${pairId}&depth=8`);
+        if (!alive) return;
+        setBids(ob.bids || []);
+        setAsks(ob.asks || []);
+      } catch {}
+    };
+    fetchBook();
+    const t = setInterval(fetchBook, 3000);
+    return () => { alive = false; clearInterval(t); };
+  }, [pairId]);
 
   const handleOpenPosition = async () => {
     if (submitting) return;
@@ -96,11 +109,11 @@ export default function FuturesScreen() {
           {botEnabled && <View style={s.botBadge}><MaterialCommunityIcons name="robot" size={10} color="#000" /></View>}
         </View>
         <View style={s.headerPrice}>
-          <Text style={[s.currentPrice, { color: (coin?.change24h || 0) >= 0 ? colors.success : colors.danger }]}>
+          <Text style={[s.currentPrice, { color: change24h >= 0 ? colors.success : colors.danger }]}>
             ${usdtPrice.toFixed(2)}
           </Text>
-          <Text style={[s.changeText, { color: (coin?.change24h || 0) >= 0 ? colors.success : colors.danger }]}>
-            {(coin?.change24h || 0) >= 0 ? '+' : ''}{(coin?.change24h || 0).toFixed(2)}%
+          <Text style={[s.changeText, { color: change24h >= 0 ? colors.success : colors.danger }]}>
+            {change24h >= 0 ? '+' : ''}{change24h.toFixed(2)}%
           </Text>
         </View>
       </View>
@@ -116,7 +129,7 @@ export default function FuturesScreen() {
         </ScrollView>
 
         <View style={s.chartContainer}>
-          <CandleChart basePrice={usdtPrice} positive={(coin?.change24h || 0) >= 0} height={180} />
+          <CandleChart basePrice={usdtPrice} positive={change24h >= 0} height={180} />
         </View>
 
         {/* Tab */}
@@ -130,21 +143,27 @@ export default function FuturesScreen() {
 
         {tab === 'orderbook' && (
           <View style={s.orderBook}>
-            {asks.reverse().map((a, i) => (
-              <View key={i} style={s.obRow}>
+            {asks.length === 0 && bids.length === 0 && (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <Feather name="bar-chart-2" size={28} color={colors.mutedForeground} />
+                <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 12, marginTop: 8 }}>No open orders yet</Text>
+              </View>
+            )}
+            {asks.slice().reverse().slice(0, 6).map((a, i) => (
+              <View key={`a${i}`} style={s.obRow}>
                 <Text style={[s.obPrice, { color: colors.danger }]}>${a.price.toFixed(2)}</Text>
-                <Text style={s.obQty}>{a.qty}</Text>
-                <Text style={s.obTotal}>${(a.price * a.qty).toFixed(0)}</Text>
+                <Text style={s.obQty}>{a.qty.toFixed(4)}</Text>
+                <Text style={s.obTotal}>${a.total >= 1000 ? `${(a.total / 1000).toFixed(1)}K` : a.total.toFixed(0)}</Text>
               </View>
             ))}
             <View style={s.midPrice}>
-              <Text style={[s.midPriceText, { color: (coin?.change24h || 0) >= 0 ? colors.success : colors.danger }]}>${usdtPrice.toFixed(2)}</Text>
+              <Text style={[s.midPriceText, { color: change24h >= 0 ? colors.success : colors.danger }]}>${usdtPrice.toFixed(2)}</Text>
             </View>
-            {bids.map((b, i) => (
-              <View key={i} style={s.obRow}>
+            {bids.slice(0, 6).map((b, i) => (
+              <View key={`b${i}`} style={s.obRow}>
                 <Text style={[s.obPrice, { color: colors.success }]}>${b.price.toFixed(2)}</Text>
-                <Text style={s.obQty}>{b.qty}</Text>
-                <Text style={s.obTotal}>${(b.price * b.qty).toFixed(0)}</Text>
+                <Text style={s.obQty}>{b.qty.toFixed(4)}</Text>
+                <Text style={s.obTotal}>${b.total >= 1000 ? `${(b.total / 1000).toFixed(1)}K` : b.total.toFixed(0)}</Text>
               </View>
             ))}
           </View>

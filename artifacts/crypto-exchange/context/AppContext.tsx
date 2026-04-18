@@ -177,6 +177,7 @@ interface AppContextType {
   apiWallets: ApiWallet[];
   apiBanks: ApiBank[];
   apiCoins: ApiCoin[];
+  apiPairs: any[];
   inrUsdtRate: number;
   refreshWallets: () => Promise<void>;
   refreshBanks: () => Promise<void>;
@@ -687,7 +688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       theme, setTheme, effectiveTheme,
       language, setLanguage,
       user, setUser, authBootstrapped, loginWithApi, signupWithApi, logout,
-      apiWallets, apiBanks, apiCoins, inrUsdtRate,
+      apiWallets, apiBanks, apiCoins, apiPairs, inrUsdtRate,
       refreshWallets, refreshBanks, refreshCoins, fetchNetworks,
       addBankApi, removeBankApi, withdrawInrApi, withdrawCryptoApi,
       fetchDepositGateways, submitInrDepositApi, fetchInrDeposits,
