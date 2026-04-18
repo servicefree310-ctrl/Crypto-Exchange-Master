@@ -1,10 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  View, Text, ScrollView, TouchableOpacity, Image,
-  StyleSheet, Platform, FlatList,
+  View, Text, ScrollView, TouchableOpacity, TextInput,
+  StyleSheet, Platform, FlatList, Animated, Easing,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -20,21 +20,25 @@ const COIN_COLORS: Record<string, string> = {
 };
 
 const QUICK_ACTIONS = [
-  { label: "Deposit", icon: "arrow-down-circle", route: "/services/deposit-crypto", color: "#0ecb81" },
-  { label: "Withdraw", icon: "arrow-up-circle", route: "/services/withdraw-inr", color: "#f6465d" },
-  { label: "Buy Crypto", icon: "credit-card", route: "/services/buy-crypto", color: "#5b8def" },
-  { label: "P2P", icon: "users", route: "/services/p2p", color: "#fcd535" },
-  { label: "Earn", icon: "trending-up", route: "/services/earn", color: "#a06af5" },
-  { label: "Transfer", icon: "repeat", route: "/services/transfer", color: "#00c2ff" },
-  { label: "Refer", icon: "gift", route: "/services/refer", color: "#ff8a3d" },
-  { label: "More", icon: "grid", route: "/services", color: "#8d96a7" },
+  { label: "Deposit",  icon: "arrow-down-circle", route: "/services/deposit-inr",     color: "#0ecb81", auth: true },
+  { label: "Withdraw", icon: "arrow-up-circle",   route: "/services/withdraw-inr",    color: "#f6465d", auth: true },
+  { label: "Buy",      icon: "credit-card",       route: "/(tabs)/trade",             color: "#5b8def", auth: false },
+  { label: "Earn",     icon: "trending-up",       route: "/services/earn",            color: "#a06af5", auth: true },
+  { label: "Transfer", icon: "repeat",            route: "/services/transfer",        color: "#00c2ff", auth: true },
+  { label: "Refer",    icon: "gift",              route: "/services/refer",           color: "#ff8a3d", auth: true },
+  { label: "Banks",    icon: "home",              route: "/services/banks",           color: "#fcd535", auth: true },
+  { label: "More",     icon: "grid",              route: "/(tabs)/account",           color: "#8d96a7", auth: false },
 ];
 
 const BANNERS = [
-  { title: "1% TDS Compliant Trading", sub: "Trade INR pairs with full tax compliance", grad: ["#fcd535", "#f0b90b"], icon: "shield" as const },
-  { title: "Refer & Earn", sub: "Get 20% commission on every trade", grad: ["#a06af5", "#5b8def"], icon: "gift" as const },
-  { title: "Earn up to 12% APY", sub: "Stake your crypto, earn passive income", grad: ["#0ecb81", "#00c2ff"], icon: "trending-up" as const },
+  { title: "1% TDS Compliant", sub: "Trade INR pairs with full tax compliance", grad: ["#fcd535", "#f0b90b"], icon: "shield" as const, fg: "#000" },
+  { title: "Refer & Earn",     sub: "Get 20% commission on every trade",        grad: ["#a06af5", "#5b8def"], icon: "gift"   as const, fg: "#fff" },
+  { title: "Earn up to 12% APY", sub: "Stake your crypto, earn passive income", grad: ["#0ecb81", "#00c2ff"], icon: "trending-up" as const, fg: "#000" },
+  { title: "VIP Lower Fees",     sub: "Trade more, pay less. Up to 50% off",    grad: ["#f6465d", "#ff8a3d"], icon: "award"  as const, fg: "#fff" },
 ];
+
+type MarketTab = "Hot" | "Gainers" | "Losers" | "New";
+const MARKET_TABS: MarketTab[] = ["Hot", "Gainers", "Losers", "New"];
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -44,28 +48,70 @@ export default function HomeScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 84 : 90;
 
+  const [search, setSearch] = useState("");
+  const [marketTab, setMarketTab] = useState<MarketTab>("Hot");
+  const [hideBalance, setHideBalance] = useState(false);
+  const [bannerIdx, setBannerIdx] = useState(0);
+  const bannerRef = useRef<FlatList>(null);
+
   const { data: marketsData = [] } = useQuery({
     queryKey: ["home-markets"],
     queryFn: marketApi.getMarkets,
     refetchInterval: 30000,
   });
 
+  // Auto-rotate banners
+  useEffect(() => {
+    const id = setInterval(() => {
+      setBannerIdx(i => {
+        const next = (i + 1) % BANNERS.length;
+        bannerRef.current?.scrollToIndex({ index: next, animated: true });
+        return next;
+      });
+    }, 4500);
+    return () => clearInterval(id);
+  }, []);
+
   const totalInr = useMemo(() => {
     if (!user?.isLoggedIn) return 0;
     return (apiWallets || []).reduce((s: number, w: any) => s + Number(w.inrValue || 0), 0);
   }, [apiWallets, user]);
 
-  const hot = useMemo(() =>
-    [...marketsData].sort((a: any, b: any) => Math.abs(b.change24h) - Math.abs(a.change24h)).slice(0, 8)
-  , [marketsData]);
+  const dayPnl = useMemo(() => {
+    if (!user?.isLoggedIn || !marketsData.length || !apiWallets?.length) return { abs: 0, pct: 0 };
+    let prev = 0, cur = 0;
+    (apiWallets || []).forEach((w: any) => {
+      const m: any = marketsData.find((x: any) => x.base === w.symbol);
+      const inr = Number(w.inrValue || 0);
+      const ch = Number(m?.change24h || 0);
+      cur += inr;
+      prev += ch !== 0 ? inr / (1 + ch / 100) : inr;
+    });
+    const abs = cur - prev;
+    const pct = prev > 0 ? (abs / prev) * 100 : 0;
+    return { abs, pct };
+  }, [apiWallets, marketsData, user]);
 
-  const gainers = useMemo(() =>
-    [...marketsData].filter((c: any) => c.change24h > 0).sort((a: any, b: any) => b.change24h - a.change24h).slice(0, 5)
-  , [marketsData]);
+  const hot = useMemo(() => [...marketsData].sort((a: any, b: any) => Math.abs(b.change24h) - Math.abs(a.change24h)).slice(0, 8), [marketsData]);
+  const gainers = useMemo(() => [...marketsData].filter((c: any) => c.change24h > 0).sort((a: any, b: any) => b.change24h - a.change24h).slice(0, 5), [marketsData]);
+  const losers = useMemo(() => [...marketsData].filter((c: any) => c.change24h < 0).sort((a: any, b: any) => a.change24h - b.change24h).slice(0, 5), [marketsData]);
+  const newCoins = useMemo(() => [...marketsData].slice(0, 5), [marketsData]);
 
-  const losers = useMemo(() =>
-    [...marketsData].filter((c: any) => c.change24h < 0).sort((a: any, b: any) => a.change24h - b.change24h).slice(0, 5)
-  , [marketsData]);
+  const tickerData = useMemo(() => marketsData.slice(0, 12), [marketsData]);
+
+  // Ticker animation
+  const tickerX = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!tickerData.length) return;
+    tickerX.setValue(0);
+    const anim = Animated.loop(
+      Animated.timing(tickerX, {
+        toValue: -1200, duration: 30000, useNativeDriver: true, easing: Easing.linear,
+      })
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [tickerData.length]);
 
   const formatPrice = (p: number, quote: string) => {
     const sym = quote === "INR" ? "₹" : "$";
@@ -73,16 +119,26 @@ export default function HomeScreen() {
     return `${sym}${p.toLocaleString(loc, { minimumFractionDigits: p < 1 ? 4 : 2, maximumFractionDigits: p < 1 ? 6 : 2 })}`;
   };
 
-  const goLogin = () => {
+  const goLogin = () => { Haptics.selectionAsync(); router.push("/(auth)/login"); };
+  const goAction = (route: string, requiresAuth: boolean) => {
     Haptics.selectionAsync();
-    router.push("/(auth)/login");
-  };
-
-  const goAction = (route: string) => {
-    Haptics.selectionAsync();
-    if (!user?.isLoggedIn) { router.push("/(auth)/login"); return; }
+    if (requiresAuth && !user?.isLoggedIn) { router.push("/(auth)/login"); return; }
     router.push(route as any);
   };
+
+  const filteredCoins = useMemo(() => {
+    let list: any[] = [];
+    if (marketTab === "Hot") list = hot;
+    else if (marketTab === "Gainers") list = gainers;
+    else if (marketTab === "Losers") list = losers;
+    else list = newCoins;
+    if (!search) return list;
+    const q = search.toLowerCase();
+    return list.filter((c: any) => (c.base || "").toLowerCase().includes(q) || (c.symbol || "").toLowerCase().includes(q));
+  }, [marketTab, hot, gainers, losers, newCoins, search]);
+
+  const kycLevel = user?.kycLevel ?? 0;
+  const kycProgress = (kycLevel / 3) * 100;
 
   return (
     <ScrollView
@@ -94,60 +150,134 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-            {user?.isLoggedIn ? "Welcome back" : "Welcome to"}
+            {user?.isLoggedIn ? "Good day," : "Welcome to"}
           </Text>
-          <Text style={[styles.brand, { color: colors.primary }]}>
-            {user?.isLoggedIn ? (user.name || user.email?.split("@")[0]) : "CryptoX"}
+          <Text style={[styles.brand, { color: colors.primary }]} numberOfLines={1}>
+            {user?.isLoggedIn ? (user.name || user.email?.split("@")[0] || "Trader") : "CryptoX"}
           </Text>
         </View>
-        <TouchableOpacity onPress={() => router.push("/services/notifications" as any)} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
-          <Feather name="bell" size={18} color={colors.foreground} />
+        <TouchableOpacity onPress={() => router.push("/(tabs)/markets")} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
+          <Feather name="search" size={17} color={colors.foreground} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push("/services/scan" as any)} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
-          <Feather name="maximize" size={18} color={colors.foreground} />
+        <TouchableOpacity onPress={() => goAction("/services/banks", true)} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
+          <Feather name="bell" size={17} color={colors.foreground} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push("/(tabs)/account")} style={[styles.iconBtn, { backgroundColor: colors.card }]}>
+          <Feather name="user" size={17} color={colors.foreground} />
         </TouchableOpacity>
       </View>
 
-      {/* Asset Card / Login CTA */}
-      {user?.isLoggedIn ? (
-        <TouchableOpacity activeOpacity={0.85} onPress={() => router.push("/(tabs)/wallet")}
-          style={[styles.assetCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.assetTop}>
-            <Text style={[styles.assetLabel, { color: colors.mutedForeground }]}>Total Assets (INR)</Text>
-            <Feather name="eye" size={14} color={colors.mutedForeground} />
+      {/* Live Ticker */}
+      {tickerData.length > 0 && (
+        <View style={[styles.ticker, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.tickerLive, { backgroundColor: colors.success + "22" }]}>
+            <View style={[styles.tickerDot, { backgroundColor: colors.success }]} />
+            <Text style={[styles.tickerLiveTxt, { color: colors.success }]}>LIVE</Text>
           </View>
-          <Text style={[styles.assetValue, { color: colors.foreground }]}>
-            ₹{totalInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-          <Text style={[styles.assetSub, { color: colors.mutedForeground }]}>
-            ≈ ${(totalInr / (inrUsdtRate || 95)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
-          </Text>
+          <View style={{ flex: 1, overflow: "hidden" }}>
+            <Animated.View style={{ flexDirection: "row", transform: [{ translateX: tickerX }] }}>
+              {[...tickerData, ...tickerData].map((c: any, i: number) => (
+                <View key={`${c.symbol}-${i}`} style={styles.tickerItem}>
+                  <Text style={[styles.tickerSym, { color: colors.mutedForeground }]}>{c.base}/{c.quote}</Text>
+                  <Text style={[styles.tickerPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
+                  <Text style={[styles.tickerChange, { color: c.change24h >= 0 ? colors.success : colors.destructive }]}>
+                    {c.change24h >= 0 ? "+" : ""}{c.change24h.toFixed(2)}%
+                  </Text>
+                </View>
+              ))}
+            </Animated.View>
+          </View>
+        </View>
+      )}
+
+      {/* Hero — Asset Card / Login CTA */}
+      {user?.isLoggedIn ? (
+        <View style={[styles.assetCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.assetTop}>
+            <View>
+              <Text style={[styles.assetLabel, { color: colors.mutedForeground }]}>Total Portfolio (INR)</Text>
+              <View style={styles.assetValRow}>
+                <Text style={[styles.assetValue, { color: colors.foreground }]}>
+                  {hideBalance ? "₹••••••" : `₹${totalInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                </Text>
+                <TouchableOpacity onPress={() => setHideBalance(v => !v)}>
+                  <Feather name={hideBalance ? "eye-off" : "eye"} size={15} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.assetSub, { color: colors.mutedForeground }]}>
+                ≈ ${(totalInr / (inrUsdtRate || 95)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+              </Text>
+            </View>
+            <View style={[styles.pnlBadge, { backgroundColor: (dayPnl.pct >= 0 ? colors.success : colors.destructive) + "22" }]}>
+              <Feather name={dayPnl.pct >= 0 ? "trending-up" : "trending-down"} size={11} color={dayPnl.pct >= 0 ? colors.success : colors.destructive} />
+              <Text style={[styles.pnlTxt, { color: dayPnl.pct >= 0 ? colors.success : colors.destructive }]}>
+                {dayPnl.pct >= 0 ? "+" : ""}{dayPnl.pct.toFixed(2)}%
+              </Text>
+            </View>
+          </View>
+
+          {/* KYC progress */}
+          {kycLevel < 3 && (
+            <TouchableOpacity onPress={() => router.push("/services/kyc" as any)} style={[styles.kycBar, { backgroundColor: colors.secondary }]}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.kycHead}>
+                  <Feather name="shield" size={11} color={colors.primary} />
+                  <Text style={[styles.kycText, { color: colors.foreground }]}>KYC Level {kycLevel} → Level {kycLevel + 1}</Text>
+                </View>
+                <View style={[styles.kycTrack, { backgroundColor: colors.border }]}>
+                  <View style={[styles.kycFill, { backgroundColor: colors.primary, width: `${kycProgress}%` }]} />
+                </View>
+              </View>
+              <Feather name="chevron-right" size={14} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          )}
+
           <View style={styles.assetActions}>
             <TouchableOpacity onPress={() => router.push("/services/deposit-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.primary }]}>
+              <Feather name="plus" size={13} color="#000" />
               <Text style={[styles.assetBtnTxt, { color: "#000" }]}>Deposit</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => router.push("/services/withdraw-inr" as any)} style={[styles.assetBtn, { backgroundColor: colors.secondary }]}>
+              <Feather name="arrow-up" size={13} color={colors.foreground} />
               <Text style={[styles.assetBtnTxt, { color: colors.foreground }]}>Withdraw</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => router.push("/services/transfer" as any)} style={[styles.assetBtn, { backgroundColor: colors.secondary }]}>
+              <Feather name="repeat" size={13} color={colors.foreground} />
               <Text style={[styles.assetBtnTxt, { color: colors.foreground }]}>Transfer</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       ) : (
         <TouchableOpacity onPress={goLogin} style={[styles.loginCta, { backgroundColor: colors.primary }]}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={[styles.loginCtaTitle, { color: "#000" }]}>Login or Sign Up</Text>
-            <Text style={[styles.loginCtaSub, { color: "#000a" }]}>Start trading INR & USDT pairs</Text>
+            <Text style={[styles.loginCtaSub, { color: "#0009" }]}>Start trading INR & USDT pairs · Get ₹100 bonus</Text>
           </View>
-          <Feather name="arrow-right-circle" size={26} color="#000" />
+          <View style={styles.loginCtaArrow}><Feather name="arrow-right" size={16} color="#fff" /></View>
         </TouchableOpacity>
       )}
+
+      {/* Search bar */}
+      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Feather name="search" size={14} color={colors.mutedForeground} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search BTC, ETH, SOL..."
+          placeholderTextColor={colors.mutedForeground}
+          style={[styles.searchInput, { color: colors.foreground }]}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Feather name="x-circle" size={14} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Quick Actions */}
       <View style={[styles.actionsGrid, { backgroundColor: colors.card }]}>
         {QUICK_ACTIONS.map(a => (
-          <TouchableOpacity key={a.label} onPress={() => goAction(a.route)} style={styles.actionItem}>
+          <TouchableOpacity key={a.label} onPress={() => goAction(a.route, a.auth)} style={styles.actionItem}>
             <View style={[styles.actionIcon, { backgroundColor: a.color + "22" }]}>
               <Feather name={a.icon as any} size={18} color={a.color} />
             </View>
@@ -158,130 +288,112 @@ export default function HomeScreen() {
 
       {/* Banner Carousel */}
       <FlatList
+        ref={bannerRef}
         horizontal
         data={BANNERS}
         keyExtractor={(b) => b.title}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.bannerList}
+        snapToInterval={290}
+        decelerationRate="fast"
         renderItem={({ item }) => (
           <View style={[styles.banner, { backgroundColor: item.grad[0] }]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.bannerTitle}>{item.title}</Text>
-              <Text style={styles.bannerSub}>{item.sub}</Text>
+              <Text style={[styles.bannerTitle, { color: item.fg }]}>{item.title}</Text>
+              <Text style={[styles.bannerSub, { color: item.fg + "cc" }]}>{item.sub}</Text>
             </View>
-            <Feather name={item.icon} size={36} color="#0007" />
+            <View style={[styles.bannerIcon, { backgroundColor: item.fg + "22" }]}>
+              <Feather name={item.icon} size={22} color={item.fg} />
+            </View>
           </View>
         )}
       />
+      <View style={styles.dots}>
+        {BANNERS.map((_, i) => (
+          <View key={i} style={[styles.dot, { backgroundColor: i === bannerIdx ? colors.primary : colors.border, width: i === bannerIdx ? 16 : 6 }]} />
+        ))}
+      </View>
 
-      {/* Hot Coins */}
-      <View style={styles.section}>
+      {/* Markets — tabs */}
+      <View style={[styles.section, { marginTop: 4 }]}>
         <View style={styles.sectionHead}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.fire}>🔥</Text>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Hot Coins</Text>
-          </View>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Markets</Text>
           <TouchableOpacity onPress={() => router.push("/(tabs)/markets")}>
-            <Text style={[styles.seeAll, { color: colors.primary }]}>See All →</Text>
+            <Text style={[styles.seeAll, { color: colors.primary }]}>View All →</Text>
           </TouchableOpacity>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14 }}>
-          {hot.map((c: any) => (
-            <TouchableOpacity key={c.symbol} onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
-              style={[styles.hotCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={styles.hotTop}>
-                <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
-                  <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+        <View style={[styles.tabRow, { borderBottomColor: colors.border }]}>
+          {MARKET_TABS.map(t => (
+            <TouchableOpacity key={t} onPress={() => { setMarketTab(t); Haptics.selectionAsync(); }} style={styles.tabItem}>
+              <Text style={[styles.tabTxt, { color: marketTab === t ? colors.primary : colors.mutedForeground }]}>{t}</Text>
+              {marketTab === t && <View style={[styles.tabUnderline, { backgroundColor: colors.primary }]} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {filteredCoins.length === 0 && <Text style={[styles.empty, { color: colors.mutedForeground }]}>No coins to show</Text>}
+          {filteredCoins.map((c: any, i: number) => (
+            <TouchableOpacity
+              key={`${c.symbol}-${i}`}
+              onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
+              style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === filteredCoins.length - 1 ? 0 : StyleSheet.hairlineWidth }]}
+            >
+              <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
+                <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground, fontSize: 11 }}>/{c.quote}</Text></Text>
+                <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
+                <View style={[styles.changeBadge, { backgroundColor: (c.change24h >= 0 ? colors.success : colors.destructive) + "22" }]}>
+                  <Text style={[styles.changeBadgeTxt, { color: c.change24h >= 0 ? colors.success : colors.destructive }]}>
+                    {c.change24h >= 0 ? "+" : ""}{c.change24h.toFixed(2)}%
+                  </Text>
                 </View>
-                <Text style={[styles.hotSym, { color: colors.foreground }]}>{c.base}</Text>
-              </View>
-              <Text style={[styles.hotPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
-              <Text style={[styles.hotChange, { color: c.change24h >= 0 ? colors.success : colors.destructive }]}>
-                {c.change24h >= 0 ? "+" : ""}{c.change24h.toFixed(2)}%
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Top Gainers */}
-      <View style={styles.section}>
-        <View style={styles.sectionHead}>
-          <View style={styles.sectionTitleRow}>
-            <Feather name="trending-up" size={16} color={colors.success} />
-            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 6 }]}>Top Gainers</Text>
-          </View>
-          <TouchableOpacity onPress={() => router.push("/(tabs)/markets")}>
-            <Text style={[styles.seeAll, { color: colors.primary }]}>See All →</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {gainers.length === 0 && <Text style={[styles.empty, { color: colors.mutedForeground }]}>No gainers right now</Text>}
-          {gainers.map((c: any, i: number) => (
-            <TouchableOpacity key={c.symbol} onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
-              style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === gainers.length - 1 ? 0 : StyleSheet.hairlineWidth }]}>
-              <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
-                <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground }}>/{c.quote}</Text></Text>
-                <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
-                <Text style={[styles.rowChange, { color: colors.success }]}>+{c.change24h.toFixed(2)}%</Text>
               </View>
             </TouchableOpacity>
           ))}
         </View>
       </View>
 
-      {/* Top Losers */}
-      <View style={styles.section}>
-        <View style={styles.sectionHead}>
-          <View style={styles.sectionTitleRow}>
-            <Feather name="trending-down" size={16} color={colors.destructive} />
-            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 6 }]}>Top Losers</Text>
-          </View>
-          <TouchableOpacity onPress={() => router.push("/(tabs)/markets")}>
-            <Text style={[styles.seeAll, { color: colors.primary }]}>See All →</Text>
-          </TouchableOpacity>
+      {/* Earn promo */}
+      <TouchableOpacity onPress={() => goAction("/services/earn", true)}
+        style={[styles.earnCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.earnIcon, { backgroundColor: "#0ecb8122" }]}>
+          <Feather name="trending-up" size={20} color="#0ecb81" />
         </View>
-        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {losers.length === 0 && <Text style={[styles.empty, { color: colors.mutedForeground }]}>No losers right now</Text>}
-          {losers.map((c: any, i: number) => (
-            <TouchableOpacity key={c.symbol} onPress={() => router.push(`/(tabs)/trade?pair=${c.symbol}` as any)}
-              style={[styles.row, { borderBottomColor: colors.border, borderBottomWidth: i === losers.length - 1 ? 0 : StyleSheet.hairlineWidth }]}>
-              <View style={[styles.coinDot, { backgroundColor: (COIN_COLORS[c.base] || "#888") + "33" }]}>
-                <Text style={[styles.coinDotTxt, { color: COIN_COLORS[c.base] || "#888" }]}>{(c.base || "?")[0]}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowSym, { color: colors.foreground }]}>{c.base}<Text style={{ color: colors.mutedForeground }}>/{c.quote}</Text></Text>
-                <Text style={[styles.rowVol, { color: colors.mutedForeground }]}>Vol {(c.volume24h / 1e6).toFixed(2)}M</Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.rowPrice, { color: colors.foreground }]}>{formatPrice(c.price, c.quote)}</Text>
-                <Text style={[styles.rowChange, { color: colors.destructive }]}>{c.change24h.toFixed(2)}%</Text>
-              </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.earnTitle, { color: colors.foreground }]}>Earn Passive Income</Text>
+          <Text style={[styles.earnSub, { color: colors.mutedForeground }]}>Stake USDT @ 8.5% · BTC @ 4.2% · ETH @ 5.1% APY</Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      </TouchableOpacity>
+
+      {/* Refer promo */}
+      <TouchableOpacity onPress={() => goAction("/services/refer", true)}
+        style={[styles.earnCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.earnIcon, { backgroundColor: "#a06af522" }]}>
+          <Feather name="gift" size={20} color="#a06af5" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.earnTitle, { color: colors.foreground }]}>Refer & Earn 20%</Text>
+          <Text style={[styles.earnSub, { color: colors.mutedForeground }]}>Invite friends, earn lifetime trading commission</Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      </TouchableOpacity>
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        <Text style={[styles.footerBrand, { color: colors.primary }]}>CryptoX</Text>
+        <Text style={[styles.footerText, { color: colors.mutedForeground }]}>India's premier crypto exchange · 1% TDS compliant</Text>
+        <View style={styles.socialRow}>
+          {(["twitter", "globe", "send", "youtube"] as const).map(ic => (
+            <TouchableOpacity key={ic} style={[styles.socialBtn, { backgroundColor: colors.card }]}>
+              <Feather name={ic} size={13} color={colors.mutedForeground} />
             </TouchableOpacity>
           ))}
-        </View>
-      </View>
-
-      {/* News / Announcements */}
-      <View style={styles.section}>
-        <View style={styles.sectionHead}>
-          <View style={styles.sectionTitleRow}>
-            <Feather name="bell" size={16} color={colors.primary} />
-            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 6 }]}>Announcements</Text>
-          </View>
-        </View>
-        <View style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 14 }]}>
-          <Text style={[styles.newsTitle, { color: colors.foreground }]}>Welcome to CryptoX Exchange</Text>
-          <Text style={[styles.newsBody, { color: colors.mutedForeground }]}>
-            Trade INR & USDT pairs with industry-leading fees. KYC-verified traders enjoy lower fees and higher limits.
-          </Text>
-          <Text style={[styles.newsTime, { color: colors.mutedForeground }]}>Today</Text>
         </View>
       </View>
     </ScrollView>
@@ -290,58 +402,87 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
-  greeting: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  brand: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 2 },
-  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 6 },
+  greeting: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  brand: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 2 },
+  iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
 
-  loginCta: { marginHorizontal: 14, marginTop: 6, padding: 16, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  loginCtaTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  loginCtaSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  ticker: { flexDirection: "row", alignItems: "center", marginHorizontal: 14, marginBottom: 10, paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
+  tickerLive: { flexDirection: "row", alignItems: "center", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, marginRight: 8, gap: 4 },
+  tickerDot: { width: 5, height: 5, borderRadius: 3 },
+  tickerLiveTxt: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  tickerItem: { flexDirection: "row", alignItems: "center", marginRight: 18, gap: 5 },
+  tickerSym: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  tickerPrice: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  tickerChange: { fontSize: 10, fontFamily: "Inter_500Medium" },
 
-  assetCard: { marginHorizontal: 14, marginTop: 6, padding: 16, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
-  assetTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  assetLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  assetValue: { fontSize: 24, fontFamily: "Inter_700Bold", marginTop: 6 },
+  loginCta: { marginHorizontal: 14, marginTop: 4, padding: 16, borderRadius: 14, flexDirection: "row", alignItems: "center" },
+  loginCtaTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  loginCtaSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 3 },
+  loginCtaArrow: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
+
+  assetCard: { marginHorizontal: 14, marginTop: 4, padding: 16, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  assetTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  assetLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  assetValRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  assetValue: { fontSize: 22, fontFamily: "Inter_700Bold" },
   assetSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  pnlBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 4 },
+  pnlTxt: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  kycBar: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 8, marginTop: 12 },
+  kycHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  kycText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  kycTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
+  kycFill: { height: 4 },
   assetActions: { flexDirection: "row", marginTop: 14, gap: 8 },
-  assetBtn: { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: "center" },
+  assetBtn: { flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5, paddingVertical: 10, borderRadius: 8 },
   assetBtnTxt: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  searchBar: { marginHorizontal: 14, marginTop: 12, paddingHorizontal: 12, height: 38, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 8 },
+  searchInput: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", padding: 0, ...(Platform.OS === "web" ? { outlineStyle: "none" as any } : {}) },
 
   actionsGrid: { marginHorizontal: 14, marginTop: 12, paddingVertical: 14, borderRadius: 14, flexDirection: "row", flexWrap: "wrap" },
   actionItem: { width: "25%", alignItems: "center", marginBottom: 12 },
   actionIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   actionLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
 
-  bannerList: { paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  bannerList: { paddingHorizontal: 14, paddingVertical: 10 },
   banner: { width: 280, padding: 14, borderRadius: 12, marginRight: 10, flexDirection: "row", alignItems: "center" },
-  bannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#000" },
-  bannerSub: { fontSize: 11, fontFamily: "Inter_400Regular", color: "#000a", marginTop: 4 },
+  bannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  bannerSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 4 },
+  bannerIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  dots: { flexDirection: "row", justifyContent: "center", gap: 4, marginBottom: 8 },
+  dot: { height: 4, borderRadius: 2 },
 
-  section: { marginTop: 6 },
-  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8, marginTop: 6 },
-  sectionTitleRow: { flexDirection: "row", alignItems: "center" },
+  section: { marginTop: 8 },
+  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 6 },
   sectionTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  fire: { fontSize: 16 },
   seeAll: { fontSize: 12, fontFamily: "Inter_500Medium" },
 
-  hotCard: { width: 130, padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, marginRight: 10 },
-  hotTop: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  hotSym: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginLeft: 8 },
-  hotPrice: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  hotChange: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
+  tabRow: { flexDirection: "row", marginHorizontal: 14, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, marginBottom: 8 },
+  tabItem: { paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
+  tabTxt: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  tabUnderline: { position: "absolute", bottom: 0, left: 14, right: 14, height: 2, borderRadius: 2 },
 
   listCard: { marginHorizontal: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
-  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  coinDot: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 11, gap: 10 },
+  coinDot: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   coinDotTxt: { fontSize: 13, fontFamily: "Inter_700Bold" },
   rowSym: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   rowVol: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 },
   rowPrice: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  rowChange: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
+  changeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 3 },
+  changeBadgeTxt: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   empty: { textAlign: "center", padding: 18, fontSize: 12 },
 
-  newsTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  newsBody: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 6, lineHeight: 17 },
-  newsTime: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 8 },
+  earnCard: { marginHorizontal: 14, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 12 },
+  earnIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  earnTitle: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  earnSub: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 3 },
+
+  footer: { alignItems: "center", paddingTop: 28, paddingBottom: 16 },
+  footerBrand: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  footerText: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 4 },
+  socialRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  socialBtn: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
 });
