@@ -6,6 +6,11 @@ export const fundingRatesTable = pgTable("funding_rates", {
   rate: numeric("rate", { precision: 10, scale: 6 }).notNull().default("0"),
   intervalHours: integer("interval_hours").notNull().default(8),
   fundingTime: timestamp("funding_time", { withTimezone: true }).notNull(),
+  source: text("source").notNull().default("auto"),
+  settled: text("settled").notNull().default("false"),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+  positionsAffected: integer("positions_affected").notNull().default(0),
+  totalPaid: numeric("total_paid", { precision: 28, scale: 8 }).notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

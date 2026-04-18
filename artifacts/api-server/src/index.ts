@@ -6,6 +6,7 @@ import { startPriceService, getCache, subscribe, getInrRate } from "./lib/price-
 import { startBotService } from "./lib/bot-service";
 import { startDepositSweeper } from "./lib/deposit-sweeper";
 import { startWithdrawalWatcher } from "./lib/withdrawal-watcher";
+import { startFuturesEngine } from "./lib/futures-engine";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -30,4 +31,5 @@ server.listen(port, () => {
   startBotService(3000);
   startDepositSweeper(30000);
   startWithdrawalWatcher();
+  startFuturesEngine();
 });

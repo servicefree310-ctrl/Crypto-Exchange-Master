@@ -24,6 +24,7 @@ import LoginLogsPage from "@/pages/login-logs";
 import OtpProvidersPage from "@/pages/otp-providers";
 import ChatPage from "@/pages/chat";
 import FundingRatesPage from "@/pages/funding-rates";
+import FuturesPositionsPage from "@/pages/futures-positions";
 import ApiKeysPage from "@/pages/api-keys";
 import BotsPage from "@/pages/bots";
 import OrdersPage from "@/pages/orders";
@@ -66,6 +67,7 @@ function Protected() {
         <Route path="/networks" component={NetworksPage} />
         <Route path="/pairs" component={PairsPage} />
         <Route path="/funding-rates" component={FundingRatesPage} />
+        <Route path="/futures-positions" component={FuturesPositionsPage} />
         <Route path="/api-keys" component={ApiKeysPage} />
         <Route path="/bots" component={BotsPage} />
         <Route path="/orders" component={OrdersPage} />

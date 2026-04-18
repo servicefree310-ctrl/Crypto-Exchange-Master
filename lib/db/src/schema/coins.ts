@@ -74,6 +74,11 @@ export const pairsTable = pgTable("pairs", {
   change24h: numeric("change_24h", { precision: 10, scale: 4 }).notNull().default("0"),
   description: text("description"),
   status: text("status").notNull().default("active"),
+  maxLeverage: integer("max_leverage").notNull().default(100),
+  mmRate: numeric("mm_rate", { precision: 8, scale: 6 }).notNull().default("0.005"),
+  fundingIntervalHours: integer("funding_interval_hours").notNull().default(8),
+  baseFundingRate: numeric("base_funding_rate", { precision: 10, scale: 6 }).notNull().default("0.0001"),
+  fundingAutoCreate: text("funding_auto_create").notNull().default("true"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

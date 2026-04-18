@@ -112,6 +112,55 @@ router.delete("/admin/funding-rates/:id", requireAuth, adminOnly, async (req, re
   res.sendStatus(204);
 });
 
+// ─── Admin: futures positions + risk ─────────────────────────────────────────
+router.get("/admin/futures-positions", requireAuth, supportPlus, async (req, res): Promise<void> => {
+  const status = (req.query.status as string) || "open";
+  const { futuresPositionsTable } = await import("@workspace/db");
+  const rows = status === "all"
+    ? await db.select().from(futuresPositionsTable).orderBy(desc(futuresPositionsTable.openedAt)).limit(500)
+    : await db.select().from(futuresPositionsTable).where(eq(futuresPositionsTable.status, status)).orderBy(desc(futuresPositionsTable.openedAt)).limit(500);
+  res.json(rows);
+});
+router.get("/admin/futures-engine/status", requireAuth, supportPlus, async (_req, res): Promise<void> => {
+  const { getFuturesEngineStatus } = await import("../lib/futures-engine");
+  res.json(getFuturesEngineStatus());
+});
+router.post("/admin/futures-engine/run-funding", requireAuth, adminOnly, async (_req, res): Promise<void> => {
+  const { tickAutoFunding, tickSettleFunding } = await import("../lib/futures-engine");
+  const created = await tickAutoFunding();
+  const settled = await tickSettleFunding();
+  res.json({ created, settled });
+});
+router.post("/admin/futures-engine/run-risk", requireAuth, adminOnly, async (_req, res): Promise<void> => {
+  const { tickRiskCheck } = await import("../lib/futures-engine");
+  const result = await tickRiskCheck();
+  res.json(result);
+});
+router.post("/admin/futures-positions/:id/liquidate", requireAuth, adminOnly, async (req, res): Promise<void> => {
+  const { futuresPositionsTable, walletsTable, pairsTable } = await import("@workspace/db");
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  await db.transaction(async (trx) => {
+    const [pos] = await trx.select().from(futuresPositionsTable).where(eq(futuresPositionsTable.id, id)).for("update").limit(1);
+    if (!pos) throw new Error("Not found");
+    if (pos.status !== "open") throw new Error(`Cannot liquidate — status is ${pos.status}`);
+    const [pair] = await trx.select().from(pairsTable).where(eq(pairsTable.id, pos.pairId)).limit(1);
+    if (!pair) throw new Error("Pair missing");
+    const [w] = await trx.select().from(walletsTable).where(and(
+      eq(walletsTable.userId, pos.userId), eq(walletsTable.coinId, pair.quoteCoinId), eq(walletsTable.walletType, "futures"),
+    )).for("update").limit(1);
+    if (w) {
+      await trx.update(walletsTable).set({
+        locked: sql`${walletsTable.locked} - ${pos.marginAmount}`,
+        updatedAt: new Date(),
+      }).where(eq(walletsTable.id, w.id));
+    }
+    await trx.update(futuresPositionsTable).set({
+      status: "liquidated", closedAt: new Date(), closeReason: "Forced liquidation by admin",
+    }).where(eq(futuresPositionsTable.id, id));
+  }).then(() => res.json({ ok: true })).catch((e) => res.status(400).json({ error: (e as Error).message }));
+});
+
 // ─── Admin: API keys (Binance etc) ────────────────────────────────────────────
 function maskSecret(s: string | null | undefined): string {
   if (!s) return "";
