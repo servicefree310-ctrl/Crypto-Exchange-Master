@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { tradingApi, api } from "@/lib/api";
+import { tradingApi, marketApi, api } from "@/lib/api";
 
 interface Candle { open: number; high: number; low: number; close: number; vol: number; time: string }
 interface OrderEntry { price: string; amount: string; total: string; depth: number }
@@ -294,9 +294,11 @@ export default function TradeScreen() {
   const total = price && amount ? (parseFloat(price||"0")*parseFloat(amount||"0")).toFixed(2) : "0.00";
   const priceUp = currentPrice >= prevPrice.current;
 
-  // Precision for price/qty display, derived from quote
+  // Precision for price/qty display, derived from quote (held in refs so polling deps stay stable)
   const pricePrec = isInr ? 2 : (basePrice >= 1 ? 2 : 5);
   const qtyPrec = basePrice >= 1000 ? 4 : (basePrice >= 1 ? 4 : 2);
+  const precRef = useRef({ p: pricePrec, q: qtyPrec });
+  precRef.current = { p: pricePrec, q: qtyPrec };
 
   // Drive currentPrice from WS-fed livePriceMap; reset price input on pair change
   useEffect(() => {
@@ -306,7 +308,7 @@ export default function TradeScreen() {
     setPrice(basePrice.toFixed(pricePrec));
   }, [basePrice]);
 
-  // Initial + interval/pair change: fetch live candles, orderbook, recent trades
+  // Initial fetch on pair/interval change: live candles + orderbook + recent trades
   useEffect(() => {
     let cancel = false;
     const sym = pair.replace("/", "").toUpperCase();
@@ -315,35 +317,40 @@ export default function TradeScreen() {
       try {
         const [cRes, ob, tr] = await Promise.all([
           api.get<any>(`/klines?symbol=${encodeURIComponent(sym)}&interval=${apiInt}&limit=80&source=auto`).catch(() => null),
-          tradingApi.getOrderbook(sym).catch(() => ({ bids: [], asks: [] })),
-          tradingApi.getTrades(sym).catch(() => []),
+          marketApi.getOrderbook(sym).catch(() => ({ bids: [], asks: [] })),
+          marketApi.getTrades(sym).catch(() => []),
         ]);
         if (cancel) return;
         const rawCandles = (cRes?.candles ?? cRes ?? []) as any[];
+        const { p, q } = precRef.current;
         setCandles(apiToUiCandles(rawCandles));
-        setOrderBook(apiToUiBook(ob.bids, ob.asks, pricePrec, qtyPrec));
-        setTrades(apiToUiTrades(tr, pricePrec, qtyPrec));
+        setOrderBook(apiToUiBook(ob.bids, ob.asks, p, q));
+        setTrades(apiToUiTrades(tr, p, q));
       } catch { /* keep previous */ }
     })();
     return () => { cancel = true; };
-  }, [pair, interval_, pricePrec, qtyPrec]);
+  }, [pair, interval_]);
 
-  // Poll Redis-backed orderbook + recent trades every 1.5s for live updates
+  // Poll Redis-backed orderbook + recent trades every 1.5s — deps only on pair so the interval is stable
   useEffect(() => {
     const sym = pair.replace("/", "").toUpperCase();
+    let alive = true;
     const tick = async () => {
       try {
         const [ob, tr] = await Promise.all([
-          tradingApi.getOrderbook(sym),
-          tradingApi.getTrades(sym),
+          marketApi.getOrderbook(sym),
+          marketApi.getTrades(sym),
         ]);
-        setOrderBook(apiToUiBook(ob.bids, ob.asks, pricePrec, qtyPrec));
-        setTrades(apiToUiTrades(tr, pricePrec, qtyPrec));
+        if (!alive) return;
+        const { p, q } = precRef.current;
+        setOrderBook(apiToUiBook(ob.bids, ob.asks, p, q));
+        setTrades(apiToUiTrades(tr, p, q));
       } catch {}
     };
+    tick();
     const id = setInterval(tick, 1500);
-    return () => clearInterval(id);
-  }, [pair, pricePrec, qtyPrec]);
+    return () => { alive = false; clearInterval(id); };
+  }, [pair]);
 
   // Live-update last candle's close/high/low from WS price ticks
   useEffect(() => {
