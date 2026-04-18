@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Users, Coins as CoinsIcon, Network, ArrowLeftRight, Wallet, ShieldCheck,
   Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark, PiggyBank,
-  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent
+  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent, Bot
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ const NAV = [
   { href: "/networks", label: "Networks", icon: Network, roles: ["support", "admin", "superadmin"] },
   { href: "/pairs", label: "Trading Pairs", icon: ArrowLeftRight, roles: ["support", "admin", "superadmin"] },
   { href: "/funding-rates", label: "Funding Rates", icon: Percent, roles: ["support", "admin", "superadmin"] },
+  { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
   { href: "/api-keys", label: "API Keys", icon: KeyRound, roles: ["admin", "superadmin"] },
   { href: "/gateways", label: "Payment Gateways", icon: Wallet, roles: ["support", "admin", "superadmin"] },
   { href: "/inr-deposits", label: "INR Deposits", icon: ArrowDownToLine, roles: ["support", "admin", "superadmin"] },

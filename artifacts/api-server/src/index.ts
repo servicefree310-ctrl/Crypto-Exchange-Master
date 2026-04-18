@@ -3,6 +3,7 @@ import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startPriceService, getCache, subscribe, getInrRate } from "./lib/price-service";
+import { startBotService } from "./lib/bot-service";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -24,4 +25,5 @@ wss.on("connection", (ws) => {
 server.listen(port, () => {
   logger.info({ port }, "Server listening (HTTP + WS /api/ws/prices)");
   startPriceService(5000);
+  startBotService(3000);
 });

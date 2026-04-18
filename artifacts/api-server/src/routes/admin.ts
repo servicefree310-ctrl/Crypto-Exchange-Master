@@ -24,6 +24,7 @@ import {
   otpProvidersTable,
   chatThreadsTable,
   chatMessagesTable,
+  marketBotsTable,
 } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
@@ -227,6 +228,46 @@ router.patch("/admin/pairs/:id", adminOnly, async (req, res): Promise<void> => {
 router.delete("/admin/pairs/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   await db.delete(pairsTable).where(eq(pairsTable.id, id));
+  res.sendStatus(204);
+});
+
+// Market-Maker Bots
+router.get("/admin/bots", adminOnly, async (_req, res): Promise<void> => {
+  const rows = await db.select().from(marketBotsTable).orderBy(desc(marketBotsTable.createdAt));
+  res.json(rows);
+});
+router.post("/admin/bots", adminOnly, async (req, res): Promise<void> => {
+  const b = req.body ?? {};
+  if (!b.pairId) { res.status(400).json({ error: "pairId required" }); return; }
+  try {
+    const [row] = await db.insert(marketBotsTable).values({
+      pairId: Number(b.pairId),
+      enabled: !!b.enabled,
+      spreadBps: Number(b.spreadBps ?? 20),
+      levels: Number(b.levels ?? 5),
+      priceStepBps: Number(b.priceStepBps ?? 10),
+      orderSize: String(b.orderSize ?? "0.01"),
+      refreshSec: Number(b.refreshSec ?? 8),
+      maxOrderAgeSec: Number(b.maxOrderAgeSec ?? 60),
+      fillOnCross: b.fillOnCross !== false,
+    }).returning();
+    res.status(201).json(row);
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message?.includes("unique") ? "Bot already exists for this pair" : "Failed to create bot" });
+  }
+});
+router.patch("/admin/bots/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const b: Record<string, any> = { ...req.body };
+  delete b.id; delete b.createdAt; delete b.lastRunAt; delete b.lastError; delete b.status;
+  if (b.orderSize !== undefined) b.orderSize = String(b.orderSize);
+  const [row] = await db.update(marketBotsTable).set(b).where(eq(marketBotsTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(row);
+});
+router.delete("/admin/bots/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  await db.delete(marketBotsTable).where(eq(marketBotsTable.id, id));
   res.sendStatus(204);
 });
 

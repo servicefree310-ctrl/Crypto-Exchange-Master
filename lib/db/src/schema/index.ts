@@ -13,3 +13,4 @@ export * from "./cms";
 export * from "./deposit-addresses";
 export * from "./wallet-addresses";
 export * from "./funding-rates";
+export * from "./market-bots";

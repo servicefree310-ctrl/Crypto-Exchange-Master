@@ -13,6 +13,8 @@ export const ordersTable = pgTable("orders", {
   fee: numeric("fee", { precision: 28, scale: 8 }).notNull().default("0"),
   tds: numeric("tds", { precision: 28, scale: 8 }).notNull().default("0"),
   status: text("status").notNull().default("open"),
+  isBot: integer("is_bot").notNull().default(0),
+  botId: integer("bot_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
