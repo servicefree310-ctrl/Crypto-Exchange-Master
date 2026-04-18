@@ -14,6 +14,8 @@ import {
   ordersTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { deriveEvmWallet } from "../lib/hd-wallet";
+import { encryptSecret } from "../lib/crypto-vault";
 
 const router: IRouter = Router();
 
@@ -77,6 +79,13 @@ function deterministicAddress(userId: number, networkChain: string): { address: 
   return { address: "0x" + seed.slice(0, 40), memo: null };
 }
 
+function isEvmChain(chain: string, providerType?: string): boolean {
+  const c = (chain || "").toUpperCase();
+  if (["BNB", "BSC", "ETH", "POLYGON", "MATIC", "ARBITRUM", "BASE", "AVAX"].includes(c)) return true;
+  const p = (providerType || "").toLowerCase();
+  return p === "alchemy" || p === "infura";
+}
+
 router.get("/deposit-address", requireAuth, async (req, res): Promise<void> => {
   const coinId = Number(req.query.coinId);
   const networkId = Number(req.query.networkId);
@@ -93,19 +102,42 @@ router.get("/deposit-address", requireAuth, async (req, res): Promise<void> => {
     eq(walletAddressesTable.userId, userId),
     eq(walletAddressesTable.networkId, networkId),
   )).limit(1);
-  if (existing) { res.json({ address: existing.address, memo: existing.memo, networkId, coinId }); return; }
 
-  const { address, memo } = deterministicAddress(userId, network.chain);
+  // If existing record is a placeholder (no privateKeyEnc) and chain is EVM, regenerate as real HD wallet
+  if (existing && existing.privateKeyEnc) {
+    res.json({ address: existing.address, memo: existing.memo, networkId, coinId, status: existing.status });
+    return;
+  }
+
   try {
-    const [created] = await db.insert(walletAddressesTable).values({ userId, networkId, address, memo }).returning();
-    res.json({ address: created.address, memo: created.memo, networkId, coinId });
-  } catch {
+    if (isEvmChain(network.chain, network.providerType)) {
+      const w = await deriveEvmWallet(userId);
+      const pkEnc = encryptSecret(w.privateKey);
+      if (existing) {
+        const [updated] = await db.update(walletAddressesTable).set({
+          address: w.address, privateKeyEnc: pkEnc, derivationPath: w.path, derivationIndex: w.index, status: "active",
+        }).where(eq(walletAddressesTable.id, existing.id)).returning();
+        res.json({ address: updated.address, memo: updated.memo, networkId, coinId, status: updated.status });
+        return;
+      }
+      const [created] = await db.insert(walletAddressesTable).values({
+        userId, networkId, address: w.address, memo: null,
+        privateKeyEnc: pkEnc, derivationPath: w.path, derivationIndex: w.index, status: "active",
+      }).returning();
+      res.json({ address: created.address, memo: created.memo, networkId, coinId, status: created.status });
+      return;
+    }
+    // Non-EVM fallback (placeholder for now — BTC/TRX/SOL need their own derivation)
+    const { address, memo } = deterministicAddress(userId, network.chain);
+    const [created] = await db.insert(walletAddressesTable).values({ userId, networkId, address, memo, status: "active" }).returning();
+    res.json({ address: created.address, memo: created.memo, networkId, coinId, status: created.status });
+  } catch (e: any) {
     const [row] = await db.select().from(walletAddressesTable).where(and(
       eq(walletAddressesTable.userId, userId),
       eq(walletAddressesTable.networkId, networkId),
     )).limit(1);
-    if (!row) { res.status(500).json({ error: "Address creation failed" }); return; }
-    res.json({ address: row.address, memo: row.memo, networkId, coinId });
+    if (!row) { res.status(500).json({ error: e?.message || "Address creation failed" }); return; }
+    res.json({ address: row.address, memo: row.memo, networkId, coinId, status: row.status });
   }
 });
 

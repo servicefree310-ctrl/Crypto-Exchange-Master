@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { sql, eq, desc, and } from "drizzle-orm";
+import { sql, eq, desc, and, or } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -29,9 +29,12 @@ import {
 } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
-import { encryptSecret, maskSecret } from "../lib/crypto-vault";
+import { encryptSecret, maskSecret, decryptSecret } from "../lib/crypto-vault";
 import { testNode } from "../lib/node-test";
 import { getSweeperStatus, manualScan, sweepAllNetworks, startDepositSweeper, stopDepositSweeper } from "../lib/deposit-sweeper";
+import { walletAddressesTable } from "@workspace/db";
+import { isVaultPasswordSet, setVaultPassword, verifyVaultPassword } from "../lib/admin-vault";
+import { isMnemonicConfigured, getMnemonicForReveal } from "../lib/hd-wallet";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -596,6 +599,130 @@ router.get("/admin/crypto-deposits/stats", supportPlus, async (_req, res): Promi
     else manualCount += r.count;
   }
   res.json({ total, pending, completed, rejected, autoDetected, manual: manualCount, totalAmount, pendingAmount });
+});
+
+// ─── Admin Vault (password to reveal private keys) ─────────────────────────
+router.get("/admin/vault/status", supportPlus, async (_req, res): Promise<void> => {
+  res.json({
+    passwordSet: await isVaultPasswordSet(),
+    mnemonicConfigured: await isMnemonicConfigured(),
+  });
+});
+router.post("/admin/vault/set-password", adminOnly, async (req, res): Promise<void> => {
+  const { password, currentPassword } = req.body ?? {};
+  if (!password || password.length < 8) { res.status(400).json({ error: "Password must be at least 8 characters" }); return; }
+  if (await isVaultPasswordSet()) {
+    if (!currentPassword || !(await verifyVaultPassword(currentPassword))) {
+      res.status(401).json({ error: "Current vault password is incorrect" }); return;
+    }
+  }
+  await setVaultPassword(password);
+  res.json({ ok: true });
+});
+router.post("/admin/vault/verify", adminOnly, async (req, res): Promise<void> => {
+  const { password } = req.body ?? {};
+  const ok = await verifyVaultPassword(password);
+  if (!ok) { res.status(401).json({ error: "Invalid vault password" }); return; }
+  res.json({ ok: true });
+});
+router.post("/admin/vault/reveal-mnemonic", adminOnly, async (req, res): Promise<void> => {
+  const { password } = req.body ?? {};
+  if (!(await verifyVaultPassword(password))) { res.status(401).json({ error: "Invalid vault password" }); return; }
+  res.json({ mnemonic: await getMnemonicForReveal() });
+});
+
+// ─── User Wallet Addresses (admin view) ─────────────────────────────────────
+router.get("/admin/user-addresses", supportPlus, async (req, res): Promise<void> => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const status = typeof req.query.status === "string" ? req.query.status : "";
+  const networkId = req.query.networkId ? Number(req.query.networkId) : null;
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 200));
+
+  const conds = [] as any[];
+  if (status === "active" || status === "disabled") conds.push(eq(walletAddressesTable.status, status));
+  if (networkId && Number.isFinite(networkId)) conds.push(eq(walletAddressesTable.networkId, networkId));
+  if (search) {
+    const like = `%${search.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+    const asNum = Number(search);
+    const userIdMatch = Number.isFinite(asNum) && Number.isInteger(asNum) ? eq(walletAddressesTable.userId, asNum) : null;
+    const orParts = [
+      sql`${walletAddressesTable.address} ILIKE ${like}`,
+      sql`${usersTable.email} ILIKE ${like}`,
+      sql`${usersTable.name} ILIKE ${like}`,
+      sql`${usersTable.phone} ILIKE ${like}`,
+    ];
+    if (userIdMatch) orParts.push(userIdMatch as any);
+    conds.push(or(...orParts) as any);
+  }
+
+  const rows = await db.select({
+    id: walletAddressesTable.id,
+    userId: walletAddressesTable.userId,
+    networkId: walletAddressesTable.networkId,
+    address: walletAddressesTable.address,
+    memo: walletAddressesTable.memo,
+    status: walletAddressesTable.status,
+    derivationPath: walletAddressesTable.derivationPath,
+    derivationIndex: walletAddressesTable.derivationIndex,
+    hasPrivateKey: sql<boolean>`(${walletAddressesTable.privateKeyEnc} is not null)`,
+    createdAt: walletAddressesTable.createdAt,
+    lastUsedAt: walletAddressesTable.lastUsedAt,
+    userEmail: usersTable.email,
+    userName: usersTable.name,
+    userPhone: usersTable.phone,
+  })
+  .from(walletAddressesTable)
+  .leftJoin(usersTable, eq(usersTable.id, walletAddressesTable.userId))
+  .where(conds.length ? (and(...conds) as any) : undefined as any)
+  .orderBy(desc(walletAddressesTable.createdAt))
+  .limit(limit);
+
+  res.json(rows);
+});
+
+router.get("/admin/user-addresses/stats", supportPlus, async (_req, res): Promise<void> => {
+  const rows = await db.select({
+    status: walletAddressesTable.status,
+    networkId: walletAddressesTable.networkId,
+    count: sql<number>`count(*)::int`,
+    withPk: sql<number>`count(*) filter (where ${walletAddressesTable.privateKeyEnc} is not null)::int`,
+  }).from(walletAddressesTable).groupBy(walletAddressesTable.status, walletAddressesTable.networkId);
+  let total = 0, active = 0, disabled = 0, withPk = 0, withoutPk = 0;
+  const perNetwork: Record<number, { total: number; withPk: number }> = {};
+  for (const r of rows) {
+    total += r.count;
+    if (r.status === "active") active += r.count;
+    else if (r.status === "disabled") disabled += r.count;
+    withPk += r.withPk;
+    withoutPk += r.count - r.withPk;
+    if (!perNetwork[r.networkId]) perNetwork[r.networkId] = { total: 0, withPk: 0 };
+    perNetwork[r.networkId].total += r.count;
+    perNetwork[r.networkId].withPk += r.withPk;
+  }
+  res.json({ total, active, disabled, withPk, withoutPk, perNetwork });
+});
+
+router.patch("/admin/user-addresses/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const { status } = req.body ?? {};
+  if (!["active", "disabled"].includes(status)) { res.status(400).json({ error: "Invalid status" }); return; }
+  const [updated] = await db.update(walletAddressesTable).set({ status })
+    .where(eq(walletAddressesTable.id, id)).returning();
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(updated);
+});
+
+router.post("/admin/user-addresses/:id/reveal", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const { password } = req.body ?? {};
+  if (!password) { res.status(400).json({ error: "Password required" }); return; }
+  if (!(await verifyVaultPassword(password))) { res.status(401).json({ error: "Invalid vault password" }); return; }
+  const [row] = await db.select().from(walletAddressesTable).where(eq(walletAddressesTable.id, id)).limit(1);
+  if (!row) { res.status(404).json({ error: "Address not found" }); return; }
+  if (!row.privateKeyEnc) { res.status(400).json({ error: "No private key stored for this address" }); return; }
+  const pk = decryptSecret(row.privateKeyEnc);
+  if (!pk) { res.status(500).json({ error: "Decryption failed" }); return; }
+  res.json({ id: row.id, address: row.address, privateKey: pk, derivationPath: row.derivationPath });
 });
 
 // Deposit Sweeper status & control
