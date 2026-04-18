@@ -94,9 +94,9 @@ export default function HomeScreen() {
           {/* Quick Actions */}
           <View style={s.quickActions}>
             {[
-              { icon: 'arrow-down-circle', label: 'Deposit', route: '/(tabs)/wallet' },
-              { icon: 'arrow-up-circle', label: 'Withdraw', route: '/(tabs)/wallet' },
-              { icon: 'refresh-cw', label: 'Transfer', route: '/(tabs)/wallet' },
+              { icon: 'arrow-down-circle', label: 'Deposit', route: '/services/deposit-inr' },
+              { icon: 'arrow-up-circle', label: 'Withdraw', route: '/services/withdraw-inr' },
+              { icon: 'refresh-cw', label: 'Transfer', route: '/services/transfer' },
               { icon: 'bar-chart-2', label: 'Trade', route: '/(tabs)/trade' },
             ].map(({ icon, label, route }) => (
               <TouchableOpacity key={label} style={s.actionBtn} onPress={() => router.push(route as any)}>
@@ -109,9 +109,27 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Service Shortcuts */}
+        <View style={s.serviceGrid}>
+          {[
+            { icon: 'gift', label: 'Earn', sub: 'Up to 18.5% APY', color: colors.success, route: '/services/earn' },
+            { icon: 'shield', label: 'KYC', sub: `Level ${user.kycLevel}`, color: colors.primary, route: '/services/kyc' },
+            { icon: 'percent', label: 'Fees', sub: 'Volume tiers', color: colors.info, route: '/services/fees' },
+            { icon: 'credit-card', label: 'Banks', sub: 'Manage', color: colors.warning, route: '/services/banks' },
+          ].map(item => (
+            <TouchableOpacity key={item.label} style={s.serviceCard} onPress={() => router.push(item.route as any)}>
+              <View style={[s.serviceIcon, { backgroundColor: item.color + '22' }]}>
+                <Feather name={item.icon as any} size={18} color={item.color} />
+              </View>
+              <Text style={s.serviceLabel}>{item.label}</Text>
+              <Text style={s.serviceSub}>{item.sub}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* KYC Banner */}
         {user.kycStatus !== 'verified' && (
-          <TouchableOpacity style={s.kycBanner} onPress={() => router.push('/(tabs)/account')}>
+          <TouchableOpacity style={s.kycBanner} onPress={() => router.push('/services/kyc' as any)}>
             <MaterialIcons name="verified-user" size={18} color="#F0B90B" />
             <Text style={s.kycText}>
               {user.kycStatus === 'pending' ? 'Complete KYC to unlock full features' :
@@ -248,4 +266,9 @@ const styles = (colors: ReturnType<typeof useColors>) => StyleSheet.create({
   marketPriceText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.foreground },
   changeBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   changeText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  serviceGrid: { flexDirection: 'row', gap: 8, marginBottom: 18 },
+  serviceCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  serviceIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  serviceLabel: { fontSize: 12, color: colors.foreground, fontFamily: 'Inter_700Bold' },
+  serviceSub: { fontSize: 10, color: colors.mutedForeground, fontFamily: 'Inter_400Regular', marginTop: 2 },
 });
