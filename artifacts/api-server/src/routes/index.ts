@@ -6,6 +6,7 @@ import publicRouter from "./public";
 import publicUserRouter from "./public-user";
 import otpRouter from "./otp";
 import marketsRouter from "./markets";
+import paymentsRouter from "./payments";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(publicRouter);
 router.use(publicUserRouter);
 router.use(otpRouter);
 router.use(marketsRouter);
+router.use(paymentsRouter);
 
 export default router;

@@ -15,6 +15,9 @@ export const inrDepositsTable = pgTable("inr_deposits", {
   status: text("status").notNull().default("pending"),
   notes: text("notes"),
   reviewedBy: integer("reviewed_by"),
+  gatewayOrderId: text("gateway_order_id"),
+  gatewayPaymentId: text("gateway_payment_id"),
+  gatewayMethod: text("gateway_method"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
 });

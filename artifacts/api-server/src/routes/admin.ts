@@ -390,13 +390,20 @@ router.post("/admin/gateways", adminOnly, async (req, res): Promise<void> => {
     name: b.name,
     type: b.type,
     direction: b.direction,
+    provider: b.provider ?? "manual",
+    currency: b.currency ?? "INR",
     minAmount: String(b.minAmount ?? "0"),
     maxAmount: String(b.maxAmount ?? "0"),
     feeFlat: String(b.feeFlat ?? "0"),
     feePercent: String(b.feePercent ?? "0"),
     processingTime: b.processingTime ?? "Instant",
-    isAuto: b.isAuto ?? false,
+    isAuto: b.isAuto ?? (b.provider === "razorpay"),
     status: b.status ?? "active",
+    apiKey: b.apiKey ?? null,
+    apiSecret: b.apiSecret ?? null,
+    webhookSecret: b.webhookSecret ?? null,
+    testMode: b.testMode ?? true,
+    logoUrl: b.logoUrl ?? null,
     config: typeof b.config === "string" ? b.config : JSON.stringify(b.config ?? {}),
   }).returning();
   res.status(201).json(g);
@@ -405,7 +412,11 @@ router.patch("/admin/gateways/:id", adminOnly, async (req, res): Promise<void> =
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   const b = { ...req.body };
   if (b.config && typeof b.config !== "string") b.config = JSON.stringify(b.config);
-  const [g] = await db.update(gatewaysTable).set(b).where(eq(gatewaysTable.id, id)).returning();
+  // Treat empty-string secrets as "do not change"
+  for (const k of ["apiKey", "apiSecret", "webhookSecret"]) {
+    if (b[k] === "" || b[k] === undefined) delete b[k];
+  }
+  const [g] = await db.update(gatewaysTable).set({ ...b, updatedAt: new Date() }).where(eq(gatewaysTable.id, id)).returning();
   if (!g) { res.status(404).json({ error: "Not found" }); return; }
   res.json(g);
 });
