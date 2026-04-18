@@ -92,7 +92,11 @@ export type ApiCoin = {
   name: string;
   status: string;
   currentPrice: string;
+  change24h?: string;
+  priceInr?: number;
 };
+
+export type PriceTick = { symbol: string; usdt: number; inr: number; change24h: number; volume24h: number; ts: number };
 
 export type ApiKycRecord = {
   id: number; userId: number; level: number; status: 'pending' | 'approved' | 'rejected' | string;

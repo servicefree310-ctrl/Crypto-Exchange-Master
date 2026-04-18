@@ -11,3 +11,5 @@ export * from "./orders";
 export * from "./earn";
 export * from "./cms";
 export * from "./deposit-addresses";
+export * from "./wallet-addresses";
+export * from "./funding-rates";

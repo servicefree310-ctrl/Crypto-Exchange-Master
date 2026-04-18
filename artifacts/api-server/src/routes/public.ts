@@ -10,6 +10,7 @@ import {
   settingsTable,
   earnProductsTable,
   depositAddressesTable,
+  walletAddressesTable,
   ordersTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
@@ -82,42 +83,29 @@ router.get("/deposit-address", requireAuth, async (req, res): Promise<void> => {
   if (!coinId || !networkId) { res.status(400).json({ error: "coinId and networkId required" }); return; }
   const userId = req.user!.id;
 
-  const [existing] = await db
-    .select()
-    .from(depositAddressesTable)
-    .where(and(
-      eq(depositAddressesTable.userId, userId),
-      eq(depositAddressesTable.coinId, coinId),
-      eq(depositAddressesTable.networkId, networkId),
-    ))
-    .limit(1);
-  if (existing) { res.json(existing); return; }
-
   const [network] = await db.select().from(networksTable).where(eq(networksTable.id, networkId)).limit(1);
   if (!network) { res.status(404).json({ error: "Network not found" }); return; }
   if (network.coinId !== coinId) { res.status(400).json({ error: "Network does not belong to this coin" }); return; }
   if (network.status !== "active") { res.status(400).json({ error: "Network is not active" }); return; }
 
+  // Shared address per (userId, networkId) — same across all coins on this network
+  const [existing] = await db.select().from(walletAddressesTable).where(and(
+    eq(walletAddressesTable.userId, userId),
+    eq(walletAddressesTable.networkId, networkId),
+  )).limit(1);
+  if (existing) { res.json({ address: existing.address, memo: existing.memo, networkId, coinId }); return; }
+
   const { address, memo } = deterministicAddress(userId, network.chain);
   try {
-    const [created] = await db
-      .insert(depositAddressesTable)
-      .values({ userId, coinId, networkId, address, memo })
-      .returning();
-    res.json(created);
+    const [created] = await db.insert(walletAddressesTable).values({ userId, networkId, address, memo }).returning();
+    res.json({ address: created.address, memo: created.memo, networkId, coinId });
   } catch {
-    // Race: concurrent insert hit unique index — fetch existing
-    const [row] = await db
-      .select()
-      .from(depositAddressesTable)
-      .where(and(
-        eq(depositAddressesTable.userId, userId),
-        eq(depositAddressesTable.coinId, coinId),
-        eq(depositAddressesTable.networkId, networkId),
-      ))
-      .limit(1);
+    const [row] = await db.select().from(walletAddressesTable).where(and(
+      eq(walletAddressesTable.userId, userId),
+      eq(walletAddressesTable.networkId, networkId),
+    )).limit(1);
     if (!row) { res.status(500).json({ error: "Address creation failed" }); return; }
-    res.json(row);
+    res.json({ address: row.address, memo: row.memo, networkId, coinId });
   }
 });
 

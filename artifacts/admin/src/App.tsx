@@ -23,6 +23,8 @@ import SettingsPage from "@/pages/settings";
 import LoginLogsPage from "@/pages/login-logs";
 import OtpProvidersPage from "@/pages/otp-providers";
 import ChatPage from "@/pages/chat";
+import FundingRatesPage from "@/pages/funding-rates";
+import ApiKeysPage from "@/pages/api-keys";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -60,6 +62,8 @@ function Protected() {
         <Route path="/coins" component={CoinsPage} />
         <Route path="/networks" component={NetworksPage} />
         <Route path="/pairs" component={PairsPage} />
+        <Route path="/funding-rates" component={FundingRatesPage} />
+        <Route path="/api-keys" component={ApiKeysPage} />
         <Route path="/gateways" component={GatewaysPage} />
         <Route path="/inr-deposits" component={InrDepositsPage} />
         <Route path="/inr-withdrawals" component={InrWithdrawalsPage} />

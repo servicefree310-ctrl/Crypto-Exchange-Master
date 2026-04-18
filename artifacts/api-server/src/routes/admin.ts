@@ -116,13 +116,19 @@ router.post("/admin/coins", adminOnly, async (req, res): Promise<void> => {
     isListed: b.isListed ?? true,
     listingAt: b.listingAt ? new Date(b.listingAt) : null,
     currentPrice: b.currentPrice ?? "0",
+    binanceSymbol: b.binanceSymbol ?? null,
+    priceSource: b.priceSource ?? "binance",
+    manualPrice: b.manualPrice !== undefined && b.manualPrice !== null ? String(b.manualPrice) : null,
+    infoUrl: b.infoUrl ?? null,
   }).returning();
   res.status(201).json(coin);
 });
 router.patch("/admin/coins/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const b = { ...req.body };
+  const b: Record<string, any> = { ...req.body };
+  delete b.id; delete b.createdAt; delete b.updatedAt;
   if (b.listingAt) b.listingAt = new Date(b.listingAt);
+  if (b.manualPrice !== undefined && b.manualPrice !== null) b.manualPrice = String(b.manualPrice);
   const [coin] = await db.update(coinsTable).set(b).where(eq(coinsTable.id, id)).returning();
   if (!coin) { res.status(404).json({ error: "Not found" }); return; }
   res.json(coin);
@@ -196,13 +202,25 @@ router.post("/admin/pairs", adminOnly, async (req, res): Promise<void> => {
     qtyPrecision: Number(b.qtyPrecision ?? 4),
     takerFee: String(b.takerFee ?? "0.001"),
     makerFee: String(b.makerFee ?? "0.001"),
+    tradingEnabled: b.tradingEnabled ?? true,
+    futuresEnabled: b.futuresEnabled ?? false,
+    tradingStartAt: b.tradingStartAt ? new Date(b.tradingStartAt) : null,
+    futuresStartAt: b.futuresStartAt ? new Date(b.futuresStartAt) : null,
+    description: b.description ?? null,
     status: b.status ?? "active",
   }).returning();
   res.status(201).json(p);
 });
 router.patch("/admin/pairs/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const [p] = await db.update(pairsTable).set(req.body).where(eq(pairsTable.id, id)).returning();
+  const b: Record<string, any> = { ...req.body };
+  delete b.id; delete b.createdAt;
+  if (b.tradingStartAt) b.tradingStartAt = new Date(b.tradingStartAt);
+  if (b.futuresStartAt) b.futuresStartAt = new Date(b.futuresStartAt);
+  for (const k of ["minQty", "maxQty", "takerFee", "makerFee", "lastPrice", "volume24h", "change24h"]) {
+    if (b[k] !== undefined && b[k] !== null) b[k] = String(b[k]);
+  }
+  const [p] = await db.update(pairsTable).set(b).where(eq(pairsTable.id, id)).returning();
   if (!p) { res.status(404).json({ error: "Not found" }); return; }
   res.json(p);
 });

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, Platform } from 'react-native';
 import { api, type ApiUser, type ApiWallet, type ApiBank, type ApiCoin, type ApiNetwork } from '@/lib/api';
 
 export type Theme = 'dark' | 'light' | 'system';
@@ -177,6 +177,7 @@ interface AppContextType {
   apiWallets: ApiWallet[];
   apiBanks: ApiBank[];
   apiCoins: ApiCoin[];
+  inrUsdtRate: number;
   refreshWallets: () => Promise<void>;
   refreshBanks: () => Promise<void>;
   refreshCoins: () => Promise<void>;
@@ -358,6 +359,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [apiWallets, setApiWallets] = useState<ApiWallet[]>([]);
   const [apiBanks, setApiBanks] = useState<ApiBank[]>([]);
   const [apiCoins, setApiCoins] = useState<ApiCoin[]>([]);
+  const [inrUsdtRate, setInrUsdtRate] = useState<number>(84);
 
   const refreshWallets = async () => {
     try { setApiWallets(await api.get<ApiWallet[]>('/wallets')); } catch {}
@@ -472,14 +474,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setApiWallets([]); setApiBanks([]);
       } finally { setAuthBootstrapped(true); }
     })();
-    const interval = setInterval(() => {
-      setCoins(prev => prev.map(c => ({
-        ...c,
-        price: c.price * (1 + (Math.random() - 0.498) * 0.002),
-        change24h: parseFloat((c.change24h + (Math.random() - 0.5) * 0.05).toFixed(2)),
-      })));
-    }, 3000);
-    return () => clearInterval(interval);
+    const interval: ReturnType<typeof setInterval> | null = null;
+
+    // Live prices: WebSocket primary, REST fallback
+    let ws: WebSocket | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const applyTicks = (inrRate: number, ticks: any[]) => {
+      if (typeof inrRate === 'number' && inrRate > 0) setInrUsdtRate(inrRate);
+      setApiCoins(prev => {
+        const map = new Map(prev.map(c => [c.symbol, c]));
+        for (const t of ticks) {
+          const ex = map.get(t.symbol);
+          if (ex) map.set(t.symbol, { ...ex, currentPrice: String(t.usdt), change24h: String(t.change24h), priceInr: t.inr });
+        }
+        return Array.from(map.values());
+      });
+      // Sync mock `coins[]` with live data so existing screens (markets/trade) get live prices
+      setCoins(prev => prev.map(c => {
+        const t = ticks.find((x: any) => x.symbol === c.symbol);
+        if (!t) return c;
+        return { ...c, price: t.usdt, change24h: parseFloat(Number(t.change24h).toFixed(2)), volume24h: t.volume24h ?? c.volume24h };
+      }));
+    };
+    const restFallback = async () => {
+      try {
+        const r = await api.get<{ inrRate: number; ticks: any[] }>('/prices');
+        applyTicks(r.inrRate, r.ticks);
+      } catch {}
+    };
+    const connectWs = () => {
+      try {
+        const base = (Platform.OS === 'web')
+          ? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws/prices`
+          : `wss://${process.env.EXPO_PUBLIC_DOMAIN}/api/ws/prices`;
+        ws = new WebSocket(base);
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
+            if (msg?.type === 'snapshot' || msg?.type === 'tick') {
+              applyTicks(msg.inrRate, msg.ticks || []);
+            }
+          } catch {}
+        };
+        ws.onclose = () => { setTimeout(connectWs, 5000); };
+        ws.onerror = () => { try { ws?.close(); } catch {} };
+      } catch { /* fallback to polling */ }
+    };
+    connectWs();
+    pollTimer = setInterval(restFallback, 15000);
+    void restFallback();
+
+    return () => { if (interval) clearInterval(interval); if (pollTimer) clearInterval(pollTimer); try { ws?.close(); } catch {} };
   }, []);
 
   const loadSettings = async () => {
@@ -545,7 +590,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       theme, setTheme, effectiveTheme,
       language, setLanguage,
       user, setUser, authBootstrapped, loginWithApi, signupWithApi, logout,
-      apiWallets, apiBanks, apiCoins,
+      apiWallets, apiBanks, apiCoins, inrUsdtRate,
       refreshWallets, refreshBanks, refreshCoins, fetchNetworks,
       addBankApi, removeBankApi, withdrawInrApi, withdrawCryptoApi,
       fetchDepositGateways, submitInrDepositApi, fetchInrDeposits,
