@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 
 const VIP_LEVELS = [
   { level:0, vol:"0",   fee:"0.10/0.10", reward:"Standard" },
@@ -42,6 +43,10 @@ export default function AccountScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated, logout } = useAuth();
+  const { mode: themeMode, scheme: themeScheme, cycleMode } = useTheme();
+  const themeLabel = themeMode === "auto" ? `Auto (${themeScheme === "dark" ? "Dark" : "Light"})` : themeMode === "dark" ? "Dark" : "Light";
+  const themeIcon = themeMode === "auto" ? "smartphone" : themeMode === "dark" ? "moon" : "sun";
+  const onCycleTheme = () => { Haptics.selectionAsync(); cycleMode(); };
   const [biometric, setBiometric] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [priceAlert, setPriceAlert] = useState(false);
@@ -95,7 +100,7 @@ export default function AccountScreen() {
         { icon:"repeat",      label:"Auto-Invest",        type:"toggle" as const, stateKey:"autoInvest" },
         { icon:"globe",       label:"Language",           type:"nav" as const, value:"English (US)" },
         { icon:"dollar-sign", label:"Currency",           type:"nav" as const, value:"USD ($)" },
-        { icon:"moon",        label:"Theme",              type:"nav" as const, value:"Dark" },
+        { icon:themeIcon,     label:"Theme",              type:"action" as const, value:themeLabel, actionLabel:"Switch", action:onCycleTheme },
       ],
     },
     {
