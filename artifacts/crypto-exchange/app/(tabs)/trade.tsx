@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -235,12 +235,22 @@ export default function TradeScreen() {
   }, [spotPairs]);
   const [pair, setPair] = useState("BTC/INR");
   const [pairTouched, setPairTouched] = useState(false);
+  const params = useLocalSearchParams<{ pair?: string }>();
+  const queryPair = typeof params.pair === "string" ? params.pair : undefined;
   useEffect(() => {
     if (!livePairs.length) return;
+    if (queryPair) {
+      const q = queryPair.toUpperCase();
+      const exact = livePairs.find((p: string) => p === q);
+      const byBase = livePairs.find((p: string) => p.split("/")[0] === q.split("/")[0] && p.endsWith("/INR"))
+        || livePairs.find((p: string) => p.split("/")[0] === q.split("/")[0]);
+      const next = exact || byBase;
+      if (next) { setPair(next); setPairTouched(true); return; }
+    }
     if (pairTouched && livePairs.includes(pair)) return;
     const inrFirst = livePairs.find((p: string) => p.endsWith("/INR")) || livePairs[0];
     setPair(inrFirst);
-  }, [livePairs]);
+  }, [livePairs, queryPair]);
   const [showPairModal, setShowPairModal] = useState(false);
   const [interval_, setInterval_] = useState("1H");
   const [candles, setCandles] = useState<Candle[]>(() => genCandles(64250));

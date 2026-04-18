@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useLocalSearchParams } from "expo-router";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -140,10 +141,19 @@ export default function FuturesScreen() {
     return list;
   }, [apiPairs, apiCoins]);
   const [selectedPair, setSelectedPair] = useState<any>(futPairs[0] || { label: "", base: 0, change: 0, color: "#888" });
+  const params = useLocalSearchParams<{ pair?: string }>();
+  const queryPair = typeof params.pair === "string" ? params.pair : undefined;
   useEffect(() => {
     if (!futPairs.length) return;
+    if (queryPair) {
+      const q = queryPair.toUpperCase();
+      const base = q.split("/")[0];
+      const next = futPairs.find(p => p.label === q)
+        || futPairs.find(p => p.label.split("/")[0] === base);
+      if (next) { setSelectedPair(next); return; }
+    }
     setSelectedPair((prev: any) => futPairs.find(p => p.label === prev?.label) || futPairs[0]);
-  }, [futPairs]);
+  }, [futPairs, queryPair]);
   const futQuote = (selectedPair?.label || "").split("/")[1] || "USDT";
   const futSym = futQuote === "INR" ? "₹" : "$";
   const [showPairModal, setShowPairModal] = useState(false);
