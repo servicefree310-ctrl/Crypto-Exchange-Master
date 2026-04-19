@@ -1,4 +1,4 @@
-import { db, marketBotsTable, ordersTable, pairsTable, coinsTable, tradesTable, usersTable } from "@workspace/db";
+import { db, marketBotsTable, ordersTable, pairsTable, coinsTable, tradesTable, usersTable, walletsTable } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getCache } from "./price-service";
@@ -58,6 +58,61 @@ function midPriceForPair(pair: any, coinsBySymbol: Map<string, any>): number {
   return bUsdt / qUsdt;
 }
 
+// Ensure the user has a spot wallet for the given coin, creating it on the
+// fly when missing. Used by bot-driven fills that credit base/quote coins
+// the user may never have held before.
+async function ensureSpotWallet(userId: number, coinId: number) {
+  const [w] = await db.select().from(walletsTable).where(and(
+    eq(walletsTable.userId, userId),
+    eq(walletsTable.coinId, coinId),
+    eq(walletsTable.walletType, "spot"),
+  )).limit(1);
+  if (w) return w;
+  const [c] = await db.insert(walletsTable).values({
+    userId, coinId, walletType: "spot", balance: "0", locked: "0",
+  }).returning();
+  return c;
+}
+
+// Settle a user order that the bot just filled at `tradePrice` for `fillQty`
+// units. Releases the funds the user locked at order placement and credits
+// the bought/sold side accordingly. Limit-buy refunds (orderPrice - tradePrice)
+// * fillQty when the bot fills below the limit price.
+async function settleUserFill(
+  order: any, pair: any, tradePrice: number, fillQty: number, orderPrice: number,
+) {
+  const userId = order.userId as number;
+  if (order.side === "buy") {
+    const lockedQuote = fillQty * orderPrice;
+    const spent = fillQty * tradePrice;
+    const refund = lockedQuote - spent; // 0 if tradePrice == orderPrice
+    const quote = await ensureSpotWallet(userId, pair.quoteCoinId);
+    await db.update(walletsTable).set({
+      locked: sql`${walletsTable.locked} - ${lockedQuote}`,
+      balance: refund > 0 ? sql`${walletsTable.balance} + ${refund}` : walletsTable.balance,
+      updatedAt: new Date(),
+    }).where(eq(walletsTable.id, quote.id));
+    const base = await ensureSpotWallet(userId, pair.baseCoinId);
+    await db.update(walletsTable).set({
+      balance: sql`${walletsTable.balance} + ${fillQty}`,
+      updatedAt: new Date(),
+    }).where(eq(walletsTable.id, base.id));
+  } else {
+    // SELL: locked base = fillQty (1:1), receive notional in quote.
+    const notional = fillQty * tradePrice;
+    const base = await ensureSpotWallet(userId, pair.baseCoinId);
+    await db.update(walletsTable).set({
+      locked: sql`${walletsTable.locked} - ${fillQty}`,
+      updatedAt: new Date(),
+    }).where(eq(walletsTable.id, base.id));
+    const quote = await ensureSpotWallet(userId, pair.quoteCoinId);
+    await db.update(walletsTable).set({
+      balance: sql`${walletsTable.balance} + ${notional}`,
+      updatedAt: new Date(),
+    }).where(eq(walletsTable.id, quote.id));
+  }
+}
+
 async function runBotForPair(bot: any, uid: number) {
   const [pair] = await db.select().from(pairsTable).where(eq(pairsTable.id, bot.pairId));
   if (!pair) return;
@@ -109,6 +164,16 @@ async function runBotForPair(bot: any, uid: number) {
         avgPrice: String(mid.toFixed(8)),
         updatedAt: new Date(),
       }).where(eq(ordersTable.id, o.id));
+      // Settle wallets for real (non-bot) user fills. Bot orders are
+      // synthetic and never had funds locked on placement, so we only
+      // need to move real money for o.isBot === 0.
+      if (o.isBot === 0) {
+        try {
+          await settleUserFill(o, pair, mid, qty, px);
+        } catch (e: any) {
+          logger.error({ err: e?.message, orderId: o.id }, "bot: wallet settle failed");
+        }
+      }
       const [trade] = await db.insert(tradesTable).values({
         orderId: o.id, userId: o.userId, pairId: o.pairId, side: o.side,
         price: String(mid.toFixed(8)), qty: String(qty.toFixed(8)),
