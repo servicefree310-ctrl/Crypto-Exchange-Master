@@ -11,6 +11,10 @@ class OrderModel {
     required this.cost,
     required this.status,
     required this.createdAt,
+    this.filledQty = 0,
+    this.avgPrice = 0,
+    this.fee = 0,
+    this.tds = 0,
   });
 
   final String id;
@@ -22,6 +26,10 @@ class OrderModel {
   final double cost;
   final String status;
   final DateTime createdAt;
+  final double filledQty;
+  final double avgPrice;
+  final double fee;
+  final double tds;
 
   static double _asDouble(dynamic value) {
     if (value == null) return 0;
@@ -65,6 +73,10 @@ class OrderModel {
       cost: _asDouble(json['cost']),
       status: (json['status'] ?? '').toString(),
       createdAt: _asDateTime(createdAtRaw),
+      filledQty: _asDouble(json['filledQty'] ?? json['filled_qty']),
+      avgPrice: _asDouble(json['avgPrice'] ?? json['avg_price']),
+      fee: _asDouble(json['fee']),
+      tds: _asDouble(json['tds']),
     );
   }
 
@@ -79,6 +91,10 @@ class OrderModel {
       cost: cost,
       status: status,
       createdAt: createdAt,
+      filledQty: filledQty,
+      avgPrice: avgPrice,
+      fee: fee,
+      tds: tds,
     );
   }
 }

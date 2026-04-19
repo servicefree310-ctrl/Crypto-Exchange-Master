@@ -14,6 +14,10 @@ class OrderEntity extends Equatable {
     required this.cost,
     required this.status,
     required this.createdAt,
+    this.filledQty = 0,
+    this.avgPrice = 0,
+    this.fee = 0,
+    this.tds = 0,
   });
 
   final String id;
@@ -25,8 +29,14 @@ class OrderEntity extends Equatable {
   final double cost;
   final String status; // open / closed / etc.
   final DateTime createdAt;
+  final double filledQty;   // actual filled quantity
+  final double avgPrice;    // volume-weighted avg execution price
+  final double fee;         // total trading fee paid (GST-inclusive)
+  final double tds;         // TDS withheld (sell-side only)
 
   @override
-  List<Object?> get props =>
-      [id, symbol, type, side, amount, price, cost, status, createdAt];
+  List<Object?> get props => [
+        id, symbol, type, side, amount, price, cost, status, createdAt,
+        filledQty, avgPrice, fee, tds,
+      ];
 }

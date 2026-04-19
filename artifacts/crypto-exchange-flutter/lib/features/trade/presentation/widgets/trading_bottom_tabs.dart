@@ -179,6 +179,7 @@ class _TradingBottomTabsState extends State<TradingBottomTabs>
         final o = orders[index];
         return ListTile(
           dense: true,
+          onTap: () => _showOrderDetails(o),
           title: Text(
             '${o.side.toUpperCase()} ${o.amount} @ ${o.price}',
             style: TextStyle(
@@ -222,6 +223,158 @@ class _TradingBottomTabsState extends State<TradingBottomTabs>
           ),
         );
       },
+    );
+  }
+
+  void _showOrderDetails(OrderEntity o) {
+    final isBuy = o.side.toLowerCase() == 'buy';
+    final isSell = !isBuy;
+    final filled = o.filledQty;
+    final avg = o.avgPrice > 0 ? o.avgPrice : o.price;
+    final notional = filled * avg;
+    // Backend stores fee as GST-inclusive (rate * 1.18). Split it back.
+    const gstMul = 1.18;
+    final baseFee = o.fee / gstMul;
+    final gstAmount = o.fee - baseFee;
+    final tds = o.tds;
+    final totalCost = isBuy ? notional + o.fee : notional - o.fee - tds;
+
+    final parts = o.symbol.contains('/')
+        ? o.symbol.split('/')
+        : (o.symbol.length > 4 ? [o.symbol.substring(0, o.symbol.length - 4), o.symbol.substring(o.symbol.length - 4)] : [o.symbol, '']);
+    final base = parts[0];
+    final quote = parts.length > 1 ? parts[1] : '';
+
+    String fmt(double v, {int p = 8}) {
+      if (v == 0) return '0';
+      final s = v.toStringAsFixed(p);
+      return s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.cardBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: (isBuy ? context.priceUpColor : context.priceDownColor)
+                            .withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        o.side.toUpperCase(),
+                        style: TextStyle(
+                          color: isBuy ? context.priceUpColor : context.priceDownColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${o.type.toUpperCase()} • ${o.symbol}',
+                      style: TextStyle(color: context.textSecondary, fontSize: 12),
+                    ),
+                    const Spacer(),
+                    Text(
+                      o.status.toUpperCase(),
+                      style: TextStyle(
+                        color: context.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _detailRow(context, 'Order ID', '#${o.id}'),
+                _detailRow(context, 'Date', o.createdAt.toLocal().toString().split('.').first),
+                const Divider(height: 24),
+                _detailRow(context, 'Order Qty', '${fmt(o.amount)} $base'),
+                _detailRow(context, 'Filled Qty', '${fmt(filled)} $base'),
+                _detailRow(context, 'Order Price', '${fmt(o.price)} $quote'),
+                _detailRow(
+                  context,
+                  'Avg. Fill Price',
+                  o.avgPrice > 0 ? '${fmt(o.avgPrice)} $quote' : '—',
+                  highlight: o.avgPrice > 0 && o.avgPrice != o.price,
+                ),
+                _detailRow(context, 'Notional (Filled)', '${fmt(notional)} $quote'),
+                const Divider(height: 24),
+                Text(
+                  'Fees & Charges',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _detailRow(context, 'Trading Fee', '${fmt(baseFee)} $quote'),
+                _detailRow(context, 'GST (18%)', '${fmt(gstAmount)} $quote'),
+                if (isSell)
+                  _detailRow(context, 'TDS (1%)', '${fmt(tds)} $quote'),
+                const Divider(height: 24),
+                _detailRow(
+                  context,
+                  isBuy ? 'Total Paid' : 'Net Receivable',
+                  '${fmt(totalCost)} $quote',
+                  highlight: true,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(sheetCtx).pop(),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(BuildContext ctx, String label, String value, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: ctx.textSecondary, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: highlight ? ctx.textPrimary : ctx.textPrimary,
+              fontSize: 13,
+              fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
