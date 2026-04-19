@@ -11,6 +11,7 @@ import { initRedis, shutdownRedis } from "./lib/redis";
 import { seedCacheConfigs } from "./routes/redis-admin";
 import { warmAllCaches, startWarmupRefresh } from "./lib/cache-warmup";
 import { startPairStatsService } from "./lib/pair-stats";
+import { startPriceHistory } from "./lib/price-history";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -213,6 +214,7 @@ server.listen(port, async () => {
   try { await warmAllCaches(); } catch (e: any) { logger.warn({ err: e?.message }, "cache warmup failed"); }
   startWarmupRefresh(60000);
   startPriceService(1000);
+  startPriceHistory();
   startBotService(3000);
   startDepositSweeper(30000);
   startWithdrawalWatcher();

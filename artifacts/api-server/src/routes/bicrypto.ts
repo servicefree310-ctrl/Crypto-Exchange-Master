@@ -15,6 +15,7 @@ import {
 } from "../lib/auth";
 import { signJwt, verifyJwt, newCsrfToken, newSessionId, powHash } from "../lib/jwt";
 import { getCache } from "../lib/price-service";
+import { getHistory as getPriceHistory } from "../lib/price-history";
 import { randomBytes, createHash } from "node:crypto";
 import { consumeVerifiedOtp } from "./otp";
 
@@ -1116,31 +1117,137 @@ r.get("/exchange/trades/:currency/:pair", async (req, res): Promise<void> => {
   res.json(trades);
 });
 
-function buildChart(symbol: string, interval: string, limit: number) {
-  const ticks = getCache() as any[];
-  const base = symbol.split("/")[0];
-  const quote = symbol.split("/")[1] || "USDT";
-  const t = ticks.find(x => x.symbol === base);
-  const last = t ? (quote === "INR" ? Number(t.inr) : Number(t.usdt)) || 50000 : 50000;
+function intervalMs(interval: string): number {
   const num = parseInt(interval, 10) || 1;
-  const stepMs = interval.endsWith("m") ? num * 60000 : interval.endsWith("h") ? num * 3600000 : 86400000;
-  const now = Date.now();
-  return Array.from({ length: limit }, (_, i) => {
-    const ts = now - (limit - i) * stepMs;
-    const drift = Math.sin(i / 6) * last * 0.005;
-    const open = last + drift;
-    const close = last + Math.cos(i / 5) * last * 0.005;
-    const high = Math.max(open, close) * 1.002;
-    const low = Math.min(open, close) * 0.998;
-    return [ts, open, high, low, close, last * 0.01];
-  });
+  const unit = interval.replace(/^\d+/, "").toLowerCase();
+  if (unit === "s") return num * 1000;
+  if (unit === "m") return num * 60_000;
+  if (unit === "h") return num * 3_600_000;
+  if (unit === "d") return num * 86_400_000;
+  if (unit === "w") return num * 7 * 86_400_000;
+  return num * 60_000;
 }
 
-r.get("/exchange/chart", (req, res) => {
+// Build OHLCV candles from real fills (tradesTable) for the symbol's pair,
+// blended with the live tick buffer. Empty buckets carry forward the last
+// close so the chart never has gaps. The latest bucket always reflects the
+// current live price so the chart "breathes" in real time.
+async function buildChart(symbol: string, interval: string, limit: number) {
+  const stepMs = intervalMs(interval);
+  const now = Date.now();
+  const bucketStart = (ts: number) => Math.floor(ts / stepMs) * stepMs;
+  const lastBucket = bucketStart(now);
+  const firstBucket = lastBucket - (limit - 1) * stepMs;
+
+  const ticks = getCache() as any[];
+  const base = symbol.split("/")[0]?.toUpperCase() || "BTC";
+  const quote = (symbol.split("/")[1] || "USDT").toUpperCase();
+  const tick = ticks.find((x) => x?.symbol === base);
+  const livePx = tick ? (quote === "INR" ? Number(tick.inr) : Number(tick.usdt)) || 0 : 0;
+
+  // Try to map symbol -> pair_id and pull real trades from DB.
+  const dbSymbol = `${base}${quote}`;
+  let pairRow: any = null;
+  try {
+    const [p] = await db.select().from(pairsTable).where(eq(pairsTable.symbol, dbSymbol)).limit(1);
+    pairRow = p;
+  } catch {}
+
+  // Buckets: ts -> { o,h,l,c,v }
+  const buckets = new Map<number, { o: number; h: number; l: number; c: number; v: number }>();
+  const addSample = (ts: number, price: number, volume = 0) => {
+    if (ts < firstBucket || ts > lastBucket || !(price > 0)) return;
+    const b = bucketStart(ts);
+    let cur = buckets.get(b);
+    if (!cur) { buckets.set(b, { o: price, h: price, l: price, c: price, v: volume }); return; }
+    cur.h = Math.max(cur.h, price);
+    cur.l = Math.min(cur.l, price);
+    cur.c = price;
+    cur.v += volume;
+  };
+
+  if (pairRow) {
+    try {
+      const sinceTs = new Date(firstBucket);
+      const rows = await db
+        .select({
+          createdAt: tradesTable.createdAt,
+          price: tradesTable.price,
+          qty: tradesTable.qty,
+        })
+        .from(tradesTable)
+        .where(and(eq(tradesTable.pairId, pairRow.id), gt(tradesTable.createdAt, sinceTs))!)
+        .orderBy(tradesTable.createdAt)
+        .limit(5000);
+      let convert = 1;
+      // Pair prices are stored in the pair's quote currency (e.g. SOLINR -> INR).
+      // If caller asked for a different quote (rare), don't try to convert — just
+      // serve the pair's native quote since pairs are unique by exact symbol here.
+      for (const row of rows) {
+        const ts = (row.createdAt as Date).getTime();
+        addSample(ts, Number(row.price) * convert, Number(row.qty));
+      }
+    } catch {}
+  }
+
+  // Layer in live tick history (synthetic but real intra-bucket movement).
+  // For larger intervals this contributes only to the latest bucket(s); for
+  // 1m/5m it gives the chart visible motion even when no trades exist.
+  for (const s of getPriceHistory(symbol)) addSample(s.ts, s.price, 0);
+
+  // If still nothing, seed a flat history at the live price so the UI has
+  // something coherent (instead of synthetic sin/cos noise).
+  if (buckets.size === 0 && livePx > 0) {
+    for (let b = firstBucket; b <= lastBucket; b += stepMs) {
+      buckets.set(b, { o: livePx, h: livePx, l: livePx, c: livePx, v: 0 });
+    }
+  }
+
+  // Always pin the most recent bucket to the live price as close so the
+  // chart updates the moment the ticker moves, even before a trade prints.
+  if (livePx > 0) {
+    let cur = buckets.get(lastBucket);
+    if (!cur) cur = { o: livePx, h: livePx, l: livePx, c: livePx, v: 0 };
+    cur.c = livePx;
+    cur.h = Math.max(cur.h, livePx);
+    cur.l = Math.min(cur.l, livePx);
+    buckets.set(lastBucket, cur);
+  }
+
+  // Carry-forward fill so empty buckets show a flat candle at the last close.
+  const out: number[][] = [];
+  let prevClose = 0;
+  // Seed prevClose from the earliest known bucket so leading gaps don't
+  // collapse to zero.
+  for (let b = firstBucket; b <= lastBucket; b += stepMs) {
+    const cur = buckets.get(b);
+    if (cur) { prevClose = cur.c; break; }
+  }
+  if (prevClose === 0 && livePx > 0) prevClose = livePx;
+
+  for (let b = firstBucket; b <= lastBucket; b += stepMs) {
+    const cur = buckets.get(b);
+    if (cur) {
+      out.push([b, cur.o, cur.h, cur.l, cur.c, cur.v]);
+      prevClose = cur.c;
+    } else if (prevClose > 0) {
+      out.push([b, prevClose, prevClose, prevClose, prevClose, 0]);
+    } else {
+      out.push([b, 0, 0, 0, 0, 0]);
+    }
+  }
+  return out;
+}
+
+r.get("/exchange/chart", async (req, res) => {
   const symbol = String(req.query.symbol || "BTC/USDT");
   const interval = String(req.query.interval || "1h");
   const limit = Math.min(500, Number(req.query.limit) || 100);
-  res.json(buildChart(symbol, interval, limit));
+  try {
+    res.json(await buildChart(symbol, interval, limit));
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || "chart failed" });
+  }
 });
 
 r.get("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
