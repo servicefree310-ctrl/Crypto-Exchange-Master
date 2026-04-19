@@ -1,5 +1,6 @@
 import 'dart:developer' as dev;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -31,7 +32,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final ForgotPasswordUseCase forgotPasswordUseCase;
   final VerifyTwoFactorLoginUseCase verifyTwoFactorLoginUseCase;
   final ProfileService profileService;
-  late final GoogleSignIn _googleSignIn;
+  GoogleSignIn? _googleSignIn;
 
   AuthBloc({
     required this.loginUseCase,
@@ -44,12 +45,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     required this.verifyTwoFactorLoginUseCase,
     required this.profileService,
   }) : super(AuthInitial()) {
-    // Initialize GoogleSignIn with server client ID from config
-    _googleSignIn = GoogleSignIn(
-      serverClientId: AppConfig.instance.googleServerClientId.isNotEmpty
-          ? AppConfig.instance.googleServerClientId
-          : null,
-    );
+    // Initialize GoogleSignIn with server client ID from config.
+    // Skip on web: google_sign_in_web v6 loads GIS via TrustedTypes and uses
+    // its own initialization stream that fires unhandled "Bad state" /
+    // "Null check operator" errors during DI on web (and signIn() requires
+    // the renderButton widget anyway, not the imperative call below).
+    if (!kIsWeb) {
+      _googleSignIn = GoogleSignIn(
+        serverClientId: AppConfig.instance.googleServerClientId.isNotEmpty
+            ? AppConfig.instance.googleServerClientId
+            : null,
+      );
+    }
 
     on<AuthCheckRequested>(_onAuthCheckRequested);
     on<AuthLoginRequested>(_onAuthLoginRequested);
@@ -159,7 +166,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(AuthLoading());
     try {
-      final googleUser = await _googleSignIn.signIn();
+      if (_googleSignIn == null) {
+        emit(const AuthError(message: 'Google sign-in is not available on this platform.'));
+        return;
+      }
+      final googleUser = await _googleSignIn!.signIn();
       if (googleUser == null) {
         // User cancelled the login
         emit(AuthUnauthenticated());
@@ -182,7 +193,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         (user) => emit(AuthAuthenticated(user: user)),
       );
     } catch (error) {
-      await _googleSignIn.signOut();
+      await _googleSignIn?.signOut();
       emit(AuthError(message: error.toString()));
     }
   }

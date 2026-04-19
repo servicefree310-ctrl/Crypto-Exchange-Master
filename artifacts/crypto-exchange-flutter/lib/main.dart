@@ -175,8 +175,40 @@ class ConfigurationErrorApp extends StatelessWidget {
   }
 }
 
-class CryptoTradingApp extends StatelessWidget {
+class CryptoTradingApp extends StatefulWidget {
   const CryptoTradingApp({super.key});
+
+  @override
+  State<CryptoTradingApp> createState() => _CryptoTradingAppState();
+}
+
+class _CryptoTradingAppState extends State<CryptoTradingApp> {
+  // IMPORTANT: Resolve singleton blocs ONCE in initState, outside BlocBuilder.
+  // These services are registered as lazySingletons in get_it. If we wrap
+  // them with BlocProvider(create: ...) inside BlocBuilder<ThemeBloc>, then
+  // every theme rebuild disposes the previous BlocProvider, which calls
+  // close() on the singleton bloc — but the next rebuild gets the same
+  // (now-closed) instance back from get_it and calling add() on it throws
+  // "Bad state: Cannot add new events after calling close". Resolving once
+  // in initState and using BlocProvider.value (which does NOT close on
+  // dispose) avoids that lifecycle mismatch and also prevents
+  // AuthCheckRequested / ProfileService.initialize from firing on every
+  // root rebuild.
+  late final AuthBloc _authBloc;
+  late final ProfileBloc _profileBloc;
+  late final CartBloc _cartBloc;
+  late final WishlistBloc _wishlistBloc;
+
+  @override
+  void initState() {
+    super.initState();
+    _authBloc = getIt<AuthBloc>();
+    _authBloc.add(AuthCheckRequested());
+    _profileBloc = getIt<ProfileBloc>();
+    getIt<ProfileService>().initialize(_profileBloc);
+    _cartBloc = getIt<CartBloc>();
+    _wishlistBloc = getIt<WishlistBloc>();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -184,80 +216,47 @@ class CryptoTradingApp extends StatelessWidget {
 
     return BlocProvider<ThemeBloc>(
       create: (context) => getIt<ThemeBloc>()..add(const ThemeLoadRequested()),
-      child: BlocBuilder<ThemeBloc, ThemeState>(
-        builder: (context, themeState) {
-          // Determine which theme to use
-          ThemeData currentTheme = AppThemes.darkTheme; // Default
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>.value(value: _authBloc),
+          BlocProvider<ProfileBloc>.value(value: _profileBloc),
+          BlocProvider<CartBloc>.value(value: _cartBloc),
+          BlocProvider<WishlistBloc>.value(value: _wishlistBloc),
+        ],
+        child: BlocBuilder<ThemeBloc, ThemeState>(
+          builder: (context, themeState) {
+            // Determine which theme to use
+            ThemeData currentTheme = AppThemes.darkTheme; // Default
 
-          if (themeState is ThemeLoaded) {
-            final selectedTheme = themeState.currentTheme;
-            final systemTheme = themeState.systemTheme;
+            if (themeState is ThemeLoaded) {
+              final selectedTheme = themeState.currentTheme;
+              final systemTheme = themeState.systemTheme;
 
-            switch (selectedTheme) {
-              case AppThemeType.light:
-                currentTheme = AppThemes.lightTheme;
-                break;
-              case AppThemeType.dark:
-                currentTheme = AppThemes.darkTheme;
-                break;
-              case AppThemeType.system:
-                // Use system theme
-                currentTheme = systemTheme == AppThemeType.dark
-                    ? AppThemes.darkTheme
-                    : AppThemes.lightTheme;
-                break;
+              switch (selectedTheme) {
+                case AppThemeType.light:
+                  currentTheme = AppThemes.lightTheme;
+                  break;
+                case AppThemeType.dark:
+                  currentTheme = AppThemes.darkTheme;
+                  break;
+                case AppThemeType.system:
+                  currentTheme = systemTheme == AppThemeType.dark
+                      ? AppThemes.darkTheme
+                      : AppThemes.lightTheme;
+                  break;
+              }
             }
-          }
 
-          return MaterialApp(
-            title: AppConstants.appName,
-            theme: currentTheme,
-            themeAnimationDuration: const Duration(milliseconds: 300),
-            themeAnimationCurve: Curves.easeInOut,
-            debugShowCheckedModeBanner: false,
-            home: MultiBlocProvider(
-              providers: [
-                BlocProvider(
-                  create: (context) {
-                    dev.log(
-                        '🚀 MAIN: Creating AuthBloc and checking authentication status');
-                    final authBloc = getIt<AuthBloc>();
-                    authBloc.add(AuthCheckRequested());
-                    return authBloc;
-                  },
-                ),
-                BlocProvider(
-                  create: (context) {
-                    dev.log('🚀 MAIN: Creating ProfileBloc');
-                    final profileBloc = getIt<ProfileBloc>();
-
-                    dev.log(
-                        '🚀 MAIN: Initializing ProfileService with ProfileBloc');
-                    // Initialize ProfileService with the ProfileBloc
-                    final profileService = getIt<ProfileService>();
-                    profileService.initialize(profileBloc);
-                    dev.log('🚀 MAIN: ProfileService initialization completed');
-
-                    return profileBloc;
-                  },
-                ),
-                BlocProvider(
-                  create: (context) {
-                    dev.log('🚀 MAIN: Creating CartBloc');
-                    return getIt<CartBloc>();
-                  },
-                ),
-                BlocProvider(
-                  create: (context) {
-                    dev.log('🚀 MAIN: Creating WishlistBloc');
-                    return getIt<WishlistBloc>();
-                  },
-                ),
-              ],
-              child: const AuthWrapper(),
-            ),
-          );
-        },
+            return MaterialApp(
+              title: AppConstants.appName,
+              theme: currentTheme,
+              themeAnimationDuration: const Duration(milliseconds: 300),
+              themeAnimationCurve: Curves.easeInOut,
+              debugShowCheckedModeBanner: false,
+              home: const AuthWrapper(),
+            );
+          },
+        ),
       ),
     );
   }
