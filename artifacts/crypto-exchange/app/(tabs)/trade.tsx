@@ -532,14 +532,28 @@ export default function TradeScreen() {
                     <Text style={[styles.obColText, { color: colors.mutedForeground }]}>Price</Text>
                     <Text style={[styles.obColText, { color: colors.mutedForeground, textAlign:"right" }]}>Qty</Text>
                   </View>
-                  {[...orderBook.asks].reverse().slice(0, obRows).map((a, i) => (
-                    <TouchableOpacity key={`ask${i}`} style={styles.obRow}
-                      onPress={() => { priceTouchedRef.current = true; setPrice(String(a.price).replace(/,/g, "")); Haptics.selectionAsync(); }}>
-                      <View style={[styles.obBar, { right: 0, backgroundColor: "#f6465d0e", width: `${a.depth * 0.7}%` as any }]} />
-                      <Text style={[styles.obPrice, { color: colors.destructive }]}>{a.price}</Text>
-                      <Text style={[styles.obAmt, { color: colors.mutedForeground }]}>{a.amount}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  {(() => {
+                    const realAsks = orderBook.asks.slice(0, obRows);
+                    const padded = [
+                      ...Array.from({ length: Math.max(0, obRows - realAsks.length) }, () => null as any),
+                      ...[...realAsks].reverse(),
+                    ];
+                    return padded.map((a, i) =>
+                      a ? (
+                        <TouchableOpacity key={`ask${i}`} style={styles.obRow}
+                          onPress={() => { priceTouchedRef.current = true; setPrice(String(a.price).replace(/,/g, "")); Haptics.selectionAsync(); }}>
+                          <View style={[styles.obBar, { right: 0, backgroundColor: "#f6465d0e", width: `${a.depth * 0.7}%` as any }]} />
+                          <Text style={[styles.obPrice, { color: colors.destructive }]}>{a.price}</Text>
+                          <Text style={[styles.obAmt, { color: colors.mutedForeground }]}>{a.amount}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View key={`ask-empty${i}`} style={styles.obRow}>
+                          <Text style={[styles.obPrice, { color: colors.mutedForeground, opacity: 0.4 }]}>—</Text>
+                          <Text style={[styles.obAmt, { color: colors.mutedForeground, opacity: 0.4 }]}>No order</Text>
+                        </View>
+                      )
+                    );
+                  })()}
                   <View style={[styles.spreadRow, { backgroundColor: colors.secondary, justifyContent: "space-between", paddingHorizontal: 6 }]}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Text style={[styles.spreadP, { color: priceUp ? colors.success : colors.destructive }]}>{fmtP(currentPrice)}</Text>
@@ -553,14 +567,28 @@ export default function TradeScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
-                  {orderBook.bids.slice(0, obRows).map((b, i) => (
-                    <TouchableOpacity key={`bid${i}`} style={styles.obRow}
-                      onPress={() => { priceTouchedRef.current = true; setPrice(String(b.price).replace(/,/g, "")); Haptics.selectionAsync(); }}>
-                      <View style={[styles.obBar, { right: 0, backgroundColor: "#0ecb810e", width: `${b.depth * 0.7}%` as any }]} />
-                      <Text style={[styles.obPrice, { color: colors.success }]}>{b.price}</Text>
-                      <Text style={[styles.obAmt, { color: colors.mutedForeground }]}>{b.amount}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  {(() => {
+                    const realBids = orderBook.bids.slice(0, obRows);
+                    const padded = [
+                      ...realBids,
+                      ...Array.from({ length: Math.max(0, obRows - realBids.length) }, () => null as any),
+                    ];
+                    return padded.map((b, i) =>
+                      b ? (
+                        <TouchableOpacity key={`bid${i}`} style={styles.obRow}
+                          onPress={() => { priceTouchedRef.current = true; setPrice(String(b.price).replace(/,/g, "")); Haptics.selectionAsync(); }}>
+                          <View style={[styles.obBar, { right: 0, backgroundColor: "#0ecb810e", width: `${b.depth * 0.7}%` as any }]} />
+                          <Text style={[styles.obPrice, { color: colors.success }]}>{b.price}</Text>
+                          <Text style={[styles.obAmt, { color: colors.mutedForeground }]}>{b.amount}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View key={`bid-empty${i}`} style={styles.obRow}>
+                          <Text style={[styles.obPrice, { color: colors.mutedForeground, opacity: 0.4 }]}>—</Text>
+                          <Text style={[styles.obAmt, { color: colors.mutedForeground, opacity: 0.4 }]}>No order</Text>
+                        </View>
+                      )
+                    );
+                  })()}
                 </>
               ) : (
                 <>
