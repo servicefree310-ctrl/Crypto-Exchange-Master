@@ -40,7 +40,7 @@ class MarketService {
 
   // Cache timestamp
   DateTime? _lastCacheTime;
-  static const Duration _cacheValidity = Duration(minutes: 5);
+  static const Duration _cacheValidity = Duration(seconds: 20);
 
   // Public streams
   Stream<List<MarketDataEntity>> get marketsStream => _marketsController.stream;
