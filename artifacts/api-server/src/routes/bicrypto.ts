@@ -247,16 +247,13 @@ r.post("/auth/refresh", async (req, res): Promise<void> => {
   res.json({ message: "Token refreshed", cookies: bundle });
 });
 
-// 2FA verification (we accept any code since the channel for delivery is a stub)
-r.post("/auth/otp/login", async (req, res): Promise<void> => {
-  const { id, otp } = req.body ?? {};
-  if (!id || !otp) { res.status(400).json({ message: "id and otp required" }); return; }
-  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, Number(id))).limit(1);
-  if (!u) { res.status(404).json({ message: "User not found" }); return; }
-  // Demo: accept "000000" or any 6-digit code
-  const bundle = makeAuthBundle(u);
-  setAuthCookies(res, bundle.accessToken, bundle.sessionId, bundle.csrfToken);
-  res.json({ message: "2FA verified", cookies: bundle, user: userToBicrypto(u) });
+// 2FA verification — NOT IMPLEMENTED.
+// Returning 501 here is intentional: a previous draft of this stub minted
+// auth cookies for any submitted OTP, which would let an attacker bypass
+// 2FA entirely. Until the OTP delivery channel + verification storage is
+// wired up properly, this endpoint MUST refuse to issue credentials.
+r.post("/auth/otp/login", async (_req, res): Promise<void> => {
+  res.status(501).json({ message: "2FA login not implemented" });
 });
 
 r.post("/auth/2fa", async (req, res): Promise<void> => {
@@ -860,5 +857,4 @@ r.post("/upload/kyc-document", bicryptoAuth, (_req, res) => res.json({ url: "htt
 // Used by injectable.config (sanity check)
 r.get("/healthz", (_req, res) => res.json({ ok: true, layer: "bicrypto" }));
 
-void desc; void sessionsTable; void createHash;
 export default r;
