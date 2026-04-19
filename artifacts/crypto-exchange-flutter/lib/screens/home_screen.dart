@@ -225,7 +225,18 @@ class _DashboardState extends State<_Dashboard> {
           (c['baseCoin'] ?? '').toString().toLowerCase().contains(q) ||
           (c['symbol'] ?? '').toString().toLowerCase().contains(q)).toList();
     }
-    final filtered = sorted.take(8).toList();
+    final filtered = sorted.take(7).toList();
+    while (filtered.length < 7) {
+      filtered.add({
+        '__placeholder': true,
+        'symbol': '',
+        'baseCoin': '—',
+        'quoteCoin': _quote == _QuoteFilter.inr ? 'INR' : 'USDT',
+        'price': 0.0,
+        'change': 0.0,
+        'vol': 0.0,
+      });
+    }
 
     final totalInr = wallets.wallets.fold<double>(0, (s, w) => s + Fmt.parseNum(w['inrValue']));
     final kycLevel = Fmt.parseNum(auth.user?['kycLevel']).toInt();
@@ -623,6 +634,7 @@ class _DashboardState extends State<_Dashboard> {
                 : Column(
                     children: List.generate(rows.length, (i) {
                       final c = rows[i];
+                      final isPh = c['__placeholder'] == true;
                       return _PriceRow(
                         rank: i + 1,
                         base: (c['baseCoin'] ?? '').toString(),
@@ -633,10 +645,13 @@ class _DashboardState extends State<_Dashboard> {
                         volume: c['vol'] as double,
                         isFutures: _kind == _MarketKind.futures,
                         isLast: i == rows.length - 1,
-                        onTap: () {
-                          final sym = (c['symbol'] ?? '').toString();
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => TradeScreen(symbol: sym)));
-                        },
+                        isPlaceholder: isPh,
+                        onTap: isPh
+                            ? () {}
+                            : () {
+                                final sym = (c['symbol'] ?? '').toString();
+                                Navigator.push(context, MaterialPageRoute(builder: (_) => TradeScreen(symbol: sym)));
+                              },
                       );
                     }),
                   ),
@@ -818,7 +833,7 @@ class _PriceRow extends StatefulWidget {
   final int rank;
   final String base, quote, symbol;
   final double price, change, volume;
-  final bool isFutures, isLast;
+  final bool isFutures, isLast, isPlaceholder;
   final VoidCallback onTap;
   const _PriceRow({
     required this.rank,
@@ -831,6 +846,7 @@ class _PriceRow extends StatefulWidget {
     required this.isFutures,
     required this.isLast,
     required this.onTap,
+    this.isPlaceholder = false,
   });
   @override
   State<_PriceRow> createState() => _PriceRowState();
@@ -877,6 +893,59 @@ class _PriceRowState extends State<_PriceRow> with SingleTickerProviderStateMixi
     final up = widget.change >= 0;
     final flashColor = _dir == 'up' ? AppColors.success : AppColors.danger;
     final coinColor = _coinColors[widget.base] ?? const Color(0xFF888888);
+
+    if (widget.isPlaceholder) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          border: widget.isLast ? null : const Border(bottom: BorderSide(color: AppColors.border, width: 0.5)),
+        ),
+        child: Row(children: [
+          Container(
+            width: 18, height: 18,
+            decoration: BoxDecoration(color: const Color(0xFF1A1F2A).withValues(alpha: 0.5), shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Text('${widget.rank}', style: TextStyle(color: AppColors.muted.withValues(alpha: 0.5), fontSize: 10, fontWeight: FontWeight.w800)),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1F2A).withValues(alpha: 0.4),
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.border, width: 1, style: BorderStyle.solid),
+            ),
+            alignment: Alignment.center,
+            child: Icon(Icons.help_outline, size: 14, color: AppColors.muted.withValues(alpha: 0.4)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                width: 60, height: 10,
+                decoration: BoxDecoration(color: AppColors.border.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(3)),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: 40, height: 8,
+                decoration: BoxDecoration(color: AppColors.border.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(3)),
+              ),
+            ]),
+          ),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Container(
+              width: 56, height: 10,
+              decoration: BoxDecoration(color: AppColors.border.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(3)),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              width: 36, height: 14,
+              decoration: BoxDecoration(color: AppColors.border.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(4)),
+            ),
+          ]),
+        ]),
+      );
+    }
 
     return InkWell(
       onTap: widget.onTap,
