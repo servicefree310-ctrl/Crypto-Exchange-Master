@@ -7,6 +7,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { eq, or, and, desc, gt, sql } from "drizzle-orm";
 import {
   db, usersTable, loginLogsTable, walletsTable, coinsTable, pairsTable, sessionsTable, otpCodesTable,
+  networksTable, cryptoWithdrawalsTable, inrWithdrawalsTable, bankAccountsTable,
 } from "@workspace/db";
 import {
   hashPassword, verifyPassword, generateReferralCode, generateUid,
@@ -722,9 +723,192 @@ r.get("/finance/currency/:type/:currency", async (req, res): Promise<void> => {
 });
 
 r.post("/finance/deposit/spot", bicryptoAuth, (_req, res) => res.json({ message: "Use one of the listed deposit addresses" }));
-r.post("/finance/withdraw", bicryptoAuth, (_req, res) => res.status(501).json({ message: "Withdrawals are admin-managed" }));
-r.post("/finance/withdraw/spot", bicryptoAuth, (_req, res) => res.status(501).json({ message: "Withdrawals coming soon" }));
-r.post("/finance/withdraw/fiat", bicryptoAuth, (_req, res) => res.status(501).json({ message: "Fiat withdrawals coming soon" }));
+
+// ─── Bank accounts (needed by INR withdraw + admin) ──────────────────────
+r.get("/finance/bank/accounts", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const rows = await db.select().from(bankAccountsTable)
+    .where(eq(bankAccountsTable.userId, req.bcUser.id))
+    .orderBy(desc(bankAccountsTable.createdAt));
+  res.json(rows);
+});
+
+r.post("/finance/bank/accounts", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const { bankName, accountNumber, ifsc, holderName } = req.body ?? {};
+  if (!bankName || !accountNumber || !ifsc || !holderName) {
+    res.status(400).json({ message: "bankName, accountNumber, ifsc, holderName required" }); return;
+  }
+  const [row] = await db.insert(bankAccountsTable).values({
+    userId: req.bcUser.id,
+    bankName: String(bankName).trim(),
+    accountNumber: String(accountNumber).trim(),
+    ifsc: String(ifsc).trim().toUpperCase(),
+    holderName: String(holderName).trim(),
+  }).returning();
+  res.status(201).json(row);
+});
+
+// ─── Crypto withdrawal (SPOT wallet → external chain address) ────────────
+// Atomic, race-safe debit: a guarded UPDATE on the wallet only succeeds
+// when balance >= amount, so two concurrent requests cannot both pass and
+// overdraw. Funds move from `balance` → `locked` until the admin approves
+// or rejects (see admin.ts /admin/crypto-withdrawals/:id PATCH).
+r.post("/finance/withdraw/spot", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const { currency, amount, address, network, memo } = req.body ?? {};
+  const amt = Number(amount);
+  if (!currency || !address || !network || !Number.isFinite(amt) || amt <= 0) {
+    res.status(400).json({ message: "currency, amount, address, network required" }); return;
+  }
+  const sym = String(currency).toUpperCase();
+  if (sym === "INR") { res.status(400).json({ message: "Use /finance/withdraw/fiat for INR" }); return; }
+
+  const [coin] = await db.select().from(coinsTable).where(eq(coinsTable.symbol, sym)).limit(1);
+  if (!coin) { res.status(404).json({ message: "Currency not supported" }); return; }
+
+  // Resolve network: accept either numeric id or chain name (e.g. "TRC20")
+  const netKey = String(network).toUpperCase();
+  const nets = await db.select().from(networksTable).where(eq(networksTable.coinId, coin.id));
+  const net = nets.find(n =>
+    String(n.id) === String(network) || n.chain.toUpperCase() === netKey || n.name.toUpperCase() === netKey
+  );
+  if (!net) { res.status(404).json({ message: `Network ${network} not enabled for ${sym}` }); return; }
+  if (!net.withdrawEnabled || net.status !== "active") {
+    res.status(403).json({ message: "Withdrawals temporarily disabled for this network" }); return;
+  }
+  if (amt < Number(net.minWithdraw)) {
+    res.status(400).json({ message: `Minimum withdrawal is ${net.minWithdraw} ${sym}` }); return;
+  }
+  if (net.memoRequired && !memo) {
+    res.status(400).json({ message: "Memo / tag is required for this network" }); return;
+  }
+
+  // Fee = max(flatFee + amount*pct, feeMin)
+  const flat = Number(net.withdrawFee);
+  const pct = Number(net.withdrawFeePercent) / 100;
+  const fee = Math.max(flat + amt * pct, Number(net.withdrawFeeMin));
+  if (fee >= amt) {
+    res.status(400).json({ message: "Amount must exceed network fee" }); return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const debited = await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} - ${amt}`,
+        locked: sql`${walletsTable.locked} + ${amt}`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(walletsTable.userId, req.bcUser.id),
+        eq(walletsTable.coinId, coin.id),
+        eq(walletsTable.walletType, "spot"),
+        sql`${walletsTable.balance} >= ${amt}`,
+      )).returning();
+      if (debited.length === 0) {
+        const e: any = new Error("Insufficient balance"); e.code = 400; throw e;
+      }
+      const [wd] = await tx.insert(cryptoWithdrawalsTable).values({
+        userId: req.bcUser.id,
+        coinId: coin.id,
+        networkId: net.id,
+        amount: String(amt.toFixed(8)),
+        fee: String(fee.toFixed(8)),
+        toAddress: String(address).trim(),
+        memo: memo ? String(memo).trim() : null,
+        status: "pending",
+      }).returning();
+      return wd;
+    });
+    res.status(201).json({
+      id: result.uid,
+      currency: sym,
+      amount: result.amount,
+      fee: result.fee,
+      toAddress: result.toAddress,
+      status: result.status,
+      createdAt: result.createdAt,
+      message: "Withdrawal submitted — pending admin approval",
+    });
+  } catch (e: any) {
+    if (e?.code === 400) { res.status(400).json({ message: e.message }); return; }
+    throw e;
+  }
+});
+
+// ─── INR withdrawal (FIAT wallet → user's verified bank account) ─────────
+r.post("/finance/withdraw/fiat", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const { bankId, amount } = req.body ?? {};
+  const amt = Number(amount);
+  if (!bankId || !Number.isFinite(amt) || amt <= 0) {
+    res.status(400).json({ message: "bankId and amount required" }); return;
+  }
+  if (amt < 100) {
+    res.status(400).json({ message: "Minimum withdrawal is ₹100" }); return;
+  }
+
+  const bid = Number(bankId);
+  const [bank] = await db.select().from(bankAccountsTable).where(and(
+    eq(bankAccountsTable.id, bid),
+    eq(bankAccountsTable.userId, req.bcUser.id),
+  )).limit(1);
+  if (!bank) { res.status(404).json({ message: "Bank account not found" }); return; }
+  if (bank.status !== "verified") {
+    res.status(403).json({ message: "Bank account not yet verified" }); return;
+  }
+
+  const [inrCoin] = await db.select().from(coinsTable).where(eq(coinsTable.symbol, "INR")).limit(1);
+  if (!inrCoin) { res.status(500).json({ message: "INR coin not configured" }); return; }
+
+  // Flat ₹10 + 0.5% of amount, with a ₹10 floor.
+  const fee = Math.max(10, Math.round((10 + amt * 0.005) * 100) / 100);
+  if (fee >= amt) { res.status(400).json({ message: "Amount must exceed fee" }); return; }
+
+  const refId = "WDR" + Date.now().toString(36).toUpperCase() + randomBytes(3).toString("hex").toUpperCase();
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const debited = await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} - ${amt}`,
+        locked: sql`${walletsTable.locked} + ${amt}`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(walletsTable.userId, req.bcUser.id),
+        eq(walletsTable.coinId, inrCoin.id),
+        eq(walletsTable.walletType, "inr"),
+        sql`${walletsTable.balance} >= ${amt}`,
+      )).returning();
+      if (debited.length === 0) {
+        const e: any = new Error("Insufficient INR balance"); e.code = 400; throw e;
+      }
+      const [wd] = await tx.insert(inrWithdrawalsTable).values({
+        userId: req.bcUser.id,
+        bankId: bank.id,
+        amount: String(amt.toFixed(2)),
+        fee: String(fee.toFixed(2)),
+        refId,
+        status: "pending",
+      }).returning();
+      return wd;
+    });
+    res.status(201).json({
+      id: result.uid,
+      refId: result.refId,
+      amount: result.amount,
+      fee: result.fee,
+      bankAccount: { id: bank.id, bankName: bank.bankName, accountNumber: bank.accountNumber },
+      status: result.status,
+      createdAt: result.createdAt,
+      message: "Withdrawal submitted — pending admin approval",
+    });
+  } catch (e: any) {
+    if (e?.code === 400) { res.status(400).json({ message: e.message }); return; }
+    throw e;
+  }
+});
+
+// Generic /finance/withdraw — routes to spot or fiat based on currency
+r.post("/finance/withdraw", bicryptoAuth, (req, res, next) => {
+  const sym = String(req.body?.currency || "").toUpperCase();
+  req.url = sym === "INR" ? "/finance/withdraw/fiat" : "/finance/withdraw/spot";
+  next();
+});
 
 /** Internal transfer between SPOT/FUTURES/FIAT/ECO wallets, atomic.
  *  This is a DB-level transaction that decrements one wallet and credits the

@@ -577,19 +577,20 @@ router.patch("/admin/inr-withdrawals/:id", adminOnly, async (req, res): Promise<
         .for("update").limit(1);
       if (!w) { const e: any = new Error("INR wallet not found"); e.code = 500; throw e; }
       const amt = Number(current.amount);
+      // Guarded locked decrement: never push locked negative.
       if (status === "completed") {
-        // money out → reduce locked
-        await tx.update(walletsTable).set({
+        const upd = await tx.update(walletsTable).set({
           locked: sql`${walletsTable.locked} - ${amt}`,
           updatedAt: new Date(),
-        }).where(eq(walletsTable.id, w.id));
+        }).where(and(eq(walletsTable.id, w.id), sql`${walletsTable.locked} >= ${amt}`)).returning();
+        if (upd.length === 0) { const e: any = new Error("Locked balance mismatch — refusing to settle"); e.code = 409; throw e; }
       } else if (status === "rejected") {
-        // refund: locked → balance
-        await tx.update(walletsTable).set({
+        const upd = await tx.update(walletsTable).set({
           locked: sql`${walletsTable.locked} - ${amt}`,
           balance: sql`${walletsTable.balance} + ${amt}`,
           updatedAt: new Date(),
-        }).where(eq(walletsTable.id, w.id));
+        }).where(and(eq(walletsTable.id, w.id), sql`${walletsTable.locked} >= ${amt}`)).returning();
+        if (upd.length === 0) { const e: any = new Error("Locked balance mismatch — refusing to refund"); e.code = 409; throw e; }
       }
       const [updatedRow] = await tx.update(inrWithdrawalsTable).set({
         status, rejectReason: rejectReason ?? null, reviewedBy: req.user!.id, processedAt: new Date(),
@@ -897,17 +898,21 @@ router.patch("/admin/crypto-withdrawals/:id", adminOnly, async (req, res): Promi
         .for("update").limit(1);
       if (!w) { const e: any = new Error("Spot wallet not found"); e.code = 500; throw e; }
       const amt = Number(current.amount);
+      // Guarded locked decrement: only succeeds when locked >= amt, so we
+      // can never push the locked column negative under anomalous state.
       if (status === "completed") {
-        await tx.update(walletsTable).set({
+        const upd = await tx.update(walletsTable).set({
           locked: sql`${walletsTable.locked} - ${amt}`,
           updatedAt: new Date(),
-        }).where(eq(walletsTable.id, w.id));
+        }).where(and(eq(walletsTable.id, w.id), sql`${walletsTable.locked} >= ${amt}`)).returning();
+        if (upd.length === 0) { const e: any = new Error("Locked balance mismatch — refusing to settle"); e.code = 409; throw e; }
       } else if (status === "rejected") {
-        await tx.update(walletsTable).set({
+        const upd = await tx.update(walletsTable).set({
           locked: sql`${walletsTable.locked} - ${amt}`,
           balance: sql`${walletsTable.balance} + ${amt}`,
           updatedAt: new Date(),
-        }).where(eq(walletsTable.id, w.id));
+        }).where(and(eq(walletsTable.id, w.id), sql`${walletsTable.locked} >= ${amt}`)).returning();
+        if (upd.length === 0) { const e: any = new Error("Locked balance mismatch — refusing to refund"); e.code = 409; throw e; }
       }
       const [updatedRow] = await tx.update(cryptoWithdrawalsTable).set({
         status, txHash: txHash ?? null, rejectReason: rejectReason ?? null,
