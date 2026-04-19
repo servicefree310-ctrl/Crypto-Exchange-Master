@@ -259,6 +259,8 @@ class _DashboardState extends State<_Dashboard> {
             _quickActions(),
             const SizedBox(height: 14),
             _bannerStrip(),
+            const SizedBox(height: 14),
+            _portfolioSection(auth, wallets, totalInr),
             const SizedBox(height: 4),
             _marketsSection(eligible.length, filtered),
             const SizedBox(height: 14),
@@ -359,6 +361,102 @@ class _DashboardState extends State<_Dashboard> {
   }
 
   // ------ HERO ------
+  Widget _portfolioSection(AuthState auth, WalletsState wallets, double totalInr) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('My Portfolio', style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.w800)),
+            if (auth.isLoggedIn)
+              InkWell(
+                onTap: () => _go(const WalletScreen(), requiresAuth: true),
+                child: const Text('View All →', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w500)),
+              ),
+          ]),
+        ),
+        if (!auth.isLoggedIn)
+          InkWell(
+            onTap: _login,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1E2230), Color(0xFF161922)],
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.account_balance_wallet_outlined, color: AppColors.primary, size: 24),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Login to view portfolio', style: TextStyle(color: AppColors.fg, fontSize: 14, fontWeight: FontWeight.w700)),
+                    SizedBox(height: 4),
+                    Text('Track your crypto holdings, P&L and INR balance', style: TextStyle(color: AppColors.muted, fontSize: 11)),
+                  ]),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(8)),
+                  child: const Text('Login', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+                ),
+              ]),
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Text('Total Equity', style: TextStyle(color: AppColors.muted, fontSize: 11)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(4)),
+                  child: const Text('LIVE', style: TextStyle(color: AppColors.success, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.4)),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Text('₹${Fmt.num2(totalInr)}', style: const TextStyle(color: AppColors.fg, fontSize: 22, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(child: _portStat('Wallets', '${wallets.wallets.length}', AppColors.primary)),
+                Expanded(child: _portStat('Holdings', '${wallets.wallets.where((w) => Fmt.parseNum(w['balance']) > 0).length}', AppColors.success)),
+                Expanded(child: _portStat('KYC', 'L${Fmt.parseNum(auth.user?['kycLevel']).toInt()}', const Color(0xFFF3BA2F))),
+              ]),
+            ]),
+          ),
+      ]),
+    );
+  }
+
+  Widget _portStat(String label, String value, Color color) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(value, style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 2),
+      Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 10)),
+    ]);
+  }
+
   Widget _loginCta() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
