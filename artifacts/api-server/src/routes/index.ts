@@ -16,10 +16,18 @@ import securityRouter from "./security";
 import klinesRouter from "./klines";
 import promoRouter from "./promo";
 import redisAdminRouter from "./redis-admin";
+import bicryptoRouter from "./bicrypto";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+// Bicrypto v5 contract adapter — mounted FIRST so /auth/register (PoW),
+// /auth/login/flutter, /auth/refresh, /settings, /exchange/* and the futures
+// stubs match the Flutter contract. The adapter intentionally does NOT
+// define /auth/login or /auth/me so the legacy admin auth keeps owning
+// those (admin needs cookie-session login). bicrypto's /auth/logout also
+// clears the legacy SESSION cookie for compatibility.
+router.use(bicryptoRouter);
 router.use(authRouter);
 router.use(adminRouter);
 router.use(publicRouter);

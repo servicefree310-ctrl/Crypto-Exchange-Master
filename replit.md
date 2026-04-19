@@ -90,3 +90,13 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 - `app/_layout.tsx`: wrapped tree in `ThemeProvider`; `RootLayoutNav` consumes theme to set dynamic `<StatusBar>` style + Stack `contentStyle.backgroundColor`.
 - Account screen: theme row converted from static "Dark" to live cycler (Auto → Light → Dark) showing current label like `Auto (Light)` with adaptive icon (smartphone/sun/moon) and haptic on switch.
 - Verified: home + markets render cleanly in light mode (white bg, dark text, light gray cards, sparklines + prices readable); dark palette unchanged from original so toggling preserves the existing Binance-dark experience.
+
+## Phase 9 (Apr 19 2026) — Bicrypto v5 Adapter + Go Service Skeleton
+- **Bicrypto contract adapter** at `artifacts/api-server/src/routes/bicrypto.ts`: Flutter-shaped endpoints for /auth (register w/ PoW + login/flutter + refresh + 2FA + logout), /user (profile, settings, watchlist, KYC, support), /finance/wallet (auto-creates INR/USDT/BTC), /exchange/{market,ticker,orderbook,trade,chart}, /futures/{position,order,leverage,settings} write stubs, /settings (POST+PUT)
+- **JWT lib** `lib/jwt.ts`: HMAC-SHA256, prod fail-fast on missing JWT_SECRET, dev warning fallback. Cookie bundle = accessToken + sessionId + csrfToken
+- **Route mount order** (index.ts): health → **bicrypto** → auth (legacy) → admin → public. bicrypto wins on Flutter routes; legacy admin keeps /auth/login + /auth/me + /auth/logout cookie-session flow
+- **Tick contract**: `{symbol, usdt, inr, change24h, volume24h, ts}` — ticker exposes `change` as percentage (with -100 guard), pairs use baseCoinId/quoteCoinId via `loadCoinMap()` helper to build `BTC/USDT` symbols. `buildChart(symbol, interval)` shared helper
+- **Futures stub shape**: all return `{data: ...}` wrapper, leverage uses PUT, settings supports POST+PUT
+- **Go service** `artifacts/go-service/main.go`: port 23004, mounted at `/go-service/` via path proxy with BASE_PATH env. Health + WS stub working. Skeleton for matching engine / WS gateway / futures perf-critical work in next phase
+- **Flutter app_config.json** baseUrl flipped to `https://$REPLIT_DEV_DOMAIN`
+- E2E smoke verified: register (PoW) → JWT cookies → /user/profile → /finance/wallet → /auth/login/flutter; all futures stubs return `{data}`; legacy /auth/login still reachable for admin

@@ -1,8 +1,8 @@
 {
-  "baseUrl": "https://demo.mashdiv.com",
-  "wsBaseUrl": "wss://demo.mashdiv.com",
-  "appName": "BiCrypto",
-  "appVersion": "5.0.0",
+  "baseUrl": "https://2f30056b-e10c-4057-8bb8-806e1deed930-00-3tm4bqqk3nriw.kirk.replit.dev",
+  "wsBaseUrl": "wss://2f30056b-e10c-4057-8bb8-806e1deed930-00-3tm4bqqk3nriw.kirk.replit.dev",
+  "appName": "CryptoX Exchange",
+  "appVersion": "5.2.0",
 
   "stripePublishableKey": "pk_test_51LPVEfLFyngRnuDVzYJ2cb5yF2BsE4fELcGumnvgjuLCCPWjHpEeDMVz6DOSilTNc2FihuK91zbNurhhyRZT0qTI000Zc1hT5B",
   "googleServerClientId": "758252507171-d0ohbm6ij1d3492s8h78m42oskupbu2l.apps.googleusercontent.com",
