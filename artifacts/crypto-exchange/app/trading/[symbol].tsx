@@ -219,12 +219,35 @@ export default function TradingScreen() {
               <Text style={s.obLabel}>Total ({quoteSym})</Text>
             </View>
             {asks.length === 0 && bids.length === 0 && (
-              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                <Feather name="bar-chart-2" size={28} color={colors.mutedForeground} />
-                <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 12, marginTop: 8 }}>No open orders yet</Text>
-              </View>
+              <>
+                {[...Array(6)].map((_, i) => (
+                  <View key={`pa${i}`} style={s.obRow}>
+                    <View style={[s.obFill, { width: `${20 + i * 10}%`, backgroundColor: colors.danger + '11' }]} />
+                    <Text style={[s.obPrice, { color: colors.danger, opacity: 0.35 }]}>— — —</Text>
+                    <Text style={[s.obQty, { opacity: 0.35 }]}>— — —</Text>
+                    <Text style={[s.obTotal, { opacity: 0.35 }]}>— — —</Text>
+                  </View>
+                ))}
+                <View style={s.midPrice}>
+                  <Text style={[s.midPriceText, { color: change24h >= 0 ? colors.success : colors.danger }]}>
+                    {ccy}{fmt(displayPrice, isInr ? 2 : 4)}
+                  </Text>
+                  <MaterialIcons name={change24h >= 0 ? 'arrow-upward' : 'arrow-downward'} size={14} color={change24h >= 0 ? colors.success : colors.danger} />
+                </View>
+                {[...Array(6)].map((_, i) => (
+                  <View key={`pb${i}`} style={s.obRow}>
+                    <View style={[s.obFill, { width: `${80 - i * 10}%`, backgroundColor: colors.success + '11' }]} />
+                    <Text style={[s.obPrice, { color: colors.success, opacity: 0.35 }]}>— — —</Text>
+                    <Text style={[s.obQty, { opacity: 0.35 }]}>— — —</Text>
+                    <Text style={[s.obTotal, { opacity: 0.35 }]}>— — —</Text>
+                  </View>
+                ))}
+                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 11 }}>Waiting for orders...</Text>
+                </View>
+              </>
             )}
-            {asks.slice().reverse().slice(0, 6).map((a, i) => {
+            {asks.length > 0 && asks.slice().reverse().slice(0, 6).map((a, i) => {
               const maxQty = Math.max(...asks.map(x => x.qty), 0.0001);
               return (
                 <View key={`a${i}`} style={s.obRow}>
@@ -327,10 +350,18 @@ export default function TradingScreen() {
               <Text style={s.obLabel}>Time</Text>
             </View>
             {recentTrades.length === 0 ? (
-              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                <Feather name="activity" size={28} color={colors.mutedForeground} />
-                <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 12, marginTop: 8 }}>No trades yet</Text>
-              </View>
+              <>
+                {[...Array(15)].map((_, i) => (
+                  <View key={`pt${i}`} style={s.tradeRow}>
+                    <Text style={[s.tradePrice, { color: i % 2 === 0 ? colors.success : colors.danger, opacity: 0.3 }]}>— — — —</Text>
+                    <Text style={[s.tradeQty, { opacity: 0.3 }]}>— — — —</Text>
+                    <Text style={[s.tradeTime, { opacity: 0.3 }]}>— —:— —:— —</Text>
+                  </View>
+                ))}
+                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 11 }}>Waiting for trades...</Text>
+                </View>
+              </>
             ) : recentTrades.map(t => (
               <View key={t.id} style={s.tradeRow}>
                 <Text style={[s.tradePrice, { color: t.side === 'buy' ? colors.success : colors.danger }]}>
