@@ -349,20 +349,7 @@ export default function TradingScreen() {
               <Text style={s.obLabel}>Qty ({base})</Text>
               <Text style={s.obLabel}>Time</Text>
             </View>
-            {recentTrades.length === 0 ? (
-              <>
-                {[...Array(15)].map((_, i) => (
-                  <View key={`pt${i}`} style={s.tradeRow}>
-                    <Text style={[s.tradePrice, { color: i % 2 === 0 ? colors.success : colors.danger, opacity: 0.3 }]}>— — — —</Text>
-                    <Text style={[s.tradeQty, { opacity: 0.3 }]}>— — — —</Text>
-                    <Text style={[s.tradeTime, { opacity: 0.3 }]}>— —:— —:— —</Text>
-                  </View>
-                ))}
-                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
-                  <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 11 }}>Waiting for trades...</Text>
-                </View>
-              </>
-            ) : recentTrades.map(t => (
+            {recentTrades.map(t => (
               <View key={t.id} style={s.tradeRow}>
                 <Text style={[s.tradePrice, { color: t.side === 'buy' ? colors.success : colors.danger }]}>
                   {fmt(t.price, isInr ? 2 : 4)}
@@ -371,6 +358,18 @@ export default function TradingScreen() {
                 <Text style={s.tradeTime}>{new Date(t.ts).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
               </View>
             ))}
+            {recentTrades.length < 15 && [...Array(15 - recentTrades.length)].map((_, i) => (
+              <View key={`pt${i}`} style={s.tradeRow}>
+                <Text style={[s.tradePrice, { color: i % 2 === 0 ? colors.success : colors.danger, opacity: 0.3 }]}>— — — —</Text>
+                <Text style={[s.tradeQty, { opacity: 0.3 }]}>— — — —</Text>
+                <Text style={[s.tradeTime, { opacity: 0.3 }]}>— —:— —:— —</Text>
+              </View>
+            ))}
+            {recentTrades.length === 0 && (
+              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: 11 }}>Waiting for trades...</Text>
+              </View>
+            )}
           </View>
         )}
 
