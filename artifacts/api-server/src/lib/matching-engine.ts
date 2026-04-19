@@ -230,7 +230,8 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
         // Update pair lastPrice
         await tx.update(pairsTable).set({
           lastPrice: String(tradePrice),
-          volume24h: sql`${pairsTable.volume24h} + ${fillQty}`,
+          volume24h: sql`"volume_24h" + ${String(fillQty)}::numeric`,
+          quoteVolume24h: sql`"quote_volume_24h" + ${String(notional)}::numeric`,
           updatedAt: new Date(),
         }).where(eq(pairsTable.id, pair.id));
 

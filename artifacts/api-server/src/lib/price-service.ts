@@ -132,16 +132,23 @@ async function tick() {
       if (!base || !quote) continue;
       // Skip auto-update if base coin uses manual price — admin's manual pair edit should persist
       if (base.priceSource === "manual") continue;
+      // Skip if pair has real trade fills — pair.last_price is owned by the
+      // matching engine (per-fill writes) and pair-stats (30s recompute).
+      // Letting the external feed clobber it every second would show feed
+      // price instead of true last trade.
+      if (Number((p as any).trades24h ?? 0) > 0) continue;
       const bPx = cache.get(base.symbol)?.usdt ?? 0;
       const qPx = cache.get(quote.symbol)?.usdt ?? 1;
       if (bPx > 0 && qPx > 0) {
         const last = bPx / qPx;
         const ch = cache.get(base.symbol)?.change24h ?? 0;
         const vol = cache.get(base.symbol)?.volume24h ?? 0;
+        // NOTE: do NOT write volume_24h/change_24h here — those are owned by
+        // the pair-stats service which aggregates real fills from tradesTable.
+        // This loop only refreshes lastPrice for pairs whose base coin uses
+        // an external feed (so the orderbook midpoint stays in sync).
         await db.update(pairsTable).set({
           lastPrice: String(last.toFixed(8)),
-          change24h: String(ch.toFixed(4)),
-          volume24h: String(vol.toFixed(8)),
         }).where(eq(pairsTable.id, p.id));
         void rSet(`pair:${p.symbol}`, JSON.stringify({ symbol: p.symbol, last, change24h: ch, volume24h: vol, ts: Date.now() }), 60);
       }

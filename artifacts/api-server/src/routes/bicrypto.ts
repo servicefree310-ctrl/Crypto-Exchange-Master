@@ -1005,10 +1005,16 @@ function pairToMarket(p: any, coinById: Map<number, any>, tickByBase?: Map<strin
   const base = coinById.get(p.baseCoinId)?.symbol || "BTC";
   const quote = coinById.get(p.quoteCoinId)?.symbol || "USDT";
   const tk = tickByBase?.get(base);
-  const px = tk ? Number(quote === "INR" ? tk.inr : tk.usdt) || 0 : 0;
-  const pctRaw = tk ? Number(tk.change24h ?? 0) : 0;
+  const tickPx = tk ? Number(quote === "INR" ? tk.inr : tk.usdt) || 0 : 0;
+  // Overlay real DB stats once the pair has any fills, mirroring tickerEntry().
+  const hasFills = Number(p.trades24h ?? 0) > 0;
+  const px = hasFills ? Number(p.lastPrice ?? tickPx) || tickPx : tickPx;
+  const pctRaw = hasFills ? Number(p.change24h ?? 0) : (tk ? Number(tk.change24h ?? 0) : 0);
   const pct = pctRaw <= -100 ? -99.99 : pctRaw;
-  const vol = tk ? Number(tk.volume24h ?? 0) : 0;
+  const baseVol = hasFills ? Number(p.volume24h ?? 0) : (tk ? Number(tk.volume24h ?? 0) : 0);
+  const quoteVol = hasFills ? Number(p.quoteVolume24h ?? 0) : baseVol * px;
+  const high = hasFills ? Number(p.high24h ?? 0) || px : px * (1 + Math.max(pct, 0) / 100);
+  const low = hasFills ? Number(p.low24h ?? 0) || px : px * (1 + Math.min(pct, 0) / 100);
   return {
     id: String(p.id),
     symbol: `${base}/${quote}`,
@@ -1019,10 +1025,10 @@ function pairToMarket(p: any, coinById: Map<number, any>, tickByBase?: Map<strin
     change: pct,
     changePercent: pct,
     percentage: pct,
-    baseVolume: vol,
-    quoteVolume: vol * px,
-    high: px * (1 + Math.max(pct, 0) / 100),
-    low: px * (1 + Math.min(pct, 0) / 100),
+    baseVolume: baseVol,
+    quoteVolume: quoteVol,
+    high,
+    low,
     open: pct === 0 ? px : px / (1 + pct / 100),
     close: px,
     isTrending: false,
@@ -1065,31 +1071,48 @@ r.get("/exchange/market", async (_req, res): Promise<void> => {
 // `change` is exposed as a percentage to match the Bicrypto/Flutter contract
 // (TickerModel reads it as a percent-style value). `change24h <= -100` is
 // guarded to avoid divide-by-zero / inverted prices in synthetic OHLC.
-function tickerEntry(t: any, quote: string) {
-  const px = quote === "INR" ? Number(t.inr ?? 0) : Number(t.usdt ?? 0);
-  const pctRaw = Number(t.change24h ?? 0);
+// Build ticker entry. When the pair has any real fills (trades_24h > 0) we
+// surface authoritative DB values (volume / change / hi-lo / last) so the
+// mobile UI shows what users actually traded; otherwise fall back to the
+// synthetic external-feed tick.
+function tickerEntry(t: any, quote: string, pair?: any) {
+  const tickPx = quote === "INR" ? Number(t.inr ?? 0) : Number(t.usdt ?? 0);
+  const hasFills = pair && Number(pair.trades24h ?? 0) > 0;
+  const px = hasFills ? Number(pair.lastPrice ?? tickPx) || tickPx : tickPx;
+  const pctRaw = hasFills ? Number(pair.change24h ?? 0) : Number(t.change24h ?? 0);
   const pct = pctRaw <= -100 ? -99.99 : pctRaw;
+  const baseVol = hasFills ? Number(pair.volume24h ?? 0) : Number(t.volume24h ?? 0);
+  const quoteVol = hasFills ? Number(pair.quoteVolume24h ?? 0) : baseVol * px;
+  const high = hasFills ? Number(pair.high24h ?? 0) || px : px * (1 + Math.max(pct, 0) / 100);
+  const low = hasFills ? Number(pair.low24h ?? 0) || px : px * (1 + Math.min(pct, 0) / 100);
   const openSafe = px / (1 + pct / 100);
   return {
     last: px, bid: px * 0.999, ask: px * 1.001,
-    high: px * (1 + Math.max(pct, 0) / 100),
-    low: px * (1 + Math.min(pct, 0) / 100),
+    high, low,
     open: openSafe, close: px,
     change: pct,
     percentage: pct,
-    baseVolume: Number(t.volume24h ?? 0),
-    quoteVolume: Number(t.volume24h ?? 0) * px,
+    baseVolume: baseVol,
+    quoteVolume: quoteVol,
     timestamp: Number(t.ts ?? Date.now()),
   };
 }
 
 r.get("/exchange/ticker", async (_req, res): Promise<void> => {
   const ticks = getCache() as any[];
+  const pairs = await db.select().from(pairsTable);
+  const coinMap = await loadCoinMap();
+  const pairBySym = new Map<string, any>();
+  for (const p of pairs) {
+    const b = coinMap.get(p.baseCoinId)?.symbol;
+    const q = coinMap.get(p.quoteCoinId)?.symbol;
+    if (b && q) pairBySym.set(`${b}/${q}`, p);
+  }
   const map: Record<string, any> = {};
   for (const t of ticks) {
     if (t.symbol === "USDT" || t.symbol === "INR") continue;
-    map[`${t.symbol}/USDT`] = tickerEntry(t, "USDT");
-    if (Number(t.inr) > 0) map[`${t.symbol}/INR`] = tickerEntry(t, "INR");
+    map[`${t.symbol}/USDT`] = tickerEntry(t, "USDT", pairBySym.get(`${t.symbol}/USDT`));
+    if (Number(t.inr) > 0) map[`${t.symbol}/INR`] = tickerEntry(t, "INR", pairBySym.get(`${t.symbol}/INR`));
   }
   res.json(map);
 });
@@ -1100,7 +1123,9 @@ r.get("/exchange/ticker/:currency/:pair", async (req, res): Promise<void> => {
   const ticks = getCache() as any[];
   const t = ticks.find(x => x.symbol === cur);
   if (!t) { res.json({ symbol: `${cur}/${quote}`, last: 0, bid: 0, ask: 0 }); return; }
-  res.json({ symbol: `${cur}/${quote}`, ...tickerEntry(t, quote) });
+  const dbSymbol = `${cur}${quote}`;
+  const [pair] = await db.select().from(pairsTable).where(eq(pairsTable.symbol, dbSymbol)).limit(1);
+  res.json({ symbol: `${cur}/${quote}`, ...tickerEntry(t, quote, pair) });
 });
 
 r.get("/exchange/orderbook/:currency/:pair", async (req, res): Promise<void> => {

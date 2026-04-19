@@ -27,18 +27,35 @@ export async function recomputePairStats(): Promise<void> {
       const change = first > 0 ? ((last - first) / first) * 100 : 0;
 
       const cnt = Number(agg?.cnt ?? 0);
-      const updates: any = { trades24h: cnt };
+      // Use raw SQL update so we don't depend on Drizzle's column-name
+      // mapping (which has previously dropped volume_24h silently when
+      // routed through .set({ volume24h })). Stats include bot fills —
+      // bot trades land in tradesTable identically to user trades, so
+      // volume/quote-volume/24h-change naturally reflect them.
       if (cnt > 0) {
-        updates.high24h = agg?.high ?? "0";
-        updates.low24h = agg?.low ?? "0";
-        updates.volume24h = agg?.vol ?? "0";
-        updates.quoteVolume24h = agg?.quoteVol ?? "0";
-        updates.change24h = change.toFixed(4);
-        if (last > 0) updates.lastPrice = String(last);
+        const high = agg?.high ?? "0";
+        const low = agg?.low ?? "0";
+        const vol = agg?.vol ?? "0";
+        const qvol = agg?.quoteVol ?? "0";
+        const chg = change.toFixed(4);
+        if (last > 0) {
+          await db.execute(sql`
+            UPDATE pairs SET trades_24h = ${cnt},
+              high_24h = ${high}, low_24h = ${low},
+              volume_24h = ${vol}, quote_volume_24h = ${qvol},
+              change_24h = ${chg}, last_price = ${String(last)}
+            WHERE id = ${p.id}`);
+        } else {
+          await db.execute(sql`
+            UPDATE pairs SET trades_24h = ${cnt},
+              high_24h = ${high}, low_24h = ${low},
+              volume_24h = ${vol}, quote_volume_24h = ${qvol},
+              change_24h = ${chg}
+            WHERE id = ${p.id}`);
+        }
+      } else {
+        await db.execute(sql`UPDATE pairs SET trades_24h = 0 WHERE id = ${p.id}`);
       }
-      // If no trades in 24h, leave existing high/low/volume/lastPrice untouched (don't wipe to 0)
-
-      await db.update(pairsTable).set(updates).where(eq(pairsTable.id, p.id));
     } catch (e: any) {
       logger.warn({ err: e?.message, pairId: p.id }, "pair stats recompute failed");
     }
