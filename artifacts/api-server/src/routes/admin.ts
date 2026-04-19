@@ -192,6 +192,8 @@ router.post("/admin/networks", adminOnly, async (req, res): Promise<void> => {
     minDeposit: String(b.minDeposit ?? "0"),
     minWithdraw: String(b.minWithdraw ?? "0"),
     withdrawFee: String(b.withdrawFee ?? "0"),
+    withdrawFeePercent: String(b.withdrawFeePercent ?? "0"),
+    withdrawFeeMin: String(b.withdrawFeeMin ?? "0"),
     confirmations: Number(b.confirmations ?? 12),
     depositEnabled: b.depositEnabled ?? true,
     withdrawEnabled: b.withdrawEnabled ?? true,
@@ -203,6 +205,7 @@ router.post("/admin/networks", adminOnly, async (req, res): Promise<void> => {
 router.patch("/admin/networks/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   const allowed = ["name", "chain", "contractAddress", "minDeposit", "minWithdraw", "withdrawFee",
+    "withdrawFeePercent", "withdrawFeeMin",
     "confirmations", "depositEnabled", "withdrawEnabled", "nodeAddress", "memoRequired", "status",
     "providerType", "hotWalletAddress", "explorerUrl"];
   const b: Record<string, any> = {};

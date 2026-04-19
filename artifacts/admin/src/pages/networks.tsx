@@ -16,7 +16,9 @@ import { useAuth } from "@/lib/auth";
 type Coin = { id: number; symbol: string };
 type Network = {
   id: number; coinId: number; name: string; chain: string; contractAddress: string | null;
-  minDeposit: string; minWithdraw: string; withdrawFee: string; confirmations: number;
+  minDeposit: string; minWithdraw: string; withdrawFee: string;
+  withdrawFeePercent: string; withdrawFeeMin: string;
+  confirmations: number;
   depositEnabled: boolean; withdrawEnabled: boolean; memoRequired: boolean; status: string;
   nodeAddress: string | null; nodeStatus: string; lastNodeCheckAt: string | null;
   providerType: string;
@@ -126,10 +128,42 @@ function NetworkForm({ initial, coins, onSubmit, onTest, testResult }: { initial
       </div>
 
       {/* LIMITS */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div><Label>Min Deposit</Label><Input value={v.minDeposit || "0"} onChange={(e) => setV({ ...v, minDeposit: e.target.value })} /></div>
         <div><Label>Min Withdraw</Label><Input value={v.minWithdraw || "0"} onChange={(e) => setV({ ...v, minWithdraw: e.target.value })} /></div>
-        <div><Label>Withdraw Fee</Label><Input value={v.withdrawFee || "0"} onChange={(e) => setV({ ...v, withdrawFee: e.target.value })} /></div>
+      </div>
+
+      {/* WITHDRAW FEE */}
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+        <Label className="text-sm font-semibold text-amber-700 dark:text-amber-400">Withdraw Fee Structure</Label>
+        <p className="text-xs text-muted-foreground mb-2">Total fee = Fixed + (Amount × Percent%), but never less than Minimum.</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs">Fixed Fee</Label>
+            <Input type="number" step="0.00000001" value={v.withdrawFee || "0"} onChange={(e) => setV({ ...v, withdrawFee: e.target.value })} placeholder="0" />
+            <p className="text-[10px] text-muted-foreground mt-1">in {v.chain || "coin"}</p>
+          </div>
+          <div>
+            <Label className="text-xs">Percent %</Label>
+            <Input type="number" step="0.01" value={v.withdrawFeePercent || "0"} onChange={(e) => setV({ ...v, withdrawFeePercent: e.target.value })} placeholder="0" />
+            <p className="text-[10px] text-muted-foreground mt-1">e.g. 2 = 2%</p>
+          </div>
+          <div>
+            <Label className="text-xs">Minimum Fee</Label>
+            <Input type="number" step="0.00000001" value={v.withdrawFeeMin || "0"} onChange={(e) => setV({ ...v, withdrawFeeMin: e.target.value })} placeholder="0" />
+            <p className="text-[10px] text-muted-foreground mt-1">floor cap</p>
+          </div>
+        </div>
+        {(Number(v.withdrawFeePercent) > 0 || Number(v.withdrawFeeMin) > 0) && (
+          <div className="mt-2 text-[11px] bg-background/60 rounded p-2 space-y-0.5">
+            <div className="font-medium">Preview:</div>
+            {[100, 500, 1000, 5000].map(amt => {
+              const calc = (Number(v.withdrawFee) || 0) + amt * (Number(v.withdrawFeePercent) || 0) / 100;
+              const fee = Math.max(calc, Number(v.withdrawFeeMin) || 0);
+              return <div key={amt}>Withdraw {amt} → fee = <span className="font-semibold text-amber-600">{fee.toFixed(4)}</span> {fee > calc ? "(min applied)" : ""}</div>;
+            })}
+          </div>
+        )}
       </div>
 
       {/* TOGGLES */}
@@ -233,7 +267,16 @@ export default function NetworksPage() {
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell className="tabular-nums">{n.minDeposit}</TableCell>
-                  <TableCell className="tabular-nums">{n.withdrawFee}</TableCell>
+                  <TableCell className="tabular-nums text-xs">
+                    {Number(n.withdrawFeePercent) > 0 ? (
+                      <div>
+                        <div>{Number(n.withdrawFee) > 0 ? `${n.withdrawFee} + ` : ""}<span className="text-amber-600 font-semibold">{n.withdrawFeePercent}%</span></div>
+                        {Number(n.withdrawFeeMin) > 0 && <div className="text-[10px] text-muted-foreground">min {n.withdrawFeeMin}</div>}
+                      </div>
+                    ) : (
+                      <div>{n.withdrawFee}</div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {isAdmin
                       ? <Switch checked={n.depositEnabled} onCheckedChange={(c) => update.mutate({ id: n.id, body: { depositEnabled: c } })} />

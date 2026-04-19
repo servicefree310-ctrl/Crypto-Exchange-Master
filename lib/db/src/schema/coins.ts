@@ -33,6 +33,8 @@ export const networksTable = pgTable("networks", {
   minDeposit: numeric("min_deposit", { precision: 24, scale: 8 }).notNull().default("0"),
   minWithdraw: numeric("min_withdraw", { precision: 24, scale: 8 }).notNull().default("0"),
   withdrawFee: numeric("withdraw_fee", { precision: 24, scale: 8 }).notNull().default("0"),
+  withdrawFeePercent: numeric("withdraw_fee_percent", { precision: 8, scale: 4 }).notNull().default("0"),
+  withdrawFeeMin: numeric("withdraw_fee_min", { precision: 24, scale: 8 }).notNull().default("0"),
   confirmations: integer("confirmations").notNull().default(12),
   depositEnabled: boolean("deposit_enabled").notNull().default(true),
   withdrawEnabled: boolean("withdraw_enabled").notNull().default(true),

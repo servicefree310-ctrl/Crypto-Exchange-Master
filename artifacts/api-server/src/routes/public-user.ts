@@ -213,7 +213,12 @@ router.post("/crypto-withdrawals", requireAuth, async (req, res): Promise<void> 
         const e: any = new Error("This network requires a memo/destination tag"); e.code = 400; throw e;
       }
 
-      const fee = Number(network.withdrawFee) || 0;
+      // Withdraw fee = max( fixed + (amt × percent%), feeMin )
+      const feeFixed = Number(network.withdrawFee) || 0;
+      const feePct = Number(network.withdrawFeePercent) || 0;
+      const feeMin = Number(network.withdrawFeeMin) || 0;
+      const calcFee = feeFixed + (amt * feePct / 100);
+      const fee = +Math.max(calcFee, feeMin).toFixed(8);
       const tds = +(amt * 0.01).toFixed(8); // 1% TDS on crypto withdraw
 
       const [wallet] = await tx.select().from(walletsTable)
