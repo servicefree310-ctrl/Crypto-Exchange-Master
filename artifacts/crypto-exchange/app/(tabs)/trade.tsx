@@ -209,7 +209,7 @@ type BottomTab = typeof BOTTOM_TABS[number];
 export default function TradeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { apiCoins, apiPairs, coins: liveCoins, user, orders: liveOrders, cancelOrder: ctxCancelOrder, refreshWallets } = useApp();
+  const { apiCoins, apiPairs, coins: liveCoins, user, orders: liveOrders, cancelOrder: ctxCancelOrder, refreshWallets, walletBalances, currentFeeTier } = useApp();
   const coinById = useMemo(() => {
     const m = new Map<number, any>();
     (apiCoins || []).forEach((c: any) => m.set(c.id, c));
@@ -407,12 +407,26 @@ export default function TradeScreen() {
     });
   }, [currentPrice]);
 
+  const spotBalance = useCallback((sym: string) => {
+    const b = (walletBalances || []).find(w => w.symbol === sym && w.walletType === "spot");
+    return b ? Number(b.available) || 0 : 0;
+  }, [walletBalances]);
+  const availBalance = side === "buy" ? spotBalance(quote) : spotBalance(base);
+  const fmtBal = (v: number, dp: number) => v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+
   const handlePct = useCallback((p: number) => {
     setPct(p);
-    const balance = side === "buy" ? 5847.32 : 0.0854;
-    const pr = parseFloat(price||"1") || 1;
-    setAmount(side === "buy" ? ((balance*p/100)/pr).toFixed(6) : (balance*p/100).toFixed(6));
-  }, [price, side]);
+    priceTouchedRef.current = true;
+    const bal = side === "buy" ? spotBalance(quote) : spotBalance(base);
+    const pr = parseFloat(price||"0") || currentPrice || 1;
+    const dp = isInr ? 6 : 6;
+    setAmount(side === "buy" ? ((bal*p/100)/pr).toFixed(dp) : (bal*p/100).toFixed(dp));
+  }, [price, side, base, quote, spotBalance, currentPrice, isInr]);
+
+  const totalNum = parseFloat(price||"0") * parseFloat(amount||"0");
+  const feeRate = orderType === "market" ? (currentFeeTier?.spotTaker ?? 0.25) / 100 : (currentFeeTier?.spotMaker ?? 0.20) / 100;
+  const feeAmt = totalNum * feeRate;
+  const receiveAmt = side === "buy" ? parseFloat(amount||"0") * (1 - feeRate) : totalNum * (1 - feeRate);
 
   const obRows = showOB ? 8 : 0;
 
@@ -635,10 +649,19 @@ export default function TradeScreen() {
             </ScrollView>
 
             {/* Available */}
-            <View style={styles.dataRow}>
-              <Text style={[styles.lbl, { color: colors.mutedForeground }]}>Avail.</Text>
-              <Text style={[styles.val, { color: colors.foreground }]}>{side==="buy"?`5,847 ${quote}`:`0.0854 ${base}`}</Text>
-            </View>
+            <TouchableOpacity onPress={() => { if (!user) router.push("/(auth)/login"); else router.push("/wallet"); }}
+              style={styles.availRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Feather name="credit-card" size={9} color={colors.mutedForeground} />
+                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>Avail.</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={[styles.val, { color: colors.foreground }]}>
+                  {fmtBal(availBalance, side === "buy" ? 2 : 6)} {side === "buy" ? quote : base}
+                </Text>
+                <Feather name="plus-circle" size={11} color={colors.primary} />
+              </View>
+            </TouchableOpacity>
 
             {/* Stop Price (stop-limit/oco) */}
             {(orderType === "stop-limit" || orderType === "oco") && (
@@ -670,23 +693,47 @@ export default function TradeScreen() {
               <Text style={[styles.inputLbl, { color: colors.mutedForeground }]}>{base}</Text>
             </View>
 
-            {/* Pct buttons */}
+            {/* Pct slider buttons */}
             <View style={styles.pctRow}>
-              {[25,50,75,100].map(p => (
-                <TouchableOpacity key={p} onPress={() => handlePct(p)}
-                  style={[styles.pctBtn, {
-                    borderColor: pct===p ? (side==="buy"?colors.success:colors.destructive) : colors.border,
-                    backgroundColor: pct===p ? (side==="buy"?colors.success:colors.destructive)+"18" : "transparent"
-                  }]}>
-                  <Text style={[styles.pctTxt, { color: pct===p?(side==="buy"?colors.success:colors.destructive):colors.mutedForeground }]}>{p}%</Text>
-                </TouchableOpacity>
-              ))}
+              {[25,50,75,100].map(p => {
+                const active = pct === p;
+                const sideC = side === "buy" ? colors.success : colors.destructive;
+                return (
+                  <TouchableOpacity key={p} onPress={() => handlePct(p)}
+                    style={[styles.pctBtn, {
+                      borderColor: active ? sideC : colors.border,
+                      backgroundColor: active ? sideC : "transparent"
+                    }]}>
+                    <Text style={[styles.pctTxt, { color: active ? "#fff" : colors.mutedForeground, fontFamily: active ? "Inter_700Bold" : "Inter_500Medium" }]}>
+                      {p === 100 ? "MAX" : `${p}%`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            {/* Total */}
-            <View style={styles.dataRow}>
-              <Text style={[styles.lbl, { color: colors.mutedForeground }]}>Total</Text>
-              <Text style={[styles.val, { color: colors.foreground }]}>{total} {quote}</Text>
+            {/* Total + Fee preview */}
+            <View style={[styles.summaryBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>Total</Text>
+                <Text style={[styles.val, { color: colors.foreground, fontFamily: "Inter_700Bold" }]}>
+                  {totalNum > 0 ? fmtBal(totalNum, 2) : "0.00"} {quote}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>
+                  Fee ({orderType === "market" ? "Taker" : "Maker"} {((orderType === "market" ? currentFeeTier?.spotTaker : currentFeeTier?.spotMaker) ?? 0).toFixed(2)}%)
+                </Text>
+                <Text style={[styles.val, { color: colors.mutedForeground }]}>
+                  {feeAmt > 0 ? fmtBal(feeAmt, isInr ? 2 : 4) : "0.00"} {quote}
+                </Text>
+              </View>
+              <View style={[styles.summaryRow, { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4, marginTop: 2 }]}>
+                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>You receive</Text>
+                <Text style={[styles.val, { color: side === "buy" ? colors.success : colors.destructive, fontFamily: "Inter_700Bold" }]}>
+                  ≈ {receiveAmt > 0 ? fmtBal(receiveAmt, side === "buy" ? 6 : 2) : "0.00"} {side === "buy" ? base : quote}
+                </Text>
+              </View>
             </View>
 
             {/* TIF + Post Only (only Limit) */}
@@ -755,10 +802,22 @@ export default function TradeScreen() {
                   Alert.alert("Order failed", e?.message || "Unknown error");
                 }
               }}
-              style={[styles.submitBtn, { backgroundColor: side==="buy" ? colors.success : colors.destructive }]}>
-              <Text style={styles.submitTxt}>{user ? (side==="buy"?"Buy":"Sell") : "Login to "+(side==="buy"?"Buy":"Sell")} {base}</Text>
+              style={[styles.submitBtn, { backgroundColor: side==="buy" ? colors.success : colors.destructive, shadowColor: side==="buy"?colors.success:colors.destructive }]}>
+              <Text style={styles.submitTxt}>
+                {user ? (side==="buy" ? `Buy ${base}` : `Sell ${base}`) : `Login to ${side==="buy"?"Buy":"Sell"} ${base}`}
+              </Text>
+              {totalNum > 0 && (
+                <Text style={styles.submitSubTxt}>
+                  {orderType === "market" ? "Market" : "Limit"} · {fmtBal(totalNum, 2)} {quote}
+                </Text>
+              )}
             </TouchableOpacity>
-            <Text style={[styles.feeTxt, { color: colors.mutedForeground }]}>Fee: 0.1%/0.1%</Text>
+            <View style={styles.feeRow}>
+              <Feather name="shield" size={9} color={colors.mutedForeground} />
+              <Text style={[styles.feeTxt, { color: colors.mutedForeground }]}>
+                VIP {currentFeeTier?.tier ?? 0} · M {(currentFeeTier?.spotMaker ?? 0).toFixed(2)}% / T {(currentFeeTier?.spotTaker ?? 0).toFixed(2)}%
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -982,6 +1041,11 @@ const styles = StyleSheet.create({
   typeBtn: { paddingHorizontal:8, paddingVertical:5, alignItems:"center" },
   typeText: { fontSize:9.5, fontFamily:"Inter_600SemiBold" },
   dataRow: { flexDirection:"row", justifyContent:"space-between", marginBottom:5 },
+  availRow: { flexDirection:"row", justifyContent:"space-between", alignItems:"center", marginBottom:6, paddingVertical:3 },
+  summaryBox: { borderRadius:8, borderWidth:1, padding:7, marginBottom:7, gap:3 },
+  summaryRow: { flexDirection:"row", justifyContent:"space-between", alignItems:"center" },
+  submitSubTxt: { fontSize:9.5, fontFamily:"Inter_500Medium", color:"rgba(255,255,255,0.85)", marginTop:2 },
+  feeRow: { flexDirection:"row", alignItems:"center", justifyContent:"center", gap:3, marginTop:1 },
   lbl: { fontSize:9.5, fontFamily:"Inter_400Regular" },
   val: { fontSize:9.5, fontFamily:"Inter_600SemiBold" },
   inputWrap: { flexDirection:"row", alignItems:"center", borderRadius:7, borderWidth:1, paddingHorizontal:7, paddingVertical:5, marginBottom:6 },
