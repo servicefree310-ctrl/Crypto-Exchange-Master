@@ -116,3 +116,35 @@ class ChartSymbolChanged extends ChartEvent {
 class ChartCleanupRequested extends ChartEvent {
   const ChartCleanupRequested();
 }
+
+// Internal events dispatched from WebSocket stream listeners. They funnel
+// updates through Bloc's event pipeline so emit() is always called from a
+// proper handler with an Emitter — required by Bloc 8 and avoids the
+// "emit was called outside of a handler" / "add after close" race.
+class ChartWsOhlcvReceived extends ChartEvent {
+  const ChartWsOhlcvReceived(this.ohlcvData);
+  final Map<String, dynamic> ohlcvData;
+  @override
+  List<Object?> get props => [ohlcvData];
+}
+
+class ChartWsTickerReceived extends ChartEvent {
+  const ChartWsTickerReceived(this.marketData);
+  final MarketDataEntity marketData;
+  @override
+  List<Object?> get props => [marketData];
+}
+
+class ChartWsOrderBookReceived extends ChartEvent {
+  const ChartWsOrderBookReceived(this.orderBookData);
+  final OrderBookData orderBookData;
+  @override
+  List<Object?> get props => [orderBookData];
+}
+
+class ChartWsTradesReceived extends ChartEvent {
+  const ChartWsTradesReceived(this.tradesData);
+  final List<TradeDataPoint> tradesData;
+  @override
+  List<Object?> get props => [tradesData];
+}

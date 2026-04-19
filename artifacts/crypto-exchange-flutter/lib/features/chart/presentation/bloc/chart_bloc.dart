@@ -42,6 +42,10 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     on<ChartRealtimeTickerReceived>(_onChartRealtimeTickerReceived);
     on<ChartSymbolChanged>(_onChartSymbolChanged);
     on<ChartCleanupRequested>(_onChartCleanupRequested);
+    on<ChartWsOhlcvReceived>(_onWsOhlcvReceived);
+    on<ChartWsTickerReceived>(_onWsTickerReceived);
+    on<ChartWsOrderBookReceived>(_onWsOrderBookReceived);
+    on<ChartWsTradesReceived>(_onWsTradesReceived);
   }
 
   final GetRealtimeTickerUseCase _getRealtimeTickerUseCase;
@@ -275,33 +279,48 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     // Cancel existing subscriptions
     _cancelWebSocketSubscriptions();
 
-    // Subscribe to ticker data from shared service
+    // Subscribe to ticker data from shared service. Listeners do NOT call
+    // emit() directly — they dispatch events so emit happens inside a proper
+    // event handler with an Emitter (Bloc 8 requirement). Bloc.add() is a
+    // no-op when isClosed, so this is also race-safe across navigation.
     _tickerSubscription = _tradingWebSocketService.chartTickerStream
         .where((data) =>
             data.ticker?.symbol == symbol ||
             data.ticker?.symbol.replaceAll('/', '') ==
                 symbol.replaceAll('/', ''))
         .listen(
-          (marketData) => _handleSharedTickerData(marketData),
+          (marketData) {
+            if (isClosed) return;
+            add(ChartWsTickerReceived(marketData));
+          },
           onError: (error) =>
               dev.log('❌ CHART_BLOC: Shared ticker error: $error'),
         );
 
     // Subscribe to OHLCV data from shared service
     _ohlcvSubscription = _tradingWebSocketService.ohlcvStream.listen(
-      (ohlcvData) => _handleSharedOHLCVData(ohlcvData),
+      (ohlcvData) {
+        if (isClosed) return;
+        add(ChartWsOhlcvReceived(ohlcvData));
+      },
       onError: (error) => dev.log('❌ CHART_BLOC: Shared OHLCV error: $error'),
     );
 
     // Subscribe to order book data from shared service
     _orderBookSubscription = _tradingWebSocketService.orderBookStream.listen(
-      (orderBookData) => _handleSharedOrderBookData(orderBookData),
+      (orderBookData) {
+        if (isClosed) return;
+        add(ChartWsOrderBookReceived(orderBookData));
+      },
       onError: (error) => dev.log('❌ CHART_BLOC: Shared OrderBook error: $error'),
     );
 
     // Subscribe to trades data from shared service
     _tradesSubscription = _tradingWebSocketService.tradesStream.listen(
-      (tradesData) => _handleSharedTradesData(tradesData),
+      (tradesData) {
+        if (isClosed) return;
+        add(ChartWsTradesReceived(tradesData));
+      },
       onError: (error) => dev.log('❌ CHART_BLOC: Shared Trades error: $error'),
     );
 
@@ -320,9 +339,30 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     // dev.log('✅ CHART_BLOC: Subscribed to all shared WebSocket streams');
   }
 
+  // Event handlers — emit via Emitter (Bloc 8 safe path).
+  void _onWsTickerReceived(
+      ChartWsTickerReceived event, Emitter<ChartState> emit) {
+    _handleSharedTickerData(event.marketData, emit);
+  }
+
+  void _onWsOhlcvReceived(
+      ChartWsOhlcvReceived event, Emitter<ChartState> emit) {
+    _handleSharedOHLCVData(event.ohlcvData, emit);
+  }
+
+  void _onWsOrderBookReceived(
+      ChartWsOrderBookReceived event, Emitter<ChartState> emit) {
+    _handleSharedOrderBookData(event.orderBookData, emit);
+  }
+
+  void _onWsTradesReceived(
+      ChartWsTradesReceived event, Emitter<ChartState> emit) {
+    _handleSharedTradesData(event.tradesData, emit);
+  }
+
   /// Handle shared ticker data from TradingWebSocketService
-  void _handleSharedTickerData(MarketDataEntity marketData) {
-    if (isClosed) return;
+  void _handleSharedTickerData(
+      MarketDataEntity marketData, Emitter<ChartState> emit) {
     try {
       // dev.log(
       //     '📊 CHART_BLOC: Received shared ticker data: ${marketData.ticker?.symbol}');
@@ -361,8 +401,8 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   }
 
   /// Handle shared OHLCV data from TradingWebSocketService
-  void _handleSharedOHLCVData(Map<String, dynamic> ohlcvData) {
-    if (isClosed) return;
+  void _handleSharedOHLCVData(
+      Map<String, dynamic> ohlcvData, Emitter<ChartState> emit) {
     try {
       // dev.log('📊 CHART_BLOC: Received shared OHLCV data: $ohlcvData');
 
@@ -452,8 +492,8 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   }
 
   /// Handle shared order book data from TradingWebSocketService
-  void _handleSharedOrderBookData(OrderBookData orderBookData) {
-    if (isClosed) return;
+  void _handleSharedOrderBookData(
+      OrderBookData orderBookData, Emitter<ChartState> emit) {
     try {
       // dev.log(
       //     '📊 CHART_BLOC: Received shared order book data: ${orderBookData.buyOrders.length} buy + ${orderBookData.sellOrders.length} sell orders');
@@ -495,8 +535,8 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   }
 
   /// Handle shared trades data from TradingWebSocketService
-  void _handleSharedTradesData(List<TradeDataPoint> tradesData) {
-    if (isClosed) return;
+  void _handleSharedTradesData(
+      List<TradeDataPoint> tradesData, Emitter<ChartState> emit) {
     try {
       // dev.log(
       //     '📊 CHART_BLOC: Received shared trades data: ${tradesData.length} trades');
