@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckCircle2, XCircle, Lock, Unlock, Loader2, AlertTriangle, Hammer, Server } from "lucide-react";
+import { CheckCircle2, XCircle, Lock, Unlock, Loader2, AlertTriangle, Hammer, Server, ChevronDown, ChevronRight, Play, Copy } from "lucide-react";
 
 type AuthMode = "none" | "user" | "admin" | "optional";
 type Status = "live" | "stub" | "not-implemented" | "deprecated";
@@ -15,6 +15,12 @@ type Endpoint = {
   auth: AuthMode;
   status: Status;
   pingable?: boolean;
+  /** What this endpoint actually does, in plain words */
+  detail?: string;
+  /** Example request body for POST/PUT/PATCH (static) */
+  sampleReq?: unknown;
+  /** Example response shape (static) */
+  sampleRes?: unknown;
 };
 
 type Group = {
@@ -31,11 +37,17 @@ const GROUPS: Group[] = [
     summary: "Flutter PoW register/login, JWT refresh, password reset, 2FA. Admin uses cookie-session login.",
     endpoints: [
       { method: "GET", path: "/auth/pow/challenge", desc: "Issues a Proof-of-Work challenge for register/login", auth: "none", status: "live", pingable: true },
-      { method: "POST", path: "/auth/register", desc: "Flutter signup with PoW solution; returns JWT cookies", auth: "none", status: "live" },
-      { method: "POST", path: "/auth/login/flutter", desc: "Flutter login with PoW; returns JWT cookies + user", auth: "none", status: "live" },
+      { method: "POST", path: "/auth/register", desc: "Flutter signup with PoW solution; returns JWT cookies", auth: "none", status: "live",
+        detail: "Creates a new user. Requires solving the Proof-of-Work challenge first (GET /auth/pow/challenge → submit nonce). On success sets accessToken + sessionId + csrfToken cookies and returns the user record.",
+        sampleReq: { email: "user@example.com", password: "Pa$$w0rd!", firstName: "Aman", lastName: "K", powChallengeId: "<from /auth/pow/challenge>", powNonce: "1234567" } },
+      { method: "POST", path: "/auth/login/flutter", desc: "Flutter login with PoW; returns JWT cookies + user", auth: "none", status: "live",
+        detail: "Email + password login for the Flutter app. Same PoW gate as register. Returns cookies and the user object including role + KYC level.",
+        sampleReq: { email: "user@example.com", password: "Pa$$w0rd!", powChallengeId: "<from /auth/pow/challenge>", powNonce: "1234567" } },
       { method: "POST", path: "/auth/refresh", desc: "Refresh access token (re-issues from current bearer)", auth: "user", status: "stub" },
       { method: "POST", path: "/auth/logout", desc: "Clears auth + legacy session cookies", auth: "none", status: "live" },
-      { method: "POST", path: "/auth/login", desc: "Legacy admin cookie-session login", auth: "none", status: "live" },
+      { method: "POST", path: "/auth/login", desc: "Legacy admin cookie-session login", auth: "none", status: "live",
+        detail: "Admin panel login (cookie-session, no PoW). Use admin@cryptox.in / Admin@123 for the seeded admin.",
+        sampleReq: { email: "admin@cryptox.in", password: "Admin@123" } },
       { method: "GET", path: "/auth/me", desc: "Legacy admin current user", auth: "admin", status: "live" },
       { method: "POST", path: "/auth/change-password", desc: "Update password for current user", auth: "user", status: "live" },
       { method: "POST", path: "/auth/reset", desc: "Request password reset email", auth: "none", status: "stub" },
@@ -114,7 +126,9 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/futures/position", desc: "User open futures positions", auth: "user", status: "stub" },
       { method: "GET", path: "/futures/order", desc: "User futures orders", auth: "user", status: "stub" },
       { method: "PUT", path: "/futures/leverage", desc: "Update leverage for a pair", auth: "user", status: "stub" },
-      { method: "POST", path: "/futures/order", desc: "Place futures order", auth: "user", status: "stub" },
+      { method: "POST", path: "/futures/order", desc: "Place futures order", auth: "user", status: "stub",
+        detail: "Currently a stub returning {data: null}. Real implementation will land in Task #2 — order will be forwarded to the Go matching engine over the internal /go-service/api channel.",
+        sampleReq: { symbol: "BTC/USDT", side: "BUY", type: "MARKET", quantity: 0.01, leverage: 10 } },
       { method: "DELETE", path: "/futures/order/:id", desc: "Cancel futures order", auth: "user", status: "stub" },
       { method: "DELETE", path: "/futures/position", desc: "Close futures position", auth: "user", status: "stub" },
       { method: "GET", path: "/futures/chart", desc: "Futures candle chart", auth: "none", status: "stub" },
@@ -137,7 +151,9 @@ const GROUPS: Group[] = [
     endpoints: [
       { method: "GET", path: "/gateways", desc: "List active payment gateways", auth: "none", status: "live", pingable: true },
       { method: "GET", path: "/inr-deposits", desc: "User INR deposit history", auth: "user", status: "live" },
-      { method: "POST", path: "/inr-deposits", desc: "Submit INR deposit with UTR", auth: "user", status: "live" },
+      { method: "POST", path: "/inr-deposits", desc: "Submit INR deposit with UTR", auth: "user", status: "live",
+        detail: "User claims an INR deposit by submitting the UTR/reference of an external bank transfer. Status starts as 'pending' until admin approves via PATCH /admin/inr-deposits/:id (which atomically credits the wallet).",
+        sampleReq: { gatewayId: 1, amount: 5000, utr: "UTR1234567890", note: "UPI" } },
       { method: "GET", path: "/inr-withdrawals", desc: "User INR withdrawal history", auth: "user", status: "live" },
       { method: "POST", path: "/inr-withdrawals", desc: "Withdraw INR (requires OTP + verified bank)", auth: "user", status: "live" },
       { method: "GET", path: "/banks", desc: "User bank accounts", auth: "user", status: "live" },
@@ -161,8 +177,12 @@ const GROUPS: Group[] = [
     layer: "node",
     summary: "Single-use OTP for withdrawals (hashed, race-safe). KYC L1/L2/L3 with PAN/Aadhaar.",
     endpoints: [
-      { method: "POST", path: "/otp/send", desc: "Send 6-digit OTP for purpose", auth: "user", status: "live" },
-      { method: "POST", path: "/otp/verify", desc: "Verify OTP -> issues otpId", auth: "user", status: "live" },
+      { method: "POST", path: "/otp/send", desc: "Send 6-digit OTP for purpose", auth: "user", status: "live",
+        detail: "Sends a single-use 6-digit OTP via configured channel (email/SMS) bound to a specific purpose like withdraw_inr or withdraw_crypto. OTP is hashed in DB. Reuse blocked.",
+        sampleReq: { purpose: "withdraw_inr" } },
+      { method: "POST", path: "/otp/verify", desc: "Verify OTP -> issues otpId", auth: "user", status: "live",
+        detail: "Verifies the OTP and returns an otpId that you must pass to the protected action (e.g. POST /inr-withdrawals). Race-safe: OTP marked used in same transaction.",
+        sampleReq: { purpose: "withdraw_inr", code: "123456" } },
       { method: "GET", path: "/kyc/settings", desc: "Per-level KYC requirements", auth: "none", status: "live", pingable: true },
       { method: "GET", path: "/kyc/my", desc: "My KYC applications", auth: "user", status: "live" },
       { method: "POST", path: "/kyc/submit", desc: "Submit KYC level (PAN/Aadhaar)", auth: "user", status: "live" },
@@ -248,9 +268,84 @@ async function ping(url: string): Promise<PingResult> {
   }
 }
 
+type InspectResult =
+  | { loading: true }
+  | { ok: boolean; status: number; ms: number; bodyText: string; contentType: string }
+  | { error: string };
+
+/** Fetch full JSON/text body (not just headers like ping). Used for the
+ *  Inspect drawer. Note: for non-GET methods we still send the request — but
+ *  with an empty body and the user is responsible for understanding write
+ *  side-effects. Sample request bodies (sampleReq) are for reference only. */
+async function inspect(method: string, url: string, body?: unknown): Promise<InspectResult> {
+  const t = performance.now();
+  try {
+    const init: RequestInit = { method, credentials: "include" };
+    if (body !== undefined && method !== "GET" && method !== "DELETE") {
+      init.headers = { "Content-Type": "application/json" };
+      init.body = JSON.stringify(body);
+    }
+    const res = await fetch(url, init);
+    const text = await res.text();
+    return {
+      ok: res.ok,
+      status: res.status,
+      ms: Math.round(performance.now() - t),
+      bodyText: text,
+      contentType: res.headers.get("content-type") || "",
+    };
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
+/** Substitute `:param` segments in a path with sample values so the URL is
+ *  actually fetchable. Anything unrecognized falls back to "1" / "BTC". */
+function fillPathParams(path: string): string {
+  return path
+    .replace(":currency/:pair", "BTC/USDT")
+    .replace(":currency", "BTC")
+    .replace(":pair", "USDT")
+    .replace(":type", "SPOT")
+    .replace(":id", "1");
+}
+
+function prettyJson(text: string): string {
+  try {
+    const obj = JSON.parse(text);
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return text;
+  }
+}
+
 export default function BackendStatusPage() {
   const [filter, setFilter] = useState("");
   const [pings, setPings] = useState<Record<string, PingResult | "loading">>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [inspects, setInspects] = useState<Record<string, InspectResult>>({});
+
+  const buildUrl = (path: string) =>
+    path.startsWith("/go-service") ? fillPathParams(path) : "/api" + fillPathParams(path);
+
+  const toggleRow = async (e: Endpoint) => {
+    const key = e.method + " " + e.path;
+    const isOpen = !!expanded[key];
+    setExpanded(p => ({ ...p, [key]: !isOpen }));
+    // Auto-fetch live JSON for safe (GET) endpoints on first open.
+    if (!isOpen && e.method === "GET" && !inspects[key]) {
+      setInspects(p => ({ ...p, [key]: { loading: true } }));
+      const r = await inspect("GET", buildUrl(e.path));
+      setInspects(p => ({ ...p, [key]: r }));
+    }
+  };
+
+  const runInspect = async (e: Endpoint) => {
+    const key = e.method + " " + e.path;
+    setInspects(p => ({ ...p, [key]: { loading: true } }));
+    const r = await inspect(e.method, buildUrl(e.path), e.sampleReq);
+    setInspects(p => ({ ...p, [key]: r }));
+  };
 
   const totals = useMemo(() => {
     const out = { total: 0, live: 0, stub: 0, ni: 0, dep: 0 };
@@ -334,6 +429,7 @@ export default function BackendStatusPage() {
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase text-muted-foreground border-b">
                     <tr>
+                      <th className="w-6 py-2"></th>
                       <th className="text-left py-2 pr-3">Method</th>
                       <th className="text-left py-2 pr-3">Path</th>
                       <th className="text-left py-2 pr-3">Description</th>
@@ -348,39 +444,126 @@ export default function BackendStatusPage() {
                       const am = AUTH_META[e.auth];
                       const SIcon = sm.icon;
                       const AIcon = am.icon;
+                      const key = e.method + " " + e.path;
+                      const isOpen = !!expanded[key];
+                      const ChevIcon = isOpen ? ChevronDown : ChevronRight;
                       const pingUrl = e.pingable ? (e.path.startsWith("/go-service") ? e.path : "/api" + e.path) : null;
                       const probe = pingUrl ? pings[pingUrl] : undefined;
+                      const ins = inspects[key];
                       return (
-                        <tr key={e.method + e.path} className="border-b last:border-b-0 hover:bg-muted/30">
-                          <td className="py-2 pr-3">
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-mono border ${METHOD_CLS[e.method] || ""}`}>{e.method}</span>
-                          </td>
-                          <td className="py-2 pr-3 font-mono text-xs">{e.path}</td>
-                          <td className="py-2 pr-3 text-muted-foreground">{e.desc}</td>
-                          <td className="py-2 pr-3">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${am.cls}`}>
-                              <AIcon className="w-3 h-3" />{am.label}
-                            </span>
-                          </td>
-                          <td className="py-2 pr-3">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${sm.cls}`}>
-                              <SIcon className="w-3 h-3" />{sm.label}
-                            </span>
-                          </td>
-                          <td className="py-2 text-xs">
-                            {!e.pingable ? (
-                              <span className="text-muted-foreground/60">—</span>
-                            ) : probe === "loading" || !probe ? (
-                              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-                            ) : "error" in probe ? (
-                              <span className="text-rose-600">net err</span>
-                            ) : (
-                              <span className={probe.ok ? "text-emerald-600" : "text-rose-600"}>
-                                {probe.status} · {probe.ms}ms
+                        <Fragment key={key}>
+                          <tr
+                            className="border-b last:border-b-0 hover:bg-muted/30 cursor-pointer"
+                            onClick={() => void toggleRow(e)}
+                          >
+                            <td className="py-2 pl-1">
+                              <ChevIcon className="w-4 h-4 text-muted-foreground" />
+                            </td>
+                            <td className="py-2 pr-3">
+                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-mono border ${METHOD_CLS[e.method] || ""}`}>{e.method}</span>
+                            </td>
+                            <td className="py-2 pr-3 font-mono text-xs">{e.path}</td>
+                            <td className="py-2 pr-3 text-muted-foreground">{e.desc}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${am.cls}`}>
+                                <AIcon className="w-3 h-3" />{am.label}
                               </span>
-                            )}
-                          </td>
-                        </tr>
+                            </td>
+                            <td className="py-2 pr-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${sm.cls}`}>
+                                <SIcon className="w-3 h-3" />{sm.label}
+                              </span>
+                            </td>
+                            <td className="py-2 text-xs">
+                              {!e.pingable ? (
+                                <span className="text-muted-foreground/60">—</span>
+                              ) : probe === "loading" || !probe ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                              ) : "error" in probe ? (
+                                <span className="text-rose-600">net err</span>
+                              ) : (
+                                <span className={probe.ok ? "text-emerald-600" : "text-rose-600"}>
+                                  {probe.status} · {probe.ms}ms
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr className="border-b last:border-b-0 bg-muted/20">
+                              <td></td>
+                              <td colSpan={6} className="py-3 pr-3">
+                                <div className="space-y-3 text-xs">
+                                  <div>
+                                    <div className="text-muted-foreground uppercase tracking-wide mb-1">What it does</div>
+                                    <div className="text-foreground/90">{e.detail || e.desc}</div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <code className="px-2 py-1 rounded bg-background border font-mono text-[11px]">
+                                      {e.method} {buildUrl(e.path)}
+                                    </code>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      onClick={(ev) => { ev.stopPropagation(); void runInspect(e); }}
+                                    >
+                                      <Play className="w-3 h-3 mr-1" />
+                                      {e.method === "GET" ? "Re-fetch" : "Send request"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs"
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        void navigator.clipboard.writeText(`curl -X ${e.method} ${window.location.origin}${buildUrl(e.path)}`);
+                                      }}
+                                    >
+                                      <Copy className="w-3 h-3 mr-1" />curl
+                                    </Button>
+                                  </div>
+
+                                  {e.sampleReq !== undefined && e.method !== "GET" && (
+                                    <div>
+                                      <div className="text-muted-foreground uppercase tracking-wide mb-1">Sample request body</div>
+                                      <pre className="p-2 rounded bg-background border overflow-x-auto font-mono text-[11px] leading-relaxed">{JSON.stringify(e.sampleReq, null, 2)}</pre>
+                                    </div>
+                                  )}
+
+                                  <div>
+                                    <div className="text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-2">
+                                      <span>Live response JSON</span>
+                                      {ins && "loading" in ins && <Loader2 className="w-3 h-3 animate-spin" />}
+                                      {ins && "ok" in ins && (
+                                        <span className={ins.ok ? "text-emerald-600" : "text-rose-600"}>
+                                          {ins.status} · {ins.ms}ms
+                                        </span>
+                                      )}
+                                    </div>
+                                    {!ins && e.method !== "GET" && (
+                                      <div className="text-muted-foreground italic">Click "Send request" to invoke this endpoint live.</div>
+                                    )}
+                                    {ins && "error" in ins && (
+                                      <div className="text-rose-600">Network error: {ins.error}</div>
+                                    )}
+                                    {ins && "ok" in ins && (
+                                      <pre className="p-2 rounded bg-background border overflow-auto max-h-72 font-mono text-[11px] leading-relaxed">
+                                        {ins.contentType.includes("json") ? prettyJson(ins.bodyText) : ins.bodyText.slice(0, 4000)}
+                                      </pre>
+                                    )}
+                                    {ins && "ok" in ins && e.sampleRes !== undefined && (
+                                      <details className="mt-2">
+                                        <summary className="text-muted-foreground cursor-pointer">Sample response shape</summary>
+                                        <pre className="mt-1 p-2 rounded bg-background border overflow-x-auto font-mono text-[11px] leading-relaxed">{JSON.stringify(e.sampleRes, null, 2)}</pre>
+                                      </details>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
