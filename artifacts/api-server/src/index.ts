@@ -77,20 +77,131 @@ function toTickersFrame(ticks: any[]): Record<string, any> {
   return out;
 }
 
+// Build a per-symbol ticker frame matching what TradingWebSocketService
+// (._handleTickerData) expects: keys symbol/last/bid/ask/high/low/open/close/
+// percentage/baseVolume/quoteVolume.
+function tickerFrameFor(symbol: string, ticks: any[]) {
+  const [base, quote = "USDT"] = symbol.split("/");
+  const t = ticks.find((x) => x && x.symbol === base);
+  if (!t) return null;
+  const px = quote === "INR" ? Number(t.inr ?? 0) : Number(t.usdt ?? 0);
+  if (!(px > 0)) return null;
+  const pctRaw = Number(t.change24h ?? 0);
+  const pct = pctRaw <= -100 ? -99.99 : pctRaw;
+  const vol = Number(t.volume24h ?? 0);
+  return {
+    symbol,
+    last: px,
+    bid: px,
+    ask: px,
+    high: px * (1 + Math.max(pct, 0) / 100),
+    low: px * (1 + Math.min(pct, 0) / 100),
+    open: px / (1 + pct / 100),
+    close: px,
+    percentage: pct,
+    baseVolume: vol,
+    quoteVolume: vol * px,
+    timestamp: Number(t.ts ?? Date.now()),
+  };
+}
+
 wss.on("connection", (ws) => {
+  // Per-connection subscription state. Trading widgets in Flutter send
+  //   {action:"SUBSCRIBE", payload:{type:"orderbook"|"trades"|"ticker", symbol, limit}}
+  // We track subscribed symbols per type and push fresh data on each price
+  // tick (orderbook/trades are pulled from Redis via the matching engine).
+  const subs: {
+    tickerSymbols: Set<string>;
+    orderbookSymbols: Map<string, number>; // symbol -> limit
+    tradesSymbols: Set<string>;
+  } = {
+    tickerSymbols: new Set(),
+    orderbookSymbols: new Map(),
+    tradesSymbols: new Set(),
+  };
+
+  const safeSend = (payload: any) => {
+    try {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
+    } catch {}
+  };
+
+  // Push orderbook + trades for all subscribed symbols. Async so Redis I/O
+  // doesn't block the price-tick loop.
+  const pushBookAndTrades = async () => {
+    if (subs.orderbookSymbols.size === 0 && subs.tradesSymbols.size === 0) return;
+    try {
+      const me = await import("./lib/matching-engine");
+      for (const [sym, lim] of subs.orderbookSymbols) {
+        try {
+          const depth = await me.getDepth(sym, lim);
+          safeSend({
+            stream: `orderbook:${sym}`,
+            data: { ...depth, symbol: sym, timestamp: Date.now() },
+          });
+        } catch {}
+      }
+      for (const sym of subs.tradesSymbols) {
+        try {
+          const trades = await me.getRecentTrades(sym, 50);
+          safeSend({ stream: "trades", data: trades });
+        } catch {}
+      }
+    } catch {}
+  };
+
+  // Initial snapshot (legacy + Bicrypto-style bulk tickers).
   try {
     const ticks = getCache();
-    // Legacy frame for clients that consume the raw price feed
     ws.send(JSON.stringify({ type: "snapshot", inrRate: getInrRate(), ticks }));
-    // Bicrypto-style frame for Flutter MarketService.updateMarketsWithTickers
     ws.send(JSON.stringify({ stream: "tickers", data: toTickersFrame(ticks) }));
   } catch {}
+
   const unsub = subscribe((ticks) => {
-    try {
-      ws.send(JSON.stringify({ type: "tick", inrRate: getInrRate(), ticks }));
-      ws.send(JSON.stringify({ stream: "tickers", data: toTickersFrame(ticks) }));
-    } catch {}
+    safeSend({ type: "tick", inrRate: getInrRate(), ticks });
+    safeSend({ stream: "tickers", data: toTickersFrame(ticks) });
+    // Per-symbol ticker frames for the trading WS clients.
+    for (const sym of subs.tickerSymbols) {
+      const frame = tickerFrameFor(sym, ticks);
+      if (frame) safeSend({ stream: "ticker", data: frame });
+    }
+    // Fire-and-forget orderbook/trades push (do not await — keep tick loop tight).
+    void pushBookAndTrades();
   });
+
+  ws.on("message", (raw) => {
+    let msg: any;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (!msg || typeof msg !== "object") return;
+    if (msg.action === "PING") { safeSend({ action: "PONG", ts: Date.now() }); return; }
+    const isSub = msg.action === "SUBSCRIBE";
+    const isUnsub = msg.action === "UNSUBSCRIBE";
+    if (!isSub && !isUnsub) return;
+    const p = msg.payload || {};
+    const type = String(p.type || "");
+    const symbol = String(p.symbol || "");
+    if (!type || !symbol) return;
+    if (type === "ticker") {
+      if (isSub) subs.tickerSymbols.add(symbol);
+      else subs.tickerSymbols.delete(symbol);
+      // Send an immediate frame so the UI doesn't wait for the next tick.
+      if (isSub) {
+        const frame = tickerFrameFor(symbol, getCache());
+        if (frame) safeSend({ stream: "ticker", data: frame });
+      }
+    } else if (type === "orderbook") {
+      const lim = Math.max(1, Math.min(200, Number(p.limit) || 50));
+      if (isSub) subs.orderbookSymbols.set(symbol, lim);
+      else subs.orderbookSymbols.delete(symbol);
+      if (isSub) void pushBookAndTrades();
+    } else if (type === "trades") {
+      if (isSub) subs.tradesSymbols.add(symbol);
+      else subs.tradesSymbols.delete(symbol);
+      if (isSub) void pushBookAndTrades();
+    }
+    // Note: ohlcv subscriptions are still served by /api/exchange/chart REST.
+  });
+
   ws.on("close", () => unsub());
   ws.on("error", () => unsub());
 });
