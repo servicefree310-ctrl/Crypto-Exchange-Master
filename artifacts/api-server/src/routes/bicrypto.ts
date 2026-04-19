@@ -1304,9 +1304,15 @@ r.post("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => 
   if (!currency || !pair) { res.status(400).json({ error: "currency and pair required" }); return; }
 
   try {
-    const symbol = `${currency}/${pair}`;
-    const [p] = await db.select().from(pairsTable).where(eq(pairsTable.symbol, symbol)).limit(1);
-    if (!p) { res.status(404).json({ error: `Pair ${symbol} not found` }); return; }
+    // pairsTable.symbol is stored without slash (e.g. "SOLUSDT"). Try both
+    // formats so we work with either seed convention.
+    const symCompact = `${currency}${pair}`;
+    const symSlash = `${currency}/${pair}`;
+    const [p] = await db.select().from(pairsTable)
+      .where(or(eq(pairsTable.symbol, symCompact), eq(pairsTable.symbol, symSlash)))
+      .limit(1);
+    if (!p) { res.status(404).json({ error: `Pair ${symCompact} not found` }); return; }
+    const symbol = p.symbol;
 
     const result = await placeSpotOrder({
       userId, vipTier,
