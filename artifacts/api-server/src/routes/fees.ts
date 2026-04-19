@@ -39,6 +39,53 @@ export async function loadVipTiers(): Promise<VipTier[]> {
 // Back-compat re-export (kept for any imports of VIP_TIERS — now async source)
 export const VIP_TIERS = DEFAULT_VIP_TIERS;
 
+export interface FeeSettings {
+  spotFeePercent: number;       // base spot fee % override (0 = use VIP tier)
+  spotGstPercent: number;       // GST applied on spot fee
+  tdsPercent: number;           // TDS % on sell quote received
+  futuresFeePercent: number;
+  futuresGstPercent: number;
+  referralCommission: number;
+}
+const DEFAULT_FEE_SETTINGS: FeeSettings = {
+  spotFeePercent: 0, spotGstPercent: 18, tdsPercent: 1,
+  futuresFeePercent: 0, futuresGstPercent: 18, referralCommission: 20,
+};
+export async function loadFeeSettings(): Promise<FeeSettings> {
+  try {
+    const keys = ["spot.fee_percent","spot.gst_percent","tds.percent","futures.fee_percent","futures.gst_percent","referral.commission"];
+    const rows = await db.select().from(settingsTable);
+    const map = new Map(rows.map(r => [r.key, r.value]));
+    const num = (k: string, d: number) => { const v = map.get(k); const n = v ? Number(v) : NaN; return Number.isFinite(n) ? n : d; };
+    return {
+      spotFeePercent: num("spot.fee_percent", DEFAULT_FEE_SETTINGS.spotFeePercent),
+      spotGstPercent: num("spot.gst_percent", DEFAULT_FEE_SETTINGS.spotGstPercent),
+      tdsPercent: num("tds.percent", DEFAULT_FEE_SETTINGS.tdsPercent),
+      futuresFeePercent: num("futures.fee_percent", DEFAULT_FEE_SETTINGS.futuresFeePercent),
+      futuresGstPercent: num("futures.gst_percent", DEFAULT_FEE_SETTINGS.futuresGstPercent),
+      referralCommission: num("referral.commission", DEFAULT_FEE_SETTINGS.referralCommission),
+    };
+  } catch { return DEFAULT_FEE_SETTINGS; }
+}
+
+/** Compute effective spot maker/taker rates (as fractions, e.g. 0.0025) including GST.
+ *  feeRate = max(VIP tier rate, admin spot.fee_percent override) × (1 + gst%/100)
+ *  Returned values are multiplied directly on notional. TDS is separate (sell only). */
+export async function getSpotFeeRates(vipTier: number): Promise<{ maker: number; taker: number; tds: number; gstPercent: number }> {
+  const tiers = await loadVipTiers();
+  const settings = await loadFeeSettings();
+  const t = tiers[Math.max(0, Math.min(tiers.length - 1, vipTier ?? 0))] ?? tiers[0];
+  const baseMaker = Math.max(t.spotMaker, settings.spotFeePercent) / 100;
+  const baseTaker = Math.max(t.spotTaker, settings.spotFeePercent) / 100;
+  const gstMul = 1 + settings.spotGstPercent / 100;
+  return {
+    maker: baseMaker * gstMul,
+    taker: baseTaker * gstMul,
+    tds: settings.tdsPercent / 100,
+    gstPercent: settings.spotGstPercent,
+  };
+}
+
 router.get("/fees/tiers", async (_req, res) => { res.json(await loadVipTiers()); });
 
 router.get("/fees/my", requireAuth, async (req, res): Promise<void> => {

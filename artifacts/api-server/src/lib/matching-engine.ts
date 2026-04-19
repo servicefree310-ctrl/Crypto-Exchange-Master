@@ -1,16 +1,8 @@
 import { eq, sql, and, or, desc } from "drizzle-orm";
-import { db, ordersTable, tradesTable, walletsTable, pairsTable } from "@workspace/db";
+import { db, ordersTable, tradesTable, walletsTable, pairsTable, usersTable } from "@workspace/db";
 import { logger } from "./logger";
 import { getRedis, rZadd, rZrem, rSet, rDel, rLpush, rPublish, rGet } from "./redis";
-
-const VIP_FEES: Record<number, { maker: number; taker: number }> = {
-  0: { maker: 0.0020, taker: 0.0025 },
-  1: { maker: 0.0016, taker: 0.0020 },
-  2: { maker: 0.0012, taker: 0.0015 },
-  3: { maker: 0.0008, taker: 0.0010 },
-  4: { maker: 0.0006, taker: 0.0008 },
-  5: { maker: 0.0004, taker: 0.0006 },
-};
+import { getSpotFeeRates } from "../routes/fees";
 
 let engineEnabled = true;
 let engineStats = {
@@ -28,10 +20,6 @@ export function getEngineStats() {
 }
 export function resetEngineStats() {
   engineStats = { matchesAttempted: 0, tradesExecuted: 0, totalVolumeQuote: 0, lastMatchAt: 0, lastError: "", perSymbol: {} };
-}
-
-function vipFee(tier: number) {
-  return VIP_FEES[Math.max(0, Math.min(5, tier ?? 0))] ?? VIP_FEES[0];
 }
 
 async function bestOpposite(symbol: string, side: "buy" | "sell", limitPrice: number, isMarket: boolean) {
@@ -137,11 +125,18 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
         const tradePrice = Number(maker.price); // price-time priority: maker price
         const notional = fillQty * tradePrice;
 
-        const takerFees = vipFee(opts?.takerVipTier ?? 0);
-        const takerFeeRate = takerFees.taker;
-        const makerFeeRate = vipFee(0).maker; // maker fee with default tier (we don't load maker user; conservative)
+        // Load admin-configured fees (with GST baked in) for both taker and maker
+        const takerRates = await getSpotFeeRates(opts?.takerVipTier ?? 0);
+        const [makerUserRow] = await tx.select({ vipTier: usersTable.vipTier }).from(usersTable).where(eq(usersTable.id, maker.userId)).limit(1);
+        const makerVipTier = Number(makerUserRow?.vipTier ?? 0);
+        const makerRates = await getSpotFeeRates(makerVipTier);
+        const takerFeeRate = takerRates.taker;
+        const makerFeeRate = makerRates.maker;
+        const tdsRate = takerRates.tds;
         const takerFee = notional * takerFeeRate;
         const makerFee = notional * makerFeeRate;
+        const takerTds = taker.side === "sell" ? notional * tdsRate : 0;
+        const makerTds = maker.side === "sell" ? notional * tdsRate : 0;
 
         if (taker.side === "buy") {
           // Taker BUY: pays quote, receives base. Locked quote on taker reduces by notional.
@@ -169,7 +164,7 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           }).where(eq(walletsTable.id, mBase.id));
           const mQuote = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
           await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${notional - makerFee}`,
+            balance: sql`${walletsTable.balance} + ${notional - makerFee - makerTds}`,
             updatedAt: new Date(),
           }).where(eq(walletsTable.id, mQuote.id));
         } else {
@@ -181,7 +176,7 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           }).where(eq(walletsTable.id, tBase.id));
           const tQuote = await ensureWallet(tx, taker.userId, pair.quoteCoinId);
           await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${notional - takerFee}`,
+            balance: sql`${walletsTable.balance} + ${notional - takerFee - takerTds}`,
             updatedAt: new Date(),
           }).where(eq(walletsTable.id, tQuote.id));
           // Maker buy: locked quote = makerRem * makerPrice; spend = notional + makerFee; refund leftover lock for this slice = (makerPrice * fillQty) - (notional + makerFee) = -makerFee since tradePrice = makerPrice

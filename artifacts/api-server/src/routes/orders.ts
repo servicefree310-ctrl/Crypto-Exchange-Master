@@ -4,6 +4,7 @@ import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } fr
 import { requireAuth } from "../middlewares/auth";
 import { rZadd, rZrem, rPublish, rLpush, rSet } from "../lib/redis";
 import { tryMatch, getDepth, getRecentTrades } from "../lib/matching-engine";
+import { getSpotFeeRates } from "./fees";
 
 async function pushOrderToRedis(o: any, pair: any, action: "new" | "cancel" | "fill") {
   const symbol = pair?.symbol ?? `pair-${o.pairId}`;
@@ -30,15 +31,6 @@ async function pushTradeToRedis(trade: any, pair: any) {
 }
 
 const router: IRouter = Router();
-
-const VIP_FEES: Record<number, { maker: number; taker: number }> = {
-  0: { maker: 0.0020, taker: 0.0025 },
-  1: { maker: 0.0016, taker: 0.0020 },
-  2: { maker: 0.0012, taker: 0.0015 },
-  3: { maker: 0.0008, taker: 0.0010 },
-  4: { maker: 0.0006, taker: 0.0008 },
-  5: { maker: 0.0004, taker: 0.0006 },
-};
 
 async function ensureWallet(tx: any, userId: number, coinId: number, walletType: string) {
   const [w] = await tx.select().from(walletsTable)
@@ -99,9 +91,10 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
         if (!Number.isFinite(effPrice) || effPrice <= 0) { const e: any = new Error("limit price required"); e.code = 400; throw e; }
       }
 
-      const fees = VIP_FEES[vipTier] ?? VIP_FEES[0];
-      const feeRate = type === "market" ? fees.taker : fees.maker;
+      const fees = await getSpotFeeRates(vipTier);
       const isMarket = type === "market";
+      const feeRate = isMarket ? fees.taker : fees.maker;
+      const tdsRate = fees.tds;
 
       // Lock balances
       let baseW: any = null, quoteW: any = null;
@@ -138,7 +131,8 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
 
       // Market orders fill immediately at lastPrice
       if (isMarket) {
-        const fee = notional * feeRate; // fee in quote currency
+        const fee = notional * feeRate; // fee+GST in quote currency
+        const tds = side === "sell" ? notional * tdsRate : 0; // 1% TDS on sell
         if (side === "buy") {
           // Debit locked quote (notional+fee), credit base (qty)
           const totalDebit = notional + fee;
@@ -152,8 +146,8 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
             updatedAt: new Date(),
           }).where(eq(walletsTable.id, recvBase.id));
         } else {
-          // Sell: release locked base; credit quote (notional - fee)
-          const credit = notional - fee;
+          // Sell: release locked base; credit quote (notional - fee - tds)
+          const credit = notional - fee - tds;
           await tx.update(walletsTable).set({
             locked: sql`${walletsTable.locked} - ${qtyNum}`,
             updatedAt: new Date(),
