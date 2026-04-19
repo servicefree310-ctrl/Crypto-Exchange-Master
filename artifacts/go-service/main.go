@@ -13,7 +13,27 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-        CheckOrigin: func(r *http.Request) bool { return true },
+        CheckOrigin: func(r *http.Request) bool {
+                // In production restrict WS to the configured origin host. In dev
+                // (or when ALLOWED_ORIGIN is unset) allow same-host upgrades only.
+                allowed := os.Getenv("ALLOWED_ORIGIN")
+                origin := r.Header.Get("Origin")
+                if origin == "" {
+                        // Native clients (mobile/Flutter) often send no Origin header.
+                        return true
+                }
+                if allowed != "" {
+                        return origin == allowed
+                }
+                // Dev fallback: allow Replit dev domain + localhost.
+                if dev := os.Getenv("REPLIT_DEV_DOMAIN"); dev != "" {
+                        if origin == "https://"+dev || origin == "http://"+dev {
+                                return true
+                        }
+                }
+                return strings.HasPrefix(origin, "http://localhost") ||
+                        strings.HasPrefix(origin, "http://127.0.0.1")
+        },
 }
 
 type subSet struct {
