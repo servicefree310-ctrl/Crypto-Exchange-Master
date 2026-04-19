@@ -20,6 +20,16 @@ class ZebvixApp extends StatelessWidget {
         title: 'ZEBVIX Exchange',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
+        builder: (context, child) {
+          return Container(
+            color: const Color(0xFF000814),
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: ClipRect(child: child ?? const SizedBox.shrink()),
+            ),
+          );
+        },
         home: const _Bootstrap(),
       ),
     );

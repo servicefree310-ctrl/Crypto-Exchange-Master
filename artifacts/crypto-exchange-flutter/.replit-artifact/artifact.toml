@@ -15,7 +15,7 @@ paths = [ "/flutter/" ]
 localPort = 8082
 
 [services.development]
-run = "bash artifacts/crypto-exchange-flutter/scripts/dev.sh"
+run = "bash /home/runner/workspace/artifacts/crypto-exchange-flutter/scripts/dev.sh"
 
 [services.production]
 build = [ "bash", "artifacts/crypto-exchange-flutter/scripts/build.sh" ]
