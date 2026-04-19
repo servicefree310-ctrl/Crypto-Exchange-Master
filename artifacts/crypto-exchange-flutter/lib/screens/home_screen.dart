@@ -262,9 +262,7 @@ class _DashboardState extends State<_Dashboard> {
             _quickActions(),
             const SizedBox(height: 14),
             _AutoBanner(banners: _resolveBanners(m.banners)),
-            const SizedBox(height: 14),
-            _portfolioSection(auth, wallets, totalInr),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             _topMoversSection(m.coins),
             const SizedBox(height: 4),
             _marketsSection(eligible.length, filtered),
@@ -573,47 +571,41 @@ class _DashboardState extends State<_Dashboard> {
 
   // ------ QUICK ACTIONS ------
   Widget _quickActions() {
-    final items = [
-      (Icons.south_east, 'Deposit', AppColors.success, true, () => _go(const DepositScreen(), requiresAuth: true)),
-      (Icons.north_east, 'Withdraw', AppColors.danger, true, () => _go(const WithdrawScreen(), requiresAuth: true)),
-      (Icons.credit_card, 'Buy', const Color(0xFF5B8DEF), false, () {
+    final items = <(IconData, String, Color, VoidCallback)>[
+      (Icons.south_east, 'Deposit', AppColors.success, () => _go(const DepositScreen(), requiresAuth: true)),
+      (Icons.north_east, 'Withdraw', AppColors.danger, () => _go(const WithdrawScreen(), requiresAuth: true)),
+      (Icons.credit_card, 'Buy', const Color(0xFF5B8DEF), () {
         final s = context.findAncestorStateOfType<_HomeScreenState>();
         s?.setState(() => s._idx = 2);
       }),
-      (Icons.trending_up, 'Earn', const Color(0xFFA06AF5), true, () => _go(const EarnScreen(), requiresAuth: true)),
-      (Icons.swap_horiz, 'Transfer', const Color(0xFF00C2FF), true, () => _go(const TransferScreen(), requiresAuth: true)),
-      (Icons.card_giftcard, 'Refer', const Color(0xFFFF8A3D), true, () => _go(const ReferScreen(), requiresAuth: true)),
-      (Icons.account_balance, 'Banks', const Color(0xFFFCD535), true, () => _go(const BanksScreen(), requiresAuth: true)),
-      (Icons.grid_view, 'More', AppColors.muted, false, () {
+      (Icons.trending_up, 'Earn', const Color(0xFFA06AF5), () => _go(const EarnScreen(), requiresAuth: true)),
+      (Icons.swap_horiz, 'Transfer', const Color(0xFF00C2FF), () => _go(const TransferScreen(), requiresAuth: true)),
+      (Icons.card_giftcard, 'Refer', const Color(0xFFFF8A3D), () => _go(const ReferScreen(), requiresAuth: true)),
+      (Icons.account_balance, 'Banks', const Color(0xFFFCD535), () => _go(const BanksScreen(), requiresAuth: true)),
+      (Icons.grid_view, 'More', const Color(0xFFB0B7C3), () {
         Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen()));
       }),
     ];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-        decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(14)),
+        padding: const EdgeInsets.fromLTRB(8, 16, 8, 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColors.card, AppColors.card.withValues(alpha: 0.6)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border.withValues(alpha: 0.7)),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 14, offset: const Offset(0, 6))],
+        ),
         child: GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 4,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.05,
-          children: items.map((it) {
-            return InkWell(
-              onTap: it.$5,
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Container(
-                  width: 42, height: 42,
-                  decoration: BoxDecoration(color: it.$3.withValues(alpha: 0.13), shape: BoxShape.circle),
-                  alignment: Alignment.center,
-                  child: Icon(it.$1, color: it.$3, size: 18),
-                ),
-                const SizedBox(height: 6),
-                Text(it.$2, style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.w500)),
-              ]),
-            );
-          }).toList(),
+          mainAxisSpacing: 14,
+          childAspectRatio: 1.0,
+          children: items.map((it) => _PremiumActionBtn(icon: it.$1, label: it.$2, color: it.$3, onTap: it.$4)).toList(),
         ),
       ),
     );
@@ -907,7 +899,12 @@ class _DashboardState extends State<_Dashboard> {
                     child: _Sparkline(seed: base.hashCode, change: change, up: up),
                   ),
                   const SizedBox(height: 6),
-                  Text('₹${Fmt.num2(price)}', style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w800)),
+                  _FlashText(
+                    keyId: 'mover-$base',
+                    value: price,
+                    builder: (v) => '₹${Fmt.num2(v)}',
+                    baseStyle: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
                   const SizedBox(height: 2),
                   Text('${up ? '+' : ''}${change.toStringAsFixed(2)}%',
                       style: TextStyle(color: up ? AppColors.success : AppColors.danger, fontSize: 11, fontWeight: FontWeight.w700)),
@@ -1345,7 +1342,12 @@ class _PriceTickerMarqueeState extends State<_PriceTickerMarquee> with SingleTic
             child: Row(children: [
               Text(base, style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.w700)),
               const SizedBox(width: 6),
-              Text('₹${Fmt.num2(price)}', style: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w500)),
+              _FlashText(
+                keyId: 'tk-$base',
+                value: price,
+                builder: (v) => '₹${Fmt.num2(v)}',
+                baseStyle: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w500),
+              ),
               const SizedBox(width: 5),
               Text('${up ? '+' : ''}${change.toStringAsFixed(2)}%',
                   style: TextStyle(color: up ? AppColors.success : AppColors.danger, fontSize: 10.5, fontWeight: FontWeight.w700)),
@@ -1515,5 +1517,104 @@ class _LCG {
   double next() {
     _s = (_s * 1664525 + 1013904223) & 0x7FFFFFFF;
     return _s / 0x7FFFFFFF;
+  }
+}
+
+// ============== PREMIUM ACTION BUTTON ==============
+class _PremiumActionBtn extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _PremiumActionBtn({required this.icon, required this.label, required this.color, required this.onTap});
+  @override
+  State<_PremiumActionBtn> createState() => _PremiumActionBtnState();
+}
+
+class _PremiumActionBtnState extends State<_PremiumActionBtn> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => _down = true),
+      onTapCancel: () => setState(() => _down = false),
+      onTapUp: (_) => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? 0.92 : 1.0,
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOut,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [widget.color.withValues(alpha: 0.30), widget.color.withValues(alpha: 0.12)],
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              border: Border.all(color: widget.color.withValues(alpha: 0.55), width: 1),
+              boxShadow: [
+                BoxShadow(color: widget.color.withValues(alpha: 0.35), blurRadius: 12, spreadRadius: 0),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Icon(widget.icon, color: widget.color, size: 20),
+          ),
+          const SizedBox(height: 7),
+          Text(widget.label, style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ============== FLASH TEXT (price flash on change) ==============
+class _FlashText extends StatefulWidget {
+  final String keyId;
+  final double value;
+  final String Function(double) builder;
+  final TextStyle baseStyle;
+  const _FlashText({required this.keyId, required this.value, required this.builder, required this.baseStyle});
+  @override
+  State<_FlashText> createState() => _FlashTextState();
+}
+
+class _FlashTextState extends State<_FlashText> with SingleTickerProviderStateMixin {
+  late AnimationController _ac;
+  Color? _flash;
+  double _last = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _last = widget.value;
+    _ac = AnimationController(vsync: this, duration: const Duration(milliseconds: 850))..addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _FlashText old) {
+    super.didUpdateWidget(old);
+    if (widget.value != _last && _last > 0 && widget.value > 0) {
+      final up = widget.value > _last;
+      _flash = up ? AppColors.success : AppColors.danger;
+      _ac.forward(from: 0);
+    }
+    _last = widget.value;
+  }
+
+  @override
+  void dispose() { _ac.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = widget.baseStyle.color ?? AppColors.fg;
+    final color = _flash == null
+        ? base
+        : Color.lerp(_flash, base, _ac.value) ?? base;
+    return Text(widget.builder(widget.value), style: widget.baseStyle.copyWith(color: color));
   }
 }
