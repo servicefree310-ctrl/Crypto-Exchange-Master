@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Users, Coins as CoinsIcon, Network, ArrowLeftRight, Wallet, ShieldCheck,
   Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark, PiggyBank,
-  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Megaphone, Trophy, Database
+  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Megaphone, Trophy, Database, Server
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ const NAV = [
   { href: "/login-logs", label: "Login Logs", icon: Activity, roles: ["support", "admin", "superadmin"] },
   { href: "/otp-providers", label: "OTP Providers", icon: KeyRound, roles: ["admin", "superadmin"] },
   { href: "/settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "superadmin"] },
+  { href: "/backend-status", label: "Backend Status", icon: Server, roles: ["support", "admin", "superadmin"] },
 ];
 
 export function AdminLayout({ children }: { children: ReactNode }) {

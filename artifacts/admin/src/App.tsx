@@ -32,6 +32,7 @@ import UserAddressesPage from "@/pages/user-addresses";
 import BannersPage from "@/pages/banners";
 import PromotionsPage from "@/pages/promotions";
 import RedisPage from "@/pages/redis";
+import BackendStatusPage from "@/pages/backend-status";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -89,6 +90,7 @@ function Protected() {
         <Route path="/login-logs" component={LoginLogsPage} />
         <Route path="/otp-providers" component={OtpProvidersPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/backend-status" component={BackendStatusPage} />
         <Route component={NotFound} />
       </Switch>
     </AdminLayout>
