@@ -256,11 +256,13 @@ r.post("/auth/otp/login", async (_req, res): Promise<void> => {
   res.status(501).json({ message: "2FA login not implemented" });
 });
 
-r.post("/auth/2fa", async (req, res): Promise<void> => {
-  const { userId } = req.body ?? {};
-  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, Number(userId))).limit(1);
-  if (!u) { res.status(404).json({ message: "User not found" }); return; }
-  res.json({ message: "2FA verified", user: userToBicrypto(u) });
+// 2FA verification — NOT IMPLEMENTED.
+// Previous draft accepted only userId (no OTP, no auth guard) and replied
+// "verified", which both violates the security contract and lets unauth'd
+// callers probe user existence by ID. Refuse until the OTP delivery +
+// verification path is wired up.
+r.post("/auth/2fa", async (_req, res): Promise<void> => {
+  res.status(501).json({ message: "2FA verification not implemented" });
 });
 
 r.post("/auth/otp/resend", (_req, res) => res.json({ message: "OTP sent" }));
