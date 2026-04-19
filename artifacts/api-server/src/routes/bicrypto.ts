@@ -1048,7 +1048,12 @@ async function loadCoinMap(): Promise<Map<number, any>> {
 }
 
 r.get("/exchange/market", async (_req, res): Promise<void> => {
-  const pairs = await db.select().from(pairsTable).where(eq(pairsTable.status, "active"));
+  const pairs = await db.select().from(pairsTable).where(
+    and(
+      eq(pairsTable.status, "active"),
+      or(eq(pairsTable.tradingEnabled, true), eq(pairsTable.futuresEnabled, true)),
+    ),
+  );
   const coinMap = await loadCoinMap();
   const ticks = getCache() as any[];
   const tickByBase = new Map<string, any>(ticks.map(t => [String(t.symbol), t]));
