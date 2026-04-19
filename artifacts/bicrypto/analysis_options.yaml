@@ -1,0 +1,51 @@
+# This file configures the analyzer
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Ignore all non-critical issues
+    duplicate_import: ignore
+    unused_field: ignore
+    unused_element: ignore
+    unused_local_variable: ignore
+    unused_import: ignore
+    must_be_immutable: ignore
+    unreachable_switch_default: ignore
+    unreachable_switch_case: ignore
+    dead_null_aware_expression: ignore
+    dead_code_on_catch_subtype: ignore
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
+    undefined_lint: ignore
+    invalid_annotation_target: ignore
+    override_on_non_overriding_member: ignore
+    unnecessary_null_comparison: ignore
+    invalid_use_of_visible_for_testing_member: ignore
+
+linter:
+  rules:
+    # Disable all non-critical lints
+    constant_identifier_names: false
+    non_constant_identifier_names: false
+    avoid_types_as_parameter_names: false
+    unused_field: false
+    unused_element: false
+    unused_local_variable: false
+    unused_import: false
+    duplicate_import: false
+    library_private_types_in_public_api: false
+    overridden_fields: false
+    must_be_immutable: false
+    unreachable_switch_default: false
+    unreachable_switch_case: false
+    dead_null_aware_expression: false
+    dead_code_on_catch_subtype: false
+    unnecessary_getters_setters: false
+    use_build_context_synchronously: false
+    depend_on_referenced_packages: false
+    unrelated_type_equality_checks: false
+    strict_top_level_inference: false
+    invalid_annotation_target: false
+    override_on_non_overriding_member: false
+    unnecessary_null_comparison: false
+    invalid_use_of_visible_for_testing_member: false

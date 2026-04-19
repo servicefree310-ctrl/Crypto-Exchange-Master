@@ -1,0 +1,30 @@
+{
+  "baseUrl": "https://demo.mashdiv.com",
+  "wsBaseUrl": "wss://demo.mashdiv.com",
+  "appName": "BiCrypto",
+  "appVersion": "5.0.0",
+
+  "stripePublishableKey": "pk_test_51LPVEfLFyngRnuDVzYJ2cb5yF2BsE4fELcGumnvgjuLCCPWjHpEeDMVz6DOSilTNc2FihuK91zbNurhhyRZT0qTI000Zc1hT5B",
+  "googleServerClientId": "758252507171-d0ohbm6ij1d3492s8h78m42oskupbu2l.apps.googleusercontent.com",
+  "recaptchaSiteKey": "6Lc0teYpAAAAABZrN19YLD6skpjvgIaZSdK4CnY9",
+
+  "googleAuthEnabled": false,
+  "walletAuthEnabled": false,
+  "walletConnectProjectId": "50cd82701d75c524a38489fe8bd63742",
+  "recaptchaEnabled": false,
+
+  "twoFactorEnabled": true,
+  "twoFactorSmsEnabled": true,
+  "twoFactorEmailEnabled": true,
+  "twoFactorAppEnabled": true,
+
+  "emailVerificationEnabled": true,
+
+  "defaultExchangeProvider": "bin",
+  "defaultTradingPair": "BTC/USDT",
+
+  "defaultShowComingSoon": true,
+
+  "settingsCacheDuration": 3600,
+  "backgroundUpdateInterval": 60
+}

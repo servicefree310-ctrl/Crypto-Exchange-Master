@@ -1,0 +1,6 @@
+This is a placeholder for the app icon.
+Replace this file with your actual app icon (PNG format, 500x500 pixels or larger).
+ 
+The installer will help you set up your icon automatically, or you can:
+1. Replace this file with your icon
+2. Run: flutter pub run flutter_launcher_icons 
