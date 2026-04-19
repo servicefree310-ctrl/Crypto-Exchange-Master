@@ -190,7 +190,6 @@ class _SmartAddonCardState extends State<SmartAddonCard> {
       'ecommerce': Icons.shopping_cart_outlined,
       'aiInvestment': Icons.psychology_outlined,
       'forex': Icons.currency_exchange,
-      'ecosystem': Icons.eco_outlined,
       'mlm': Icons.account_tree_outlined,
       'mailwizard': Icons.email_outlined,
       'wallet_connect': Icons.account_balance_wallet_outlined,

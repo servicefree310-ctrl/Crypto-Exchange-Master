@@ -674,7 +674,8 @@ r.get("/finance/wallet/symbol", bicryptoAuth, async (req: any, res): Promise<voi
 });
 
 r.get("/finance/wallet/transfer-options", bicryptoAuth, (_req, res) =>
-  res.json({ from: ["FIAT", "SPOT", "FUTURES", "ECO"], to: ["FIAT", "SPOT", "FUTURES", "ECO"] }));
+  // ECO removed — ecosystem feature is disabled.
+  res.json({ from: ["FIAT", "SPOT", "FUTURES"], to: ["FIAT", "SPOT", "FUTURES"] }));
 
 r.get("/finance/transaction", bicryptoAuth, (_req, res) => res.json({ items: [], pagination: emptyPg() }));
 r.get("/finance/transaction/stats", bicryptoAuth, (_req, res) => res.json({
@@ -1191,19 +1192,18 @@ r.get("/ai/investment/plan", okEmptyArr);
 r.get("/ai/investment/log", bicryptoAuth, okEmptyPg);
 r.get("/ai/trade", bicryptoAuth, okEmptyArr);
 
-// Ecosystem (Bicrypto's "ECO" ecosystem chain — placeholder until wired)
-r.get("/ecosystem/token", okEmptyArr);
-r.get("/ecosystem/master-wallet", bicryptoAuth, okEmptyArr);
-r.get("/ecosystem/pool", okEmptyArr);
-r.get("/ecosystem/staking", bicryptoAuth, okEmptyPg);
-r.get("/ecosystem/wallet", bicryptoAuth, okEmptyArr);
-r.post("/ecosystem/deposit/unlock", bicryptoAuth, (req, res) => res.json({
-  message: "Deposit unlocked", txHash: req.body?.txHash ?? null,
-  amount: Number(req.body?.amount ?? 0),
-}));
-r.post("/ecosystem/withdraw", bicryptoAuth, (_req, res) => res.status(501).json({
-  message: "Ecosystem withdrawals not yet enabled",
-}));
+// Ecosystem feature DISABLED — crypto withdrawals run through the SPOT
+// wallet (/finance/withdraw/spot) directly. The Bicrypto ecosystem chain
+// adds an extra wallet layer we don't need. Returning 410 Gone tells any
+// stale Flutter client this surface is permanently removed (vs 404 which
+// could be confused with a routing bug).
+const ECOSYSTEM_GONE = (_req: Request, res: Response): void => {
+  res.status(410).json({ message: "Ecosystem feature is disabled — use spot wallet" });
+};
+// Note: Express 5 uses path-to-regexp v8 — bare `*` needs a name, so we use
+// `/*splat` for wildcard catch-all.
+r.all("/ecosystem", ECOSYSTEM_GONE);
+r.all("/ecosystem/*splat", ECOSYSTEM_GONE);
 
 // Upload (KYC etc)
 r.post("/upload/kyc-document", bicryptoAuth, (_req, res) => res.json({ url: "https://placeholder.local/doc.png" }));
