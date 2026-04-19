@@ -26,6 +26,7 @@ import {
   chatMessagesTable,
   marketBotsTable,
   tradesTable,
+  transfersTable,
 } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
@@ -822,6 +823,52 @@ router.patch("/admin/crypto-deposits/:id", adminOnly, async (req, res): Promise<
     throw e;
   }
 });
+router.post("/admin/users/:id/fund", adminOnly, async (req, res): Promise<void> => {
+  const userId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const { coinId: rawCoinId, symbol, amount, walletType: rawWalletType, note } = req.body ?? {};
+  if (!userId || Number.isNaN(userId)) { res.status(400).json({ error: "Invalid user id" }); return; }
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) { res.status(400).json({ error: "Amount must be > 0" }); return; }
+  const walletType = rawWalletType === "inr" ? "inr" : "spot";
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [user] = await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+      if (!user) { const e: any = new Error("User not found"); e.code = 404; throw e; }
+      let coinId = Number(rawCoinId);
+      if (!Number.isFinite(coinId) || coinId <= 0) {
+        if (!symbol) { const e: any = new Error("coinId or symbol required"); e.code = 400; throw e; }
+        const [c] = await tx.select().from(coinsTable).where(eq(coinsTable.symbol, String(symbol).toUpperCase())).limit(1);
+        if (!c) { const e: any = new Error(`Coin ${symbol} not configured`); e.code = 400; throw e; }
+        coinId = c.id;
+      } else {
+        const [c] = await tx.select().from(coinsTable).where(eq(coinsTable.id, coinId)).limit(1);
+        if (!c) { const e: any = new Error("Coin not found"); e.code = 400; throw e; }
+      }
+      // Atomic upsert — creates wallet if missing, else credits balance
+      await tx.insert(walletsTable).values({
+        userId, coinId, walletType,
+        balance: String(amt), locked: "0",
+      }).onConflictDoUpdate({
+        target: [walletsTable.userId, walletsTable.walletType, walletsTable.coinId],
+        set: { balance: sql`${walletsTable.balance} + ${amt}`, updatedAt: new Date() },
+      });
+      const [wallet] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, coinId), eq(walletsTable.walletType, walletType)))
+        .limit(1);
+      // Ledger entry — recorded in transfers table with synthetic source
+      const [ledger] = await tx.insert(transfersTable).values({
+        userId, fromWallet: "admin_fund", toWallet: walletType, coinId,
+        amount: String(amt), status: "completed",
+      }).returning();
+      return { wallet, ledger, note: note ?? null, by: req.user!.id };
+    });
+    res.json(result);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
 router.get("/admin/crypto-withdrawals", supportPlus, async (_req, res): Promise<void> => {
   res.json(await db.select().from(cryptoWithdrawalsTable).orderBy(desc(cryptoWithdrawalsTable.createdAt)).limit(500));
 });

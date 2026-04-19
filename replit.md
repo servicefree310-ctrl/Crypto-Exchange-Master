@@ -105,3 +105,15 @@ Pro-level crypto exchange platform (Indian market) consisting of:
 - **WS endpoint alias fix**: `trading_websocket_service.dart` connects to `wss://.../api/exchange/market` but backend `PRICE_WS_PATHS` only had `/api/exchange/ws`. Added `/api/exchange/market` to alias list in `artifacts/api-server/src/index.ts` so live ticker stream now connects.
 - **Flutter login persistence fix (2026-04-19)**: Backend POST `/api/auth/login/flutter` returned 200 OK but app got stuck on login page. Root cause: `flutter_secure_storage` on web uses Web Crypto API SubtleCrypto which throws intermittent `OperationError`, breaking token persistence. Even after login succeeded, save failed → no Bearer header on subsequent requests → home page never loaded. Fix: in `auth_local_data_source.dart` and `dio_client.dart` `_AuthInterceptor`, branch on `kIsWeb` — on web, store/read tokens via `SharedPreferences` (key prefix `_tok_*`); on native, keep using FSS. Verified end-to-end: POST login → 200 → GET /user/profile → 200 (with `Authorization: Bearer ...`) → GET /settings → 304 → GET /exchange/market → 200. Also defensively guarded `(userInfo['role'] ?? 0).toString()` in `auth_remote_data_source.dart` against null payload.
 - **Backend Status admin page** (`artifacts/admin/src/pages/backend-status.tsx`): live catalog of ~85 endpoints in 13 groups. Each row is expandable — clicking opens an inspector panel that auto-fetches the live JSON for GET endpoints, shows method/URL with curl copy, and (for POST/PUT/PATCH) renders a sample request body so the user knows what to send. `Send request` button manually triggers any non-GET endpoint. URL `:param` segments are auto-substituted with safe sample values (BTC/USDT/SPOT/1) so live probes work out of the box.
+## Admin Fund-User Endpoint (added 2026-04-19)
+
+**API**: `POST /api/admin/users/:id/fund` (adminOnly)
+- Body: `{ coinId | symbol, amount, walletType?: 'spot'|'inr' (default 'spot'), note? }`
+- Atomic transaction: validates user + coin → upserts wallet (creates if missing, else credits via `balance + amt` SQL atomic) → inserts ledger row in `transfers` (fromWallet='admin_fund').
+- Returns `{ wallet, ledger, note, by }`.
+- Errors: 400 (bad amount/coin), 404 (user not found).
+
+**UI**: `artifacts/admin/src/pages/users.tsx` — Wallet icon button next to Eye on each user row → opens FundDialog (coin select, wallet type, amount, note). Auto-suggests wallet type from coin (INR→inr, else→spot). Refreshes dossier on success.
+
+**Ledger**: reuses `transfers` table with `from_wallet='admin_fund'` as the audit source. No new schema needed.
+

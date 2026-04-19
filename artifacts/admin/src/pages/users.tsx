@@ -1,15 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { get, patch } from "@/lib/api";
+import { get, patch, post } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
-import { Search, ShieldCheck, ShieldAlert, Eye } from "lucide-react";
+import { Search, ShieldCheck, ShieldAlert, Eye, Wallet } from "lucide-react";
+
+type Coin = { id: number; symbol: string; name: string; type: string; status: string };
 
 type User = {
   id: number; email: string; name: string; phone: string | null;
@@ -32,6 +34,7 @@ export default function UsersPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<number | null>(null);
+  const [fundUser, setFundUser] = useState<User | null>(null);
   const isAdmin = me?.role === "admin" || me?.role === "superadmin";
 
   const { data = [], isLoading } = useQuery<User[]>({
@@ -125,7 +128,10 @@ export default function UsersPage() {
                     ) : <Badge variant="outline">V{u.vipTier}</Badge>}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString("en-IN")}</TableCell>
-                  <TableCell><Button size="icon" variant="ghost" onClick={() => setView(u.id)}><Eye className="w-4 h-4" /></Button></TableCell>
+                  <TableCell className="flex gap-1">
+                    <Button size="icon" variant="ghost" onClick={() => setView(u.id)} title="View dossier"><Eye className="w-4 h-4" /></Button>
+                    {isAdmin && <Button size="icon" variant="ghost" onClick={() => setFundUser(u)} title="Fund wallet"><Wallet className="w-4 h-4" /></Button>}
+                  </TableCell>
                 </TableRow>
               ))}
               {!isLoading && data.length === 0 && (
@@ -220,7 +226,98 @@ export default function UsersPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <FundDialog user={fundUser} onClose={() => setFundUser(null)} onSuccess={() => qc.invalidateQueries({ queryKey: ["/admin/users", fundUser?.id, "full"] })} />
     </div>
+  );
+}
+
+function FundDialog({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+  const [coinId, setCoinId] = useState<string>("");
+  const [amount, setAmount] = useState<string>("");
+  const [walletType, setWalletType] = useState<"spot" | "inr">("spot");
+  const [note, setNote] = useState<string>("");
+  const [error, setError] = useState<string>("");
+
+  const { data: coins = [] } = useQuery<Coin[]>({
+    queryKey: ["/admin/coins"],
+    queryFn: () => get<Coin[]>("/admin/coins"),
+    enabled: user !== null,
+  });
+
+  const fund = useMutation({
+    mutationFn: () => post(`/admin/users/${user!.id}/fund`, {
+      coinId: Number(coinId), amount: Number(amount), walletType, note: note || undefined,
+    }),
+    onSuccess: () => { onSuccess(); reset(); onClose(); },
+    onError: (e: any) => setError(e?.message || "Failed to fund wallet"),
+  });
+
+  const reset = () => { setCoinId(""); setAmount(""); setWalletType("spot"); setNote(""); setError(""); };
+
+  // Auto-pick wallet type based on coin (INR -> inr wallet, others -> spot)
+  const selectedCoin = coins.find((c) => String(c.id) === coinId);
+  useEffect(() => {
+    if (selectedCoin) setWalletType(selectedCoin.symbol === "INR" ? "inr" : "spot");
+  }, [selectedCoin?.id]);
+
+  const valid = coinId && Number(amount) > 0;
+
+  return (
+    <Dialog open={user !== null} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Fund User Wallet</DialogTitle></DialogHeader>
+        {user && (
+          <div className="space-y-3 text-sm">
+            <Card className="p-3 text-xs">
+              <div><span className="text-muted-foreground">User:</span> <span className="font-medium">{user.email}</span></div>
+              <div><span className="text-muted-foreground">UID:</span> <span className="font-mono">{user.uid}</span></div>
+            </Card>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Coin</label>
+              <Select value={coinId} onValueChange={setCoinId}>
+                <SelectTrigger><SelectValue placeholder="Select coin" /></SelectTrigger>
+                <SelectContent>
+                  {coins.filter((c) => c.status === "active").map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.symbol} — {c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Wallet Type</label>
+              <Select value={walletType} onValueChange={(v) => setWalletType(v as "spot" | "inr")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="spot">Spot</SelectItem>
+                  <SelectItem value="inr">INR</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Amount</label>
+              <Input type="number" step="0.00000001" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Note (optional)</label>
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason / reference" />
+            </div>
+
+            {error && <div className="text-xs text-destructive">{error}</div>}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
+          <Button disabled={!valid || fund.isPending} onClick={() => { setError(""); fund.mutate(); }}>
+            {fund.isPending ? "Crediting…" : "Credit Wallet"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
