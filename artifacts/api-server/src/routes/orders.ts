@@ -60,18 +60,35 @@ router.get("/trades", requireAuth, async (req, res): Promise<void> => {
   res.json(rows);
 });
 
-router.post("/orders", requireAuth, async (req, res): Promise<void> => {
-  const userId = req.user!.id;
-  const vipTier = Math.max(0, Math.min(5, req.user!.vipTier ?? 0));
-  const { pairId, side, type, price, qty } = req.body ?? {};
-  if (!pairId || !["buy","sell"].includes(side) || !["limit","market"].includes(type)) {
-    res.status(400).json({ error: "pairId, side(buy/sell), type(limit/market) required" }); return;
+/**
+ * Shared spot-order placement. Used by `/api/orders` (modern client / admin) and
+ * `/api/exchange/order` (Bicrypto Flutter mobile/web bridge). All param values
+ * MUST be normalized lowercase strings; numeric `qty`/`price` finite > 0.
+ *
+ * Returns either a fully filled (market or auto-matched limit) order, or a
+ * resting open/partial limit order. Throws an Error with `.code` (HTTP status)
+ * on validation failure — callers should map to HTTP responses.
+ */
+export async function placeSpotOrder(opts: {
+  userId: number;
+  vipTier: number;
+  pairId: number;
+  side: "buy" | "sell";
+  type: "limit" | "market";
+  qty: number;
+  price?: number;
+}): Promise<{ order: any; matched: number }> {
+  const { userId, vipTier, pairId, side, type, qty, price } = opts;
+  if (!pairId || !["buy", "sell"].includes(side) || !["limit", "market"].includes(type)) {
+    const e: any = new Error("pairId, side(buy/sell), type(limit/market) required");
+    e.code = 400; throw e;
   }
   const qtyNum = Number(qty);
-  if (!Number.isFinite(qtyNum) || qtyNum <= 0) { res.status(400).json({ error: "qty must be positive" }); return; }
+  if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
+    const e: any = new Error("qty must be positive"); e.code = 400; throw e;
+  }
 
-  try {
-    const created = await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
       const [pair] = await tx.select().from(pairsTable).where(eq(pairsTable.id, Number(pairId))).limit(1);
       if (!pair) { const e: any = new Error("Pair not found"); e.code = 404; throw e; }
       if (!pair.tradingEnabled || pair.status !== "active") { const e: any = new Error("Trading disabled for this pair"); e.code = 400; throw e; }
@@ -171,42 +188,59 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
       }
       return { order: o, pair, trade: null };
     });
-    const { order, pair, trade } = created as any;
-    if (order.status === "filled") {
-      await pushOrderToRedis(order, pair, "fill");
-      if (trade) await pushTradeToRedis(trade, pair);
-      res.status(201).json(order); return;
+  const { order, pair, trade } = created as any;
+  if (order.status === "filled") {
+    await pushOrderToRedis(order, pair, "fill");
+    if (trade) await pushTradeToRedis(trade, pair);
+    return { order, matched: 0 };
+  }
+  // Add limit order to book then run matching against existing book
+  await pushOrderToRedis(order, pair, "new");
+  const matchRes = await tryMatch(order.id, { takerVipTier: vipTier });
+  if (matchRes.trades > 0) {
+    const [refreshed] = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
+    if (refreshed && refreshed.status === "filled") {
+      await pushOrderToRedis(refreshed, pair, "fill");
+    } else if (refreshed) {
+      // Update redis member to reflect partial fill
+      await rSet(`orderbook:${pair.symbol}:order:${refreshed.id}`, JSON.stringify({
+        id: refreshed.id, userId: refreshed.userId, side: refreshed.side, type: refreshed.type,
+        price: Number(refreshed.price), qty: Number(refreshed.qty),
+        filledQty: Number(refreshed.filledQty ?? 0), status: refreshed.status, ts: Date.now(),
+      }), 86400);
     }
-    // Add limit order to book then run matching against existing book
-    await pushOrderToRedis(order, pair, "new");
-    const matchRes = await tryMatch(order.id, { takerVipTier: vipTier });
-    if (matchRes.trades > 0) {
-      const [refreshed] = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
-      if (refreshed && refreshed.status === "filled") {
-        await pushOrderToRedis(refreshed, pair, "fill");
-      } else if (refreshed) {
-        // Update redis member to reflect partial fill
-        await rSet(`orderbook:${pair.symbol}:order:${refreshed.id}`, JSON.stringify({
-          id: refreshed.id, userId: refreshed.userId, side: refreshed.side, type: refreshed.type,
-          price: Number(refreshed.price), qty: Number(refreshed.qty),
-          filledQty: Number(refreshed.filledQty ?? 0), status: refreshed.status, ts: Date.now(),
-        }), 86400);
-      }
-      res.status(201).json({ ...(refreshed ?? order), matched: matchRes.trades }); return;
-    }
-    res.status(201).json(order);
+    return { order: refreshed ?? order, matched: matchRes.trades };
+  }
+  return { order, matched: 0 };
+}
+
+router.post("/orders", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const vipTier = Math.max(0, Math.min(5, req.user!.vipTier ?? 0));
+  const { pairId, side, type, price, qty } = req.body ?? {};
+  try {
+    const result = await placeSpotOrder({
+      userId, vipTier,
+      pairId: Number(pairId),
+      side: String(side || "").toLowerCase() as any,
+      type: String(type || "").toLowerCase() as any,
+      qty: Number(qty),
+      price: price != null ? Number(price) : undefined,
+    });
+    res.status(201).json(result.matched > 0 ? { ...result.order, matched: result.matched } : result.order);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
     throw e;
   }
 });
 
-router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> => {
-  const userId = req.user!.id;
-  const id = Number(req.params.id);
-  if (!id) { res.status(400).json({ error: "id required" }); return; }
-  try {
-    const cancelled = await db.transaction(async (tx) => {
+/**
+ * Shared spot-order cancellation. Releases locked balance, marks order
+ * cancelled, pushes redis update. Throws Error with `.code` on failure.
+ */
+export async function cancelSpotOrderById(userId: number, id: number): Promise<any> {
+  if (!id) { const e: any = new Error("id required"); e.code = 400; throw e; }
+  const cancelled = await db.transaction(async (tx) => {
       const [o] = await tx.select().from(ordersTable).where(and(eq(ordersTable.id, id), eq(ordersTable.userId, userId))).for("update").limit(1);
       if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
       if (o.status !== "open" && o.status !== "partial") { const e: any = new Error(`Cannot cancel — status is ${o.status}`); e.code = 400; throw e; }
@@ -233,9 +267,17 @@ router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> =
       }
       const [updated] = await tx.update(ordersTable).set({ status: "cancelled", updatedAt: new Date() }).where(eq(ordersTable.id, id)).returning();
       return { order: updated, pair };
-    });
-    const { order, pair } = cancelled as any;
-    await pushOrderToRedis(order, pair, "cancel");
+  });
+  const { order, pair } = cancelled as any;
+  await pushOrderToRedis(order, pair, "cancel");
+  return order;
+}
+
+router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const id = Number(req.params.id);
+  try {
+    const order = await cancelSpotOrderById(userId, id);
     res.json(order);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }

@@ -9,6 +9,7 @@ import '../../../../injection/injection.dart';
 import '../bloc/trading_form_bloc.dart';
 import '../../../wallet/presentation/bloc/spot_deposit_bloc.dart';
 import '../../../wallet/presentation/pages/spot_deposit_page.dart';
+import 'fee_summary_widget.dart';
 
 class TradingFormWidget extends StatefulWidget {
   final String symbol;
@@ -163,6 +164,15 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
 
         // Available balance
         _buildAvailableBalance(context, state),
+        const SizedBox(height: 8),
+
+        // Live fee / GST / TDS breakdown from backend.
+        FeeSummaryWidget(
+          isBuy: state.isBuy,
+          notional: state.estimatedTotal,
+          quoteCurrency: state.quoteCurrency,
+          orderType: state.orderType.name, // limit / market / stop
+        ),
         const SizedBox(height: 12),
 
         // Buy/Sell button

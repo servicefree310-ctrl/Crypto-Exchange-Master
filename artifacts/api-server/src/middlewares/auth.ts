@@ -19,6 +19,20 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   next();
 }
 
+/**
+ * Best-effort auth: hydrates `req.user` if a valid session cookie is present
+ * but never short-circuits to 401. Use for public endpoints that personalize
+ * their response when a user is logged in (e.g. fee quote with VIP tier).
+ */
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = readSessionCookie(req);
+    const user = await getUserBySession(token);
+    if (user) req.user = user;
+  } catch { /* ignore — request continues unauthenticated */ }
+  next();
+}
+
 export function requireRole(...roles: string[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const token = readSessionCookie(req);

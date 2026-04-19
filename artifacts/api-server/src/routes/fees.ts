@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { db, tradesTable, pairsTable, coinsTable, usersTable, settingsTable } from "@workspace/db";
-import { requireAuth } from "../middlewares/auth";
+import { requireAuth, optionalAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -127,6 +127,62 @@ router.get("/fees/my", requireAuth, async (req, res): Promise<void> => {
     currentTier: finalTier,
     nextTier: tiers[finalTier.level + 1] ?? null,
     tiers,
+  });
+});
+
+/**
+ * Live fee/GST/TDS quote for the trading form. Public so the form can render
+ * the breakdown before the user is logged in (still uses tier 0 for guests).
+ *
+ * Query: side=buy|sell, notional=number (qty * price in QUOTE units)
+ * Returns: { feeRate, feePercent, gstPercent, tdsPercent, fee, gstAmount, tds,
+ *           totalDeducted, netReceive, vipTier }
+ *
+ * For SELL: trader receives `notional - fee - tds`
+ * For BUY:  trader pays    `notional + fee` (TDS not applied on buy side)
+ */
+router.get("/fees/quote", optionalAuth, async (req, res): Promise<void> => {
+  const side = String(req.query.side || "sell").toLowerCase();
+  const orderType = String(req.query.type || "market").toLowerCase();
+  const notional = Math.max(0, Number(req.query.notional) || 0);
+  let vipTier = 0;
+  try {
+    const userId = (req as any).user?.id;
+    if (userId) {
+      const [u] = await db.select({ vipTier: usersTable.vipTier }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+      vipTier = u?.vipTier ?? 0;
+    }
+  } catch { /* tier 0 */ }
+
+  const rates = await getSpotFeeRates(vipTier);
+  // Limit orders rest in the book → maker rate; market/stop orders cross →
+  // taker rate. Both already include GST multiplier from getSpotFeeRates.
+  const feeRate = orderType === "limit" ? rates.maker : rates.taker;
+  const fee = notional * feeRate;
+  const gstMul = 1 + rates.gstPercent / 100;
+  const baseFeeRate = feeRate / gstMul; // GST-exclusive trading fee rate
+  const baseFee = fee / gstMul;
+  const gstAmount = fee - baseFee;
+  const tds = side === "sell" ? notional * rates.tds : 0;
+  const totalDeducted = fee + tds;
+  const netReceive = side === "sell" ? notional - totalDeducted : notional + fee;
+
+  res.json({
+    side,
+    type: orderType,
+    notional: +notional.toFixed(8),
+    vipTier,
+    feeRate,
+    feePercent: +(feeRate * 100).toFixed(4),       // GST-inclusive (matches `fee`)
+    baseFeePercent: +(baseFeeRate * 100).toFixed(4), // GST-exclusive (matches `baseFee`)
+    gstPercent: rates.gstPercent,
+    tdsPercent: +(rates.tds * 100).toFixed(4),
+    baseFee: +baseFee.toFixed(8),
+    gstAmount: +gstAmount.toFixed(8),
+    fee: +fee.toFixed(8),
+    tds: +tds.toFixed(8),
+    totalDeducted: +totalDeducted.toFixed(8),
+    netReceive: +netReceive.toFixed(8),
   });
 });
 

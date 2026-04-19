@@ -18,6 +18,7 @@ import { getCache } from "../lib/price-service";
 import { getHistory as getPriceHistory } from "../lib/price-history";
 import { randomBytes, createHash } from "node:crypto";
 import { consumeVerifiedOtp } from "./otp";
+import { placeSpotOrder, cancelSpotOrderById } from "./orders";
 
 const r: IRouter = Router();
 
@@ -1285,8 +1286,67 @@ r.get("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
   const rows = await db.select().from(ordersTable).where(where).orderBy(desc(ordersTable.createdAt)).limit(limit);
   res.json(rows);
 });
-r.post("/exchange/order", bicryptoAuth, (_req, res) => res.status(501).json({ message: "Use /api/orders" }));
-r.delete("/exchange/order/:id", bicryptoAuth, (_req, res) => res.json({ message: "Use /api/orders/:id/cancel" }));
+// Bicrypto Flutter mobile/web posts orders here. Translates the Bicrypto
+// payload shape ({currency, pair, side:BUY/SELL, type:LIMIT/MARKET, amount,
+// price?}) into the canonical (pairId, side:lowercase, type:lowercase, qty,
+// price?) shape consumed by the shared spot engine.
+r.post("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const userId = req.bcUser.id as number;
+  const vipTier = Math.max(0, Math.min(5, Number(req.bcUser.vipTier ?? 0)));
+  const body = req.body ?? {};
+  const currency = String(body.currency ?? "").toUpperCase();
+  const pair = String(body.pair ?? "").toUpperCase();
+  const side = String(body.side ?? "").toLowerCase();
+  const type = String(body.type ?? "").toLowerCase();
+  const amount = Number(body.amount ?? body.qty);
+  const price = body.price != null ? Number(body.price) : undefined;
+
+  if (!currency || !pair) { res.status(400).json({ error: "currency and pair required" }); return; }
+
+  try {
+    const symbol = `${currency}/${pair}`;
+    const [p] = await db.select().from(pairsTable).where(eq(pairsTable.symbol, symbol)).limit(1);
+    if (!p) { res.status(404).json({ error: `Pair ${symbol} not found` }); return; }
+
+    const result = await placeSpotOrder({
+      userId, vipTier,
+      pairId: p.id,
+      side: side as "buy" | "sell",
+      type: type as "limit" | "market",
+      qty: amount,
+      price,
+    });
+    // Bicrypto/Flutter `OrderModel.fromJson` reads `amount` (not `qty`) and
+    // `cost`; without explicit aliasing the client model decodes amount=0.
+    const o: any = result.order;
+    const priceNum = Number(o.avgPrice ?? o.price ?? price ?? 0);
+    const qtyNum = Number(o.qty ?? amount);
+    res.status(201).json({
+      ...o,
+      symbol,
+      currency,
+      pair,
+      amount: qtyNum,
+      cost: priceNum * qtyNum,
+      matched: result.matched,
+    });
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    res.status(500).json({ error: e?.message || "order failed" });
+  }
+});
+
+r.delete("/exchange/order/:id", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const userId = req.bcUser.id as number;
+  const id = Number(req.params.id);
+  try {
+    const order = await cancelSpotOrderById(userId, id);
+    res.json(order);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    res.status(500).json({ error: e?.message || "cancel failed" });
+  }
+});
 
 // ──────────────────────────────────────────────────────────────────────────
 // Futures (real impl in Task #2 — for now empty)
