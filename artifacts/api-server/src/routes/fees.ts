@@ -1,11 +1,18 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, sql } from "drizzle-orm";
-import { db, tradesTable, pairsTable, coinsTable, usersTable } from "@workspace/db";
+import { db, tradesTable, pairsTable, coinsTable, usersTable, settingsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-export const VIP_TIERS = [
+export interface VipTier {
+  level: number; name: string; minVolume: number;
+  spotMaker: number; spotTaker: number;
+  futuresMaker: number; futuresTaker: number;
+  withdrawDiscount: number;
+}
+
+export const DEFAULT_VIP_TIERS: VipTier[] = [
   { level: 0, name: "Regular", minVolume: 0,        spotMaker: 0.20, spotTaker: 0.25, futuresMaker: 0.05, futuresTaker: 0.07, withdrawDiscount: 0 },
   { level: 1, name: "VIP 1",   minVolume: 100000,   spotMaker: 0.16, spotTaker: 0.20, futuresMaker: 0.04, futuresTaker: 0.06, withdrawDiscount: 5 },
   { level: 2, name: "VIP 2",   minVolume: 500000,   spotMaker: 0.12, spotTaker: 0.15, futuresMaker: 0.03, futuresTaker: 0.05, withdrawDiscount: 10 },
@@ -14,7 +21,25 @@ export const VIP_TIERS = [
   { level: 5, name: "VIP 5",   minVolume: 50000000, spotMaker: 0.04, spotTaker: 0.06, futuresMaker: 0.01, futuresTaker: 0.025,withdrawDiscount: 25 },
 ];
 
-router.get("/fees/tiers", (_req, res) => { res.json(VIP_TIERS); });
+const TIERS_KEY = "fees.vip_tiers";
+
+export async function loadVipTiers(): Promise<VipTier[]> {
+  try {
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, TIERS_KEY)).limit(1);
+    if (row?.value) {
+      const arr = JSON.parse(row.value);
+      if (Array.isArray(arr) && arr.length > 0 && arr.every((t: any) => typeof t.level === "number")) {
+        return arr.sort((a: VipTier, b: VipTier) => a.level - b.level);
+      }
+    }
+  } catch (e) { /* fallthrough */ }
+  return DEFAULT_VIP_TIERS;
+}
+
+// Back-compat re-export (kept for any imports of VIP_TIERS — now async source)
+export const VIP_TIERS = DEFAULT_VIP_TIERS;
+
+router.get("/fees/tiers", async (_req, res) => { res.json(await loadVipTiers()); });
 
 router.get("/fees/my", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
@@ -43,17 +68,18 @@ router.get("/fees/my", requireAuth, async (req, res): Promise<void> => {
   }
 
   // Find tier — ladder using user vipTier (admin-overridable) max with volume-based
+  const tiers = await loadVipTiers();
   const [u] = await db.select({ vipTier: usersTable.vipTier }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   const adminTier = u?.vipTier ?? 0;
-  const volTier = [...VIP_TIERS].reverse().find(t => volumeUsdt >= t.minVolume) ?? VIP_TIERS[0];
-  const finalTier = adminTier >= volTier.level ? VIP_TIERS[adminTier] ?? volTier : volTier;
+  const volTier = [...tiers].reverse().find(t => volumeUsdt >= t.minVolume) ?? tiers[0];
+  const finalTier = adminTier >= volTier.level ? tiers[adminTier] ?? volTier : volTier;
 
   res.json({
     volume30dUsdt: +volumeUsdt.toFixed(2),
     totalFeesUsdt: +totalFeeUsdt.toFixed(4),
     currentTier: finalTier,
-    nextTier: VIP_TIERS[finalTier.level + 1] ?? null,
-    tiers: VIP_TIERS,
+    nextTier: tiers[finalTier.level + 1] ?? null,
+    tiers,
   });
 });
 
