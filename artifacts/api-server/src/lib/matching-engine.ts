@@ -286,10 +286,18 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
   return { trades: totalTrades, remainingQty: finalRemaining, status: finalStatus };
 }
 
+// Pairs are stored as BTCUSDT (no slash) in DB; matching engine writes
+// orderbook keys with that exact symbol. Normalize incoming "BTC/USDT" to
+// "BTCUSDT" so REST/WS callers using either form hit the right ZSET.
+function normalizeSymbol(s: string): string {
+  return (s || "").replace("/", "").toUpperCase();
+}
+
 // Read aggregated depth for a symbol (top N levels)
 export async function getDepth(symbol: string, levels = 20) {
   const r = getRedis();
   if (!r) return { bids: [], asks: [] };
+  symbol = normalizeSymbol(symbol);
   const [buys, sells] = await Promise.all([
     r.zrange(`orderbook:${symbol}:buy`, 0, 200, "WITHSCORES"),
     r.zrange(`orderbook:${symbol}:sell`, 0, 200, "WITHSCORES"),
@@ -326,6 +334,7 @@ export async function getDepth(symbol: string, levels = 20) {
 export async function getRecentTrades(symbol: string, limit = 50) {
   const r = getRedis();
   if (!r) return [];
+  symbol = normalizeSymbol(symbol);
   const raws = await r.lrange(`trades:${symbol}`, 0, limit - 1);
   return raws.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
 }
