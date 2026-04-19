@@ -184,16 +184,16 @@ class _DashboardTradingPairsState extends State<DashboardTradingPairs>
 
   Widget _buildMarketList(BuildContext context, List<MarketDataEntity> markets,
       String title, String icon) {
-    if (markets.isEmpty) {
-      return _buildEmptyState(context, title, icon);
-    }
+    const int slotCount = 6;
+    final visible = markets.take(slotCount).toList();
+    final placeholderCount = slotCount - visible.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ...markets
-            .map((market) => _buildMarketListItem(context, market))
-            ,
+        ...visible.map((market) => _buildMarketListItem(context, market)),
+        for (int i = 0; i < placeholderCount; i++)
+          _buildPlaceholderItem(context),
         SizedBox(height: context.isSmallScreen ? 8.0 : 12.0),
         Center(
           child: TextButton(
@@ -334,6 +334,74 @@ class _DashboardTradingPairsState extends State<DashboardTradingPairs>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholderItem(BuildContext context) {
+    final dotStyle = context.bodyS.copyWith(
+      color: context.textTertiary,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 2.0,
+    );
+    return Container(
+      margin: EdgeInsets.only(bottom: context.isSmallScreen ? 8.0 : 12.0),
+      padding: EdgeInsets.all(context.isSmallScreen ? 12.0 : 16.0),
+      decoration: BoxDecoration(
+        color: context.inputBackground.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12.0),
+        border: Border.all(
+          color: context.borderColor.withValues(alpha: 0.2),
+          width: 1.0,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: context.isSmallScreen ? 32.0 : 36.0,
+            height: context.isSmallScreen ? 32.0 : 36.0,
+            decoration: BoxDecoration(
+              color: context.textTertiary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8.0),
+            ),
+            child: Center(child: Text('•', style: dotStyle)),
+          ),
+          SizedBox(width: context.isSmallScreen ? 12.0 : 16.0),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('• • •', style: dotStyle),
+                const SizedBox(height: 4.0),
+                Text('• • •',
+                    style: dotStyle.copyWith(
+                      fontSize: context.isSmallScreen ? 11.0 : 12.0,
+                    )),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('• • •', style: dotStyle),
+              const SizedBox(height: 4.0),
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: context.isSmallScreen ? 6.0 : 8.0,
+                  vertical: 2.0,
+                ),
+                decoration: BoxDecoration(
+                  color: context.textTertiary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(6.0),
+                ),
+                child: Text('• •',
+                    style: dotStyle.copyWith(
+                      fontSize: context.isSmallScreen ? 10.0 : 11.0,
+                    )),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

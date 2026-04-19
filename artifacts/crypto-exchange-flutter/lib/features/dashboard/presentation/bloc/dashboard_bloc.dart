@@ -267,21 +267,21 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     // Get top gainers from markets data
     final gainers = markets.where((market) => market.isPositive).toList()
       ..sort((a, b) => b.changePercent.compareTo(a.changePercent));
-    return gainers.take(4).toList();
+    return gainers.take(6).toList();
   }
 
   List<MarketDataEntity> _getTopLosers(List<MarketDataEntity> markets) {
     // Get top losers from markets data
     final losers = markets.where((market) => market.isNegative).toList()
       ..sort((a, b) => a.changePercent.compareTo(b.changePercent));
-    return losers.take(4).toList();
+    return losers.take(6).toList();
   }
 
   List<MarketDataEntity> _getHighVolumeMarkets(List<MarketDataEntity> markets) {
     // Get high volume markets
     final highVolume = List<MarketDataEntity>.from(markets)
       ..sort((a, b) => b.baseVolume.compareTo(a.baseVolume));
-    return highVolume.take(4).toList();
+    return highVolume.take(6).toList();
   }
 
   DashboardMarketInsights _getMarketInsights(List<MarketDataEntity> markets) {
