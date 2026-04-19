@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme.dart';
@@ -251,18 +252,24 @@ class _DashboardState extends State<_Dashboard> {
           children: [
             const SizedBox(height: 12),
             _header(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            _PriceTickerMarquee(coins: m.coins),
+            const SizedBox(height: 10),
             _searchBar(),
             const SizedBox(height: 12),
             auth.isLoggedIn ? _assetCard(totalInr, kycLevel) : _loginCta(),
             const SizedBox(height: 12),
             _quickActions(),
             const SizedBox(height: 14),
-            _bannerStrip(),
+            _AutoBanner(banners: _resolveBanners(m.banners)),
             const SizedBox(height: 14),
             _portfolioSection(auth, wallets, totalInr),
+            const SizedBox(height: 14),
+            _topMoversSection(m.coins),
             const SizedBox(height: 4),
             _marketsSection(eligible.length, filtered),
+            const SizedBox(height: 18),
+            _trustStrip(),
             const SizedBox(height: 14),
             _newsStrip(),
             const SizedBox(height: 10),
@@ -819,6 +826,159 @@ class _DashboardState extends State<_Dashboard> {
   }
 
   // ------ NEWS ------
+  // ------ TOP MOVERS ------
+  Widget _topMoversSection(List coins) {
+    final list = coins.whereType<Map>().where((c) {
+      final p = Fmt.parseNum(c['priceInr']);
+      final ch = Fmt.parseNum(c['change24h']);
+      return p > 0 && ch.abs() > 0.01;
+    }).toList()..sort((a, b) {
+      final ca = Fmt.parseNum(a['change24h']).abs();
+      final cb = Fmt.parseNum(b['change24h']).abs();
+      return cb.compareTo(ca);
+    });
+    final movers = list.take(8).toList();
+    if (movers.isEmpty) return const SizedBox.shrink();
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Row(children: const [
+            Icon(Icons.local_fire_department, color: Color(0xFFF6465D), size: 16),
+            SizedBox(width: 6),
+            Text('Top Movers', style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.w800)),
+          ]),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(4)),
+            child: const Text('LIVE', style: TextStyle(color: AppColors.success, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 10),
+      SizedBox(
+        height: 116,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          itemCount: movers.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 10),
+          itemBuilder: (_, i) {
+            final c = movers[i] as Map;
+            final base = (c['symbol'] ?? '').toString();
+            final price = Fmt.parseNum(c['priceInr']);
+            final change = Fmt.parseNum(c['change24h']);
+            final up = change >= 0;
+            final coinColor = _coinColors[base] ?? const Color(0xFF888888);
+            return InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TradeScreen(symbol: '${base}INR'))),
+              child: Container(
+                width: 152,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      (up ? AppColors.success : AppColors.danger).withValues(alpha: 0.18),
+                      AppColors.card,
+                    ],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: (up ? AppColors.success : AppColors.danger).withValues(alpha: 0.35), width: 1),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Container(
+                      width: 26, height: 26,
+                      decoration: BoxDecoration(color: coinColor.withValues(alpha: 0.22), shape: BoxShape.circle),
+                      alignment: Alignment.center,
+                      child: Text(base.isEmpty ? '?' : base[0], style: TextStyle(color: coinColor, fontSize: 11, fontWeight: FontWeight.w800)),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(base, style: const TextStyle(color: AppColors.fg, fontSize: 13, fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    Icon(up ? Icons.trending_up : Icons.trending_down, color: up ? AppColors.success : AppColors.danger, size: 14),
+                  ]),
+                  const Spacer(),
+                  SizedBox(
+                    height: 26,
+                    child: _Sparkline(seed: base.hashCode, change: change, up: up),
+                  ),
+                  const SizedBox(height: 6),
+                  Text('₹${Fmt.num2(price)}', style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('${up ? '+' : ''}${change.toStringAsFixed(2)}%',
+                      style: TextStyle(color: up ? AppColors.success : AppColors.danger, fontSize: 11, fontWeight: FontWeight.w700)),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    ]);
+  }
+
+  // ------ TRUST STRIP ------
+  Widget _trustStrip() {
+    final items = [
+      (Icons.verified_user_outlined, 'KYC\nVerified', AppColors.primary),
+      (Icons.shield_outlined, '1% TDS\nCompliant', AppColors.success),
+      (Icons.lock_outline, 'Bank-grade\nSecurity', const Color(0xFFA06AF5)),
+      (Icons.support_agent_outlined, '24×7\nSupport', const Color(0xFFF3BA2F)),
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: items.map((it) {
+          return Column(children: [
+            Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(color: it.$3.withValues(alpha: 0.16), shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Icon(it.$1, color: it.$3, size: 19),
+            ),
+            const SizedBox(height: 6),
+            Text(it.$2, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.muted, fontSize: 10, height: 1.2, fontWeight: FontWeight.w600)),
+          ]);
+        }).toList()),
+      ),
+    );
+  }
+
+  // Helper: pick banners (API or fallback)
+  List<Map<String, dynamic>> _resolveBanners(List apiBanners) {
+    if (apiBanners.isNotEmpty) {
+      return apiBanners.whereType<Map>().take(5).map((b) => {
+        'title': (b['title'] ?? 'Promotion').toString(),
+        'sub': (b['subtitle'] ?? b['description'] ?? '').toString(),
+        'color': _parseColor(b['color']) ?? AppColors.primary,
+        'icon': Icons.campaign_outlined,
+      }).toList();
+    }
+    return [
+      {'title': '₹100 Welcome Bonus', 'sub': 'Complete KYC & start trading', 'color': const Color(0xFF1652F0), 'icon': Icons.card_giftcard},
+      {'title': '1% TDS Compliant', 'sub': 'India\'s trusted exchange · safe & secure', 'color': const Color(0xFF0ECB81), 'icon': Icons.shield_outlined},
+      {'title': 'Earn up to 12% APY', 'sub': 'Stake USDT, BTC, ETH and more', 'color': const Color(0xFFA06AF5), 'icon': Icons.trending_up},
+      {'title': 'Refer & Earn 30%', 'sub': 'Lifetime trading commission', 'color': const Color(0xFFF3BA2F), 'icon': Icons.card_giftcard},
+    ];
+  }
+
+  Color? _parseColor(dynamic v) {
+    if (v is! String || v.isEmpty) return null;
+    final s = v.startsWith('#') ? v.substring(1) : v;
+    final n = int.tryParse(s, radix: 16);
+    if (n == null) return null;
+    return Color(s.length == 6 ? (0xFF000000 | n) : n);
+  }
+
   Widget _newsStrip() {
     final news = [
       ('Bitcoin holds above \$76K as ETF inflows continue', 'Reuters · 2h ago'),
@@ -1107,5 +1267,253 @@ class _PriceRowState extends State<_PriceRow> with SingleTickerProviderStateMixi
         },
       ),
     );
+  }
+}
+
+// ============== PRICE TICKER MARQUEE ==============
+class _PriceTickerMarquee extends StatefulWidget {
+  final List coins;
+  const _PriceTickerMarquee({required this.coins});
+  @override
+  State<_PriceTickerMarquee> createState() => _PriceTickerMarqueeState();
+}
+
+class _PriceTickerMarqueeState extends State<_PriceTickerMarquee> with SingleTickerProviderStateMixin {
+  late final ScrollController _ctrl;
+  late final AnimationController _anim;
+  static const double _speedPxPerSec = 35.0;
+  double _lastT = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = ScrollController();
+    _anim = AnimationController(vsync: this, duration: const Duration(seconds: 30))..addListener(_tick);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _anim.repeat());
+  }
+
+  void _tick() {
+    if (!_ctrl.hasClients) return;
+    final t = (_anim.lastElapsedDuration?.inMilliseconds ?? 0).toDouble();
+    var dt = (t - _lastT) / 1000.0;
+    if (dt < 0 || dt > 0.5) dt = 0.016;
+    _lastT = t;
+    final maxExt = _ctrl.position.maxScrollExtent;
+    if (maxExt <= 0) return;
+    var next = _ctrl.offset + (_speedPxPerSec * dt);
+    if (next >= maxExt) next = 0;
+    _ctrl.jumpTo(next);
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.coins.where((c) {
+      final p = Fmt.parseNum((c as Map)['priceInr']);
+      return p > 0;
+    }).take(20).toList();
+    if (items.isEmpty) return const SizedBox(height: 28);
+    final loop = [...items, ...items, ...items];
+    return Container(
+      height: 30,
+      decoration: BoxDecoration(
+        color: AppColors.card.withValues(alpha: 0.6),
+        border: Border(
+          top: BorderSide(color: AppColors.border, width: 0.5),
+          bottom: BorderSide(color: AppColors.border, width: 0.5),
+        ),
+      ),
+      child: ListView.builder(
+        controller: _ctrl,
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: loop.length,
+        itemBuilder: (_, i) {
+          final c = loop[i] as Map;
+          final base = (c['symbol'] ?? '').toString();
+          final price = Fmt.parseNum(c['priceInr']);
+          final change = Fmt.parseNum(c['change24h']);
+          final up = change >= 0;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: Row(children: [
+              Text(base, style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 6),
+              Text('₹${Fmt.num2(price)}', style: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w500)),
+              const SizedBox(width: 5),
+              Text('${up ? '+' : ''}${change.toStringAsFixed(2)}%',
+                  style: TextStyle(color: up ? AppColors.success : AppColors.danger, fontSize: 10.5, fontWeight: FontWeight.w700)),
+            ]),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ============== AUTO-ROTATING BANNER ==============
+class _AutoBanner extends StatefulWidget {
+  final List<Map<String, dynamic>> banners;
+  const _AutoBanner({required this.banners});
+  @override
+  State<_AutoBanner> createState() => _AutoBannerState();
+}
+
+class _AutoBannerState extends State<_AutoBanner> {
+  final PageController _pc = PageController(viewportFraction: 0.92);
+  int _page = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted || !_pc.hasClients || widget.banners.isEmpty) return;
+      final next = (_page + 1) % widget.banners.length;
+      _pc.animateToPage(next, duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.banners.isEmpty) return const SizedBox.shrink();
+    return Column(children: [
+      SizedBox(
+        height: 92,
+        child: PageView.builder(
+          controller: _pc,
+          onPageChanged: (i) => setState(() => _page = i),
+          itemCount: widget.banners.length,
+          itemBuilder: (_, i) {
+            final b = widget.banners[i];
+            final color = b['color'] as Color;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [color, Color.lerp(color, Colors.black, 0.35)!],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+                ),
+                child: Row(children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Text(b['title'] as String, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 4),
+                      Text(b['sub'] as String, style: const TextStyle(color: Colors.white, fontSize: 11.5), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ]),
+                  ),
+                  Container(
+                    width: 46, height: 46,
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.22), shape: BoxShape.circle),
+                    alignment: Alignment.center,
+                    child: Icon(b['icon'] as IconData, size: 22, color: Colors.white),
+                  ),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+      const SizedBox(height: 8),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(widget.banners.length, (i) {
+        final active = i == _page;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: active ? 18 : 6,
+          height: 4,
+          decoration: BoxDecoration(
+            color: active ? AppColors.primary : AppColors.border,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+      })),
+    ]);
+  }
+}
+
+// ============== SPARKLINE ==============
+class _Sparkline extends StatelessWidget {
+  final int seed;
+  final double change;
+  final bool up;
+  const _Sparkline({required this.seed, required this.change, required this.up});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _SparklinePainter(seed: seed, change: change, up: up),
+      size: Size.infinite,
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  final int seed;
+  final double change;
+  final bool up;
+  _SparklinePainter({required this.seed, required this.change, required this.up});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const n = 24;
+    final pts = <Offset>[];
+    final rng = _LCG(seed.abs());
+    final amp = 0.18 + (change.abs() / 100).clamp(0.0, 0.35);
+    for (var i = 0; i < n; i++) {
+      final t = i / (n - 1);
+      final trend = up ? t : (1 - t);
+      final noise = (rng.next() - 0.5) * amp;
+      final y = (1 - trend) * 0.7 + 0.15 + noise * 0.4;
+      pts.add(Offset(t * size.width, y.clamp(0.05, 0.95) * size.height));
+    }
+    final color = up ? AppColors.success : AppColors.danger;
+    final fillPath = Path()..moveTo(0, size.height);
+    final linePath = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (var i = 1; i < pts.length; i++) {
+      linePath.lineTo(pts[i].dx, pts[i].dy);
+    }
+    fillPath.addPath(linePath, Offset.zero);
+    fillPath.lineTo(size.width, size.height);
+    fillPath.close();
+    canvas.drawPath(fillPath, Paint()..shader = LinearGradient(
+      colors: [color.withValues(alpha: 0.35), color.withValues(alpha: 0.0)],
+      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+    ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)));
+    canvas.drawPath(linePath, Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter old) => old.seed != seed || old.change != change || old.up != up;
+}
+
+class _LCG {
+  int _s;
+  _LCG(this._s) { if (_s == 0) _s = 1; }
+  double next() {
+    _s = (_s * 1664525 + 1013904223) & 0x7FFFFFFF;
+    return _s / 0x7FFFFFFF;
   }
 }
