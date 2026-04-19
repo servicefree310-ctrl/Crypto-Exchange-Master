@@ -42,6 +42,7 @@ class MarketsState extends ChangeNotifier {
   bool loading = true;
   String? error;
   Timer? _timer;
+  bool _inFlight = false;
 
   Future<void> start() async {
     await refresh();
@@ -51,6 +52,8 @@ class MarketsState extends ChangeNotifier {
   void stop() { _timer?.cancel(); _timer = null; }
 
   Future<void> refresh({bool silent = false}) async {
+    if (_inFlight) return;
+    _inFlight = true;
     try {
       final results = await Future.wait([
         Api.coins(),
@@ -58,17 +61,31 @@ class MarketsState extends ChangeNotifier {
         Api.prices(),
         Api.banners(),
       ]);
-      coins = results[0] as List;
-      pairs = results[1] as List;
+      final newCoins = results[0] as List;
+      final newPairs = results[1] as List;
       final p = results[2];
-      prices = (p is Map) ? Map<String, dynamic>.from(p) : {};
-      banners = results[3] as List;
+      final newPrices = (p is Map) ? Map<String, dynamic>.from(p) : <String, dynamic>{};
+      final newBanners = results[3] as List;
+
+      bool changed = !silent ||
+          newCoins.length != coins.length ||
+          newPairs.length != pairs.length ||
+          newBanners.length != banners.length ||
+          newPrices.toString() != prices.toString();
+
+      coins = newCoins;
+      pairs = newPairs;
+      prices = newPrices;
+      banners = newBanners;
       error = null;
+      loading = false;
+      if (changed) notifyListeners();
     } catch (e) {
       error = e.toString();
-    } finally {
       loading = false;
-      notifyListeners();
+      if (!silent) notifyListeners();
+    } finally {
+      _inFlight = false;
     }
   }
 
