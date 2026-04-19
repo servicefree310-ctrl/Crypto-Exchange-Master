@@ -1000,14 +1000,30 @@ r.post("/finance/transfer/validate", bicryptoAuth, async (req: any, res): Promis
 // Exchange: market, ticker, orderbook, trades, chart
 // ──────────────────────────────────────────────────────────────────────────
 
-function pairToMarket(p: any, coinById: Map<number, any>) {
+function pairToMarket(p: any, coinById: Map<number, any>, tickByBase?: Map<string, any>) {
   const base = coinById.get(p.baseCoinId)?.symbol || "BTC";
   const quote = coinById.get(p.quoteCoinId)?.symbol || "USDT";
+  const tk = tickByBase?.get(base);
+  const px = tk ? Number(quote === "INR" ? tk.inr : tk.usdt) || 0 : 0;
+  const pctRaw = tk ? Number(tk.change24h ?? 0) : 0;
+  const pct = pctRaw <= -100 ? -99.99 : pctRaw;
+  const vol = tk ? Number(tk.volume24h ?? 0) : 0;
   return {
     id: String(p.id),
     symbol: `${base}/${quote}`,
     currency: base,
     pair: quote,
+    price: px,
+    last: px,
+    change: pct,
+    changePercent: pct,
+    percentage: pct,
+    baseVolume: vol,
+    quoteVolume: vol * px,
+    high: px * (1 + Math.max(pct, 0) / 100),
+    low: px * (1 + Math.min(pct, 0) / 100),
+    open: pct === 0 ? px : px / (1 + pct / 100),
+    close: px,
     isTrending: false,
     isHot: false,
     status: p.status === "active",
@@ -1034,7 +1050,9 @@ async function loadCoinMap(): Promise<Map<number, any>> {
 r.get("/exchange/market", async (_req, res): Promise<void> => {
   const pairs = await db.select().from(pairsTable).where(eq(pairsTable.status, "active"));
   const coinMap = await loadCoinMap();
-  res.json(pairs.map(p => pairToMarket(p, coinMap)));
+  const ticks = getCache() as any[];
+  const tickByBase = new Map<string, any>(ticks.map(t => [String(t.symbol), t]));
+  res.json(pairs.map(p => pairToMarket(p, coinMap, tickByBase)));
 });
 
 // Build a ticker entry from a Tick + the quote symbol (USDT or INR).

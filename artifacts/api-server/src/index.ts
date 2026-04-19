@@ -44,10 +44,52 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
+// Convert internal Tick[] → Bicrypto-style ticker map keyed by "BASE/QUOTE".
+// Emits both BASE/USDT and BASE/INR entries so the Flutter MarketService
+// (which keys cachedMarkets by full symbol) can match either pair.
+function toTickersFrame(ticks: any[]): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const t of ticks) {
+    if (!t || !t.symbol) continue;
+    if (t.symbol === "USDT" || t.symbol === "INR") continue;
+    const usdt = Number(t.usdt ?? 0);
+    const inr = Number(t.inr ?? 0);
+    const pctRaw = Number(t.change24h ?? 0);
+    const pct = pctRaw <= -100 ? -99.99 : pctRaw;
+    const vol = Number(t.volume24h ?? 0);
+    if (usdt > 0) {
+      out[`${t.symbol}/USDT`] = {
+        last: usdt, change: pct, baseVolume: vol, quoteVolume: vol * usdt,
+        high: usdt * (1 + Math.max(pct, 0) / 100),
+        low: usdt * (1 + Math.min(pct, 0) / 100),
+        timestamp: Number(t.ts ?? Date.now()),
+      };
+    }
+    if (inr > 0) {
+      out[`${t.symbol}/INR`] = {
+        last: inr, change: pct, baseVolume: vol, quoteVolume: vol * inr,
+        high: inr * (1 + Math.max(pct, 0) / 100),
+        low: inr * (1 + Math.min(pct, 0) / 100),
+        timestamp: Number(t.ts ?? Date.now()),
+      };
+    }
+  }
+  return out;
+}
+
 wss.on("connection", (ws) => {
-  try { ws.send(JSON.stringify({ type: "snapshot", inrRate: getInrRate(), ticks: getCache() })); } catch {}
+  try {
+    const ticks = getCache();
+    // Legacy frame for clients that consume the raw price feed
+    ws.send(JSON.stringify({ type: "snapshot", inrRate: getInrRate(), ticks }));
+    // Bicrypto-style frame for Flutter MarketService.updateMarketsWithTickers
+    ws.send(JSON.stringify({ stream: "tickers", data: toTickersFrame(ticks) }));
+  } catch {}
   const unsub = subscribe((ticks) => {
-    try { ws.send(JSON.stringify({ type: "tick", inrRate: getInrRate(), ticks })); } catch {}
+    try {
+      ws.send(JSON.stringify({ type: "tick", inrRate: getInrRate(), ticks }));
+      ws.send(JSON.stringify({ stream: "tickers", data: toTickersFrame(ticks) }));
+    } catch {}
   });
   ws.on("close", () => unsub());
   ws.on("error", () => unsub());
