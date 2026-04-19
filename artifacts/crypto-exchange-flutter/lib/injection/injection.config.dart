@@ -1474,6 +1474,8 @@ extension GetItInjectableX on _i174.GetIt {
     gh.factory<_i354.DashboardBloc>(() => _i354.DashboardBloc(
           gh<_i903.MarketService>(),
           gh<_i711.GlobalNotificationService>(),
+          gh<_i183.WalletRepository>(),
+          gh<_i873.DioClient>(),
         ));
     gh.factory<_i578.TradeExecutionBloc>(() => _i578.TradeExecutionBloc(
           gh<_i739.InitiateTradeUseCase>(),

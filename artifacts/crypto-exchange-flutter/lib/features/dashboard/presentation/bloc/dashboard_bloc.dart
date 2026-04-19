@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:injectable/injectable.dart';
 
+import '../../../../core/network/dio_client.dart';
 import '../../../../core/services/market_service.dart';
 import '../../../../core/services/global_notification_service.dart';
 import '../../../market/domain/entities/market_data_entity.dart';
 import '../../../notification/domain/entities/announcement_entity.dart';
+import '../../../wallet/domain/repositories/wallet_repository.dart';
 import 'dashboard_event.dart';
 import 'dashboard_state.dart';
 
@@ -15,6 +17,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   DashboardBloc(
     this._marketService,
     this._globalNotificationService,
+    this._walletRepository,
+    this._dioClient,
   ) : super(const DashboardInitial()) {
     on<DashboardLoadRequested>(_onDashboardLoadRequested);
     on<DashboardRefreshRequested>(_onDashboardRefreshRequested);
@@ -39,6 +43,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
   final MarketService _marketService;
   final GlobalNotificationService _globalNotificationService;
+  final WalletRepository _walletRepository;
+  final DioClient _dioClient;
 
   StreamSubscription<List<MarketDataEntity>>? _marketSubscription;
   StreamSubscription<List<AnnouncementEntity>>? _announcementsSubscription;
@@ -61,50 +67,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       // Get announcements from global service
       final announcements = _globalNotificationService.cachedAnnouncements;
 
-      // Create portfolio data (mock for now, should come from wallet service)
-      final portfolioData = const DashboardPortfolioData(
-        totalValue: 127543.89,
-        change24h: 3247.12,
-        change24hPercentage: 2.61,
-        totalPnL: 27543.89,
-        totalPnLPercentage: 27.6,
-      );
-
-      // Create recent activities (mock for now, should come from activity service)
-      final recentActivities = [
-        const DashboardActivityData(
-          type: 'Spot Buy',
-          symbol: 'BTC/USDT',
-          amount: '0.0234 BTC',
-          value: '+\$1,573.45',
-          isPositive: true,
-          timeAgo: '2m ago',
-        ),
-        const DashboardActivityData(
-          type: 'P2P Sell',
-          symbol: 'USDT',
-          amount: '5,000 USDT',
-          value: '+\$5,000.00',
-          isPositive: true,
-          timeAgo: '1h ago',
-        ),
-        const DashboardActivityData(
-          type: 'Futures',
-          symbol: 'ETH/USDT',
-          amount: '2.5 ETH',
-          value: '-\$234.56',
-          isPositive: false,
-          timeAgo: '3h ago',
-        ),
-        const DashboardActivityData(
-          type: 'Staking',
-          symbol: 'DOT Reward',
-          amount: '12.34 DOT',
-          value: '+\$145.67',
-          isPositive: true,
-          timeAgo: '1d ago',
-        ),
-      ];
+      // Live portfolio + recent activity from API (with safe fallbacks)
+      final portfolioData = await _fetchPortfolioData();
+      final recentActivities = await _fetchRecentActivities();
 
       emit(DashboardLoaded(
         marketStats: marketStats,
@@ -142,9 +107,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         final highVolumeMarkets = _getHighVolumeMarkets(markets);
         final marketInsights = _getMarketInsights(markets);
         final announcements = _globalNotificationService.cachedAnnouncements;
+        final portfolioData = await _fetchPortfolioData();
+        final recentActivities = await _fetchRecentActivities();
 
         emit(currentState.copyWith(
           marketStats: marketStats,
+          portfolioData: portfolioData,
+          recentActivities: recentActivities,
           announcements: announcements,
           isRefreshing: false,
           marketInsights: marketInsights,
@@ -179,6 +148,85 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         marketInsights: marketInsights,
       ));
     }
+  }
+
+  Future<DashboardPortfolioData> _fetchPortfolioData() async {
+    const fallback = DashboardPortfolioData(
+      totalValue: 0.0,
+      change24h: 0.0,
+      change24hPercentage: 0.0,
+      totalPnL: 0.0,
+      totalPnLPercentage: 0.0,
+    );
+    try {
+      final balanceResult = await _walletRepository.getTotalBalanceUSD();
+      return balanceResult.fold(
+        (_) => fallback,
+        (totalValue) => DashboardPortfolioData(
+          totalValue: totalValue,
+          change24h: 0.0,
+          change24hPercentage: 0.0,
+          totalPnL: 0.0,
+          totalPnLPercentage: 0.0,
+        ),
+      );
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  Future<List<DashboardActivityData>> _fetchRecentActivities() async {
+    try {
+      final response = await _dioClient
+          .get('/api/exchange/order', queryParameters: {'limit': 10});
+      final data = response.data;
+      if (data is! List) return const <DashboardActivityData>[];
+      final orders = List<Map<String, dynamic>>.from(
+        data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)),
+      );
+      orders.sort((a, b) {
+        final ad = DateTime.tryParse(a['createdAt']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final bd = DateTime.tryParse(b['createdAt']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        return bd.compareTo(ad);
+      });
+      return orders.take(4).map(_orderToActivity).toList(growable: false);
+    } catch (_) {
+      return const <DashboardActivityData>[];
+    }
+  }
+
+  DashboardActivityData _orderToActivity(Map<String, dynamic> o) {
+    final side = (o['side'] ?? '').toString().toUpperCase();
+    final type = (o['type'] ?? '').toString();
+    final qty = double.tryParse(o['qty']?.toString() ?? '') ?? 0.0;
+    final price = double.tryParse(o['price']?.toString() ?? '') ?? 0.0;
+    final notional = qty * price;
+    final pairId = o['pairId']?.toString() ?? '';
+    final status = (o['status'] ?? '').toString();
+    final createdAt = DateTime.tryParse(o['createdAt']?.toString() ?? '');
+    final isBuy = side == 'BUY';
+    return DashboardActivityData(
+      type: '${type.isEmpty ? 'Spot' : _capitalize(type)} ${_capitalize(side.toLowerCase())}'.trim(),
+      symbol: 'Pair $pairId',
+      amount: '${qty.toStringAsFixed(6)} (${status})',
+      value: '${isBuy ? '-' : '+'}\$${notional.toStringAsFixed(2)}',
+      isPositive: !isBuy,
+      timeAgo: _timeAgo(createdAt),
+    );
+  }
+
+  String _capitalize(String s) =>
+      s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';
+
+  String _timeAgo(DateTime? dt) {
+    if (dt == null) return 'just now';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   Future<void> _onPortfolioUpdateRequested(

@@ -8,6 +8,7 @@ import { eq, or, and, desc, gt, sql } from "drizzle-orm";
 import {
   db, usersTable, loginLogsTable, walletsTable, coinsTable, pairsTable, sessionsTable, otpCodesTable,
   networksTable, cryptoWithdrawalsTable, inrWithdrawalsTable, bankAccountsTable,
+  ordersTable, tradesTable,
 } from "@workspace/db";
 import {
   hashPassword, verifyPassword, generateReferralCode, generateUid,
@@ -1119,7 +1120,16 @@ r.get("/exchange/chart", (req, res) => {
   res.json(buildChart(symbol, interval, limit));
 });
 
-r.get("/exchange/order", bicryptoAuth, (_req, res) => res.json({ items: [], pagination: emptyPg() }));
+r.get("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const userId = req.bcUser.id as number;
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  const status = String(req.query.status || "all");
+  const where = status === "all"
+    ? eq(ordersTable.userId, userId)
+    : and(eq(ordersTable.userId, userId), eq(ordersTable.status, status));
+  const rows = await db.select().from(ordersTable).where(where).orderBy(desc(ordersTable.createdAt)).limit(limit);
+  res.json(rows);
+});
 r.post("/exchange/order", bicryptoAuth, (_req, res) => res.status(501).json({ message: "Use /api/orders" }));
 r.delete("/exchange/order/:id", bicryptoAuth, (_req, res) => res.json({ message: "Use /api/orders/:id/cancel" }));
 
