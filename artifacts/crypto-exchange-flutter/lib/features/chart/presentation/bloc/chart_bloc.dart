@@ -61,6 +61,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   StreamSubscription? _ohlcvSubscription;
   StreamSubscription? _orderBookSubscription;
   StreamSubscription? _tradesSubscription;
+  StreamSubscription? _symbolChangeSubscription;
 
   FutureOr<void> _onChartLoadRequested(
     ChartLoadRequested event,
@@ -304,8 +305,12 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
       onError: (error) => dev.log('❌ CHART_BLOC: Shared Trades error: $error'),
     );
 
-    // Listen to symbol changes
-    _tradingWebSocketService.symbolChangeStream.listen((newSymbol) {
+    // Listen to symbol changes (track subscription so it gets cancelled on
+    // close — otherwise it leaks across navigation and may fire on a closed
+    // bloc).
+    _symbolChangeSubscription =
+        _tradingWebSocketService.symbolChangeStream.listen((newSymbol) {
+      if (isClosed) return;
       if (newSymbol != _currentSymbol) {
         dev.log('📡 CHART_BLOC: Symbol changed externally to $newSymbol');
         // Optionally handle external symbol changes
@@ -317,6 +322,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
   /// Handle shared ticker data from TradingWebSocketService
   void _handleSharedTickerData(MarketDataEntity marketData) {
+    if (isClosed) return;
     try {
       // dev.log(
       //     '📊 CHART_BLOC: Received shared ticker data: ${marketData.ticker?.symbol}');
@@ -356,6 +362,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
   /// Handle shared OHLCV data from TradingWebSocketService
   void _handleSharedOHLCVData(Map<String, dynamic> ohlcvData) {
+    if (isClosed) return;
     try {
       // dev.log('📊 CHART_BLOC: Received shared OHLCV data: $ohlcvData');
 
@@ -446,6 +453,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
   /// Handle shared order book data from TradingWebSocketService
   void _handleSharedOrderBookData(OrderBookData orderBookData) {
+    if (isClosed) return;
     try {
       // dev.log(
       //     '📊 CHART_BLOC: Received shared order book data: ${orderBookData.buyOrders.length} buy + ${orderBookData.sellOrders.length} sell orders');
@@ -488,6 +496,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
   /// Handle shared trades data from TradingWebSocketService
   void _handleSharedTradesData(List<TradeDataPoint> tradesData) {
+    if (isClosed) return;
     try {
       // dev.log(
       //     '📊 CHART_BLOC: Received shared trades data: ${tradesData.length} trades');
@@ -533,10 +542,12 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     _ohlcvSubscription?.cancel();
     _orderBookSubscription?.cancel();
     _tradesSubscription?.cancel();
+    _symbolChangeSubscription?.cancel();
 
     _tickerSubscription = null;
     _ohlcvSubscription = null;
     _orderBookSubscription = null;
+    _symbolChangeSubscription = null;
     _tradesSubscription = null;
   }
 
