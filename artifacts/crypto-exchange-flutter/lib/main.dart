@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:io';
@@ -55,14 +56,22 @@ void main() async {
   dev.log('🚀 MAIN: Initializing dependencies');
   await configureDependencies();
 
-  dev.log('🚀 MAIN: Initializing Stripe');
-  final stripeService = getIt<StripeService>();
-  try {
-    await stripeService.initialize();
-  } on SocketException catch (e) {
-    debugPrint('⚠️ Stripe initialization failed (offline): $e');
-  } catch (e) {
-    debugPrint('⚠️ Stripe initialization error: $e');
+  // Stripe's flutter_stripe plugin does NOT support web — calling
+  // initialize() on web throws a MissingPluginException that the early-init
+  // try/catch can't always recover from on first frame. Skip on web; the
+  // payment screens already have a web-fallback path.
+  if (kIsWeb) {
+    dev.log('⏭️  MAIN: Skipping Stripe init on web (unsupported platform)');
+  } else {
+    dev.log('🚀 MAIN: Initializing Stripe');
+    final stripeService = getIt<StripeService>();
+    try {
+      await stripeService.initialize();
+    } on SocketException catch (e) {
+      debugPrint('⚠️ Stripe initialization failed (offline): $e');
+    } catch (e) {
+      debugPrint('⚠️ Stripe initialization error: $e');
+    }
   }
 
   dev.log('🚀 MAIN: Initializing global WebSocket and Market services');
