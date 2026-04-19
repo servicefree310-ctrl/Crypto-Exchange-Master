@@ -514,6 +514,20 @@ export default function TradeScreen() {
   const basePrice = livePriceMap[pair] || PAIR_BASE[pair] || 64250;
   const change24h = liveChangeMap[pair] !== undefined ? liveChangeMap[pair] : (PAIR_CHANGE[pair] || 0);
   const fmtP = (v: number) => v >= 1 ? v.toLocaleString(isInr ? "en-IN" : "en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) : v.toFixed(5);
+  // Live pair-stats from DB (high24h/low24h/volume24h/quoteVolume24h, recomputed every 30s on backend)
+  const pairSym = (base + quote).toUpperCase();
+  const pairRow = useMemo(() => (apiPairs || []).find((p: any) => String(p.symbol).toUpperCase() === pairSym), [apiPairs, pairSym]);
+  const fmtBig = (n: number): string => {
+    if (!isFinite(n) || n <= 0) return "0";
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
+    return n.toFixed(2);
+  };
+  const stat24hHigh = pairRow ? Number(pairRow.high24h || 0) : 0;
+  const stat24hLow = pairRow ? Number(pairRow.low24h || 0) : 0;
+  const stat24hVolBase = pairRow ? Number(pairRow.volume24h || 0) : 0;
+  const stat24hVolQuote = pairRow ? Number(pairRow.quoteVolume24h || 0) : 0;
   const total = price && amount ? (parseFloat(price||"0")*parseFloat(amount||"0")).toFixed(2) : "0.00";
   const priceUp = currentPrice >= prevPrice.current;
 
@@ -752,10 +766,10 @@ export default function TradeScreen() {
       {/* 24H Stats */}
       <View style={[styles.statsBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         {[
-          { l:"24H High", v: fmtP(basePrice*1.015), c: colors.success },
-          { l:"24H Low",  v: fmtP(basePrice*0.978), c: colors.destructive },
-          { l:"24H Vol",  v: `${basePrice > 1000 ? "32.5B" : basePrice > 100 ? "4.5B" : "2.1B"}`, c: colors.foreground },
-          { l:`${quote} Vol`, v: "2.08B", c: colors.foreground },
+          { l:"24H High", v: stat24hHigh > 0 ? fmtP(stat24hHigh) : "—", c: colors.success },
+          { l:"24H Low",  v: stat24hLow > 0 ? fmtP(stat24hLow) : "—",  c: colors.destructive },
+          { l:`24H Vol(${base})`,  v: stat24hVolBase > 0 ? fmtBig(stat24hVolBase) : "—", c: colors.foreground },
+          { l:`24H Vol(${quote})`, v: stat24hVolQuote > 0 ? fmtBig(stat24hVolQuote) : "—", c: colors.foreground },
         ].map(s => (
           <View key={s.l} style={styles.statItem}>
             <Text style={[styles.statL, { color: colors.mutedForeground }]}>{s.l}</Text>

@@ -10,6 +10,7 @@ import { startFuturesEngine } from "./lib/futures-engine";
 import { initRedis, shutdownRedis } from "./lib/redis";
 import { seedCacheConfigs } from "./routes/redis-admin";
 import { warmAllCaches, startWarmupRefresh } from "./lib/cache-warmup";
+import { startPairStatsService } from "./lib/pair-stats";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -39,6 +40,7 @@ server.listen(port, async () => {
   startDepositSweeper(30000);
   startWithdrawalWatcher();
   startFuturesEngine();
+  startPairStatsService(30000);
 });
 
 const shutdown = async () => { await shutdownRedis(); process.exit(0); };

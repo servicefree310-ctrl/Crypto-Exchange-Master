@@ -265,7 +265,7 @@ router.patch("/admin/pairs/:id", adminOnly, async (req, res): Promise<void> => {
   delete b.id; delete b.createdAt;
   if (b.tradingStartAt) b.tradingStartAt = new Date(b.tradingStartAt);
   if (b.futuresStartAt) b.futuresStartAt = new Date(b.futuresStartAt);
-  for (const k of ["minQty", "maxQty", "takerFee", "makerFee", "lastPrice", "volume24h", "change24h"]) {
+  for (const k of ["minQty", "maxQty", "takerFee", "makerFee", "lastPrice", "volume24h", "change24h", "high24h", "low24h", "quoteVolume24h"]) {
     if (b[k] !== undefined && b[k] !== null) b[k] = String(b[k]);
   }
   const [p] = await db.update(pairsTable).set(b).where(eq(pairsTable.id, id)).returning();

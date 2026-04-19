@@ -56,9 +56,11 @@ export default function TradingScreen() {
   }, [baseCoinApi, isInr, coinLegacy]);
 
   const change24h = Number(baseCoinApi?.change24h ?? coinLegacy?.change24h ?? 0);
-  const high24h = coinLegacy?.high24h || 0;
-  const low24h = coinLegacy?.low24h || 0;
-  const vol24h = coinLegacy?.volume24h || 0;
+  // Live pair-stats from DB (server recomputes every 30s from real trades)
+  const high24h = pair ? Number((pair as any).high24h || 0) : (coinLegacy?.high24h || 0);
+  const low24h = pair ? Number((pair as any).low24h || 0) : (coinLegacy?.low24h || 0);
+  const vol24h = pair ? Number((pair as any).volume24h || 0) : (coinLegacy?.volume24h || 0);
+  const quoteVol24h = pair ? Number((pair as any).quoteVolume24h || 0) : 0;
 
   const pairId = pair?.id ?? null;
   const [submitting, setSubmitting] = React.useState(false);
@@ -170,9 +172,10 @@ export default function TradingScreen() {
         {/* Stats Bar */}
         <View style={s.statsBar}>
           {[
-            { label: '24H High', value: `${ccy}${fmt(high24h, 0)}` },
-            { label: '24H Low', value: `${ccy}${fmt(low24h, 0)}` },
-            { label: '24H Vol', value: `${(vol24h / 1e6).toFixed(0)}M` },
+            { label: '24H High', value: high24h > 0 ? `${ccy}${fmt(high24h, high24h >= 1 ? 2 : 5)}` : '—' },
+            { label: '24H Low',  value: low24h  > 0 ? `${ccy}${fmt(low24h,  low24h  >= 1 ? 2 : 5)}` : '—' },
+            { label: `Vol(${base})`,  value: vol24h      > 0 ? (vol24h      >= 1e9 ? (vol24h/1e9).toFixed(2)+'B' : vol24h      >= 1e6 ? (vol24h/1e6).toFixed(2)+'M' : vol24h      >= 1e3 ? (vol24h/1e3).toFixed(2)+'K' : vol24h.toFixed(2)) : '—' },
+            { label: `Vol(${quote})`, value: quoteVol24h > 0 ? (quoteVol24h >= 1e9 ? (quoteVol24h/1e9).toFixed(2)+'B' : quoteVol24h >= 1e6 ? (quoteVol24h/1e6).toFixed(2)+'M' : quoteVol24h >= 1e3 ? (quoteVol24h/1e3).toFixed(2)+'K' : quoteVol24h.toFixed(2)) : '—' },
           ].map(({ label, value }) => (
             <View key={label} style={s.statItem}>
               <Text style={s.statLabel}>{label}</Text>

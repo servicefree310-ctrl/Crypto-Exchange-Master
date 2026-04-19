@@ -21,6 +21,7 @@ type Pair = {
   tradingEnabled: boolean; futuresEnabled: boolean;
   tradingStartAt: string | null; futuresStartAt: string | null;
   lastPrice: string; volume24h: string; change24h: string; description: string | null;
+  high24h?: string; low24h?: string; quoteVolume24h?: string; trades24h?: number; statsOverride?: boolean;
 };
 
 function fmtCountdown(target: string | null): string {
@@ -63,9 +64,13 @@ function PairForm({ initial, coins, onSubmit }: { initial?: Partial<Pair>; coins
         <div><Label>Qty Precision</Label><Input type="number" value={v.qtyPrecision ?? 4} onChange={(e) => setV({ ...v, qtyPrecision: Number(e.target.value) })} /></div>
         <div><Label>Taker Fee (decimal)</Label><Input value={v.takerFee || "0.001"} onChange={(e) => setV({ ...v, takerFee: e.target.value })} /></div>
         <div><Label>Maker Fee (decimal)</Label><Input value={v.makerFee || "0.001"} onChange={(e) => setV({ ...v, makerFee: e.target.value })} /></div>
-        <div><Label>Last Price (manual override)</Label><Input value={v.lastPrice ?? ""} onChange={(e) => setV({ ...v, lastPrice: e.target.value })} placeholder="auto from feed" /></div>
+        <div><Label>Last Price</Label><Input value={v.lastPrice ?? ""} onChange={(e) => setV({ ...v, lastPrice: e.target.value })} placeholder="auto" /></div>
         <div><Label>24h Change %</Label><Input value={v.change24h ?? ""} onChange={(e) => setV({ ...v, change24h: e.target.value })} placeholder="auto" /></div>
-        <div><Label>24h Volume</Label><Input value={v.volume24h ?? ""} onChange={(e) => setV({ ...v, volume24h: e.target.value })} placeholder="auto" /></div>
+        <div><Label>24h High</Label><Input value={v.high24h ?? ""} onChange={(e) => setV({ ...v, high24h: e.target.value })} placeholder="auto" /></div>
+        <div><Label>24h Low</Label><Input value={v.low24h ?? ""} onChange={(e) => setV({ ...v, low24h: e.target.value })} placeholder="auto" /></div>
+        <div><Label>24h Volume (Base)</Label><Input value={v.volume24h ?? ""} onChange={(e) => setV({ ...v, volume24h: e.target.value })} placeholder="auto" /></div>
+        <div><Label>24h Volume (Quote)</Label><Input value={v.quoteVolume24h ?? ""} onChange={(e) => setV({ ...v, quoteVolume24h: e.target.value })} placeholder="auto" /></div>
+        <div><Label>24h Trades Count</Label><Input type="number" value={v.trades24h ?? 0} onChange={(e) => setV({ ...v, trades24h: Number(e.target.value) })} placeholder="auto" /></div>
         <div><Label>Spot Trading Start</Label><Input type="datetime-local" value={v.tradingStartAt ? new Date(v.tradingStartAt).toISOString().slice(0,16) : ""} onChange={(e) => setV({ ...v, tradingStartAt: e.target.value || null })} /></div>
         <div><Label>Futures Start</Label><Input type="datetime-local" value={v.futuresStartAt ? new Date(v.futuresStartAt).toISOString().slice(0,16) : ""} onChange={(e) => setV({ ...v, futuresStartAt: e.target.value || null })} /></div>
         <div><Label>Status</Label>
@@ -82,10 +87,12 @@ function PairForm({ initial, coins, onSubmit }: { initial?: Partial<Pair>; coins
           <textarea className="w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[60px]" value={v.description || ""} onChange={(e) => setV({ ...v, description: e.target.value })} />
         </div>
       </div>
-      <div className="flex gap-4 pt-2">
+      <div className="flex gap-4 pt-2 flex-wrap">
         <label className="flex items-center gap-2"><Switch checked={v.tradingEnabled} onCheckedChange={(c) => setV({ ...v, tradingEnabled: c })} /> Spot Enabled</label>
         <label className="flex items-center gap-2"><Switch checked={v.futuresEnabled} onCheckedChange={(c) => setV({ ...v, futuresEnabled: c })} /> Futures Enabled</label>
+        <label className="flex items-center gap-2"><Switch checked={!!v.statsOverride} onCheckedChange={(c) => setV({ ...v, statsOverride: c })} /> Manual Stats (lock auto-recompute)</label>
       </div>
+      <div className="text-xs text-muted-foreground">Tip: Stats (high/low/volume/change) auto-recompute every 30s from real trades. Enable "Manual Stats" to freeze your custom values.</div>
       <Button className="w-full" onClick={() => onSubmit(v)}>Save</Button>
     </div>
   );
