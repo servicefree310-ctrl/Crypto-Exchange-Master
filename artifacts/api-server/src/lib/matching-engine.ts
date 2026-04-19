@@ -96,23 +96,28 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           return;
         }
         if (maker.userId === taker.userId) {
-          // Self-trade prevention: cancel the resting maker, refund, continue loop
+          // Self-trade prevention: cancel the resting maker, refund, continue loop.
+          // Bot makers are synthetic and never had funds locked at placement, so
+          // skip the wallet refund — otherwise we'd credit ghost balance and
+          // push locked negative.
           const makerRem = Number(maker.qty) - Number(maker.filledQty ?? 0);
-          if (maker.side === "buy") {
-            const release = makerRem * Number(maker.price);
-            const w = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
-            await tx.update(walletsTable).set({
-              balance: sql`${walletsTable.balance} + ${release}`,
-              locked: sql`${walletsTable.locked} - ${release}`,
-              updatedAt: new Date(),
-            }).where(eq(walletsTable.id, w.id));
-          } else {
-            const w = await ensureWallet(tx, maker.userId, pair.baseCoinId);
-            await tx.update(walletsTable).set({
-              balance: sql`${walletsTable.balance} + ${makerRem}`,
-              locked: sql`${walletsTable.locked} - ${makerRem}`,
-              updatedAt: new Date(),
-            }).where(eq(walletsTable.id, w.id));
+          if ((maker.isBot ?? 0) !== 1) {
+            if (maker.side === "buy") {
+              const release = makerRem * Number(maker.price);
+              const w = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
+              await tx.update(walletsTable).set({
+                balance: sql`${walletsTable.balance} + ${release}`,
+                locked: sql`${walletsTable.locked} - ${release}`,
+                updatedAt: new Date(),
+              }).where(eq(walletsTable.id, w.id));
+            } else {
+              const w = await ensureWallet(tx, maker.userId, pair.baseCoinId);
+              await tx.update(walletsTable).set({
+                balance: sql`${walletsTable.balance} + ${makerRem}`,
+                locked: sql`${walletsTable.locked} - ${makerRem}`,
+                updatedAt: new Date(),
+              }).where(eq(walletsTable.id, w.id));
+            }
           }
           await tx.update(ordersTable).set({ status: "cancelled", updatedAt: new Date() }).where(eq(ordersTable.id, maker.id));
           await rZrem(`orderbook:${symbol}:${maker.side}`, String(maker.id));
@@ -138,63 +143,78 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
         const takerTds = taker.side === "sell" ? notional * tdsRate : 0;
         const makerTds = maker.side === "sell" ? notional * tdsRate : 0;
 
+        // Bot orders are synthetic liquidity — they're inserted into the
+        // book without locking any funds at placement time. Settling
+        // their wallet on a fill would push locked negative and credit
+        // ghost balances. Skip wallet ops for both sides if either party
+        // is a bot; only real (isBot===0) orders move money.
+        const takerIsBot = (taker.isBot ?? 0) === 1;
+        const makerIsBot = (maker.isBot ?? 0) === 1;
+
         if (taker.side === "buy") {
           // Taker BUY: pays quote, receives base. Locked quote on taker reduces by notional.
           // Maker SELL: locked base reduces by fillQty, receives quote (notional - makerFee).
           // For LIMIT taker, locked = remaining * limitPrice; effective spend = notional. Refund (limitPrice - tradePrice)*fillQty.
-          const takerQuoteLocked = isMarket ? notional * (1 + takerFeeRate) : fillQty * limitPrice;
-          const takerSpend = notional + takerFee; // what we actually take from locked
-          const takerRefund = takerQuoteLocked - takerSpend; // could be 0 (market) or positive (limit at better price)
-          const tQuote = await ensureWallet(tx, taker.userId, pair.quoteCoinId);
-          await tx.update(walletsTable).set({
-            locked: sql`${walletsTable.locked} - ${takerQuoteLocked}`,
-            balance: takerRefund > 0 ? sql`${walletsTable.balance} + ${takerRefund}` : walletsTable.balance,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, tQuote.id));
-          const tBase = await ensureWallet(tx, taker.userId, pair.baseCoinId);
-          await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${fillQty}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, tBase.id));
-          // Maker sell: release locked base, credit quote
-          const mBase = await ensureWallet(tx, maker.userId, pair.baseCoinId);
-          await tx.update(walletsTable).set({
-            locked: sql`${walletsTable.locked} - ${fillQty}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, mBase.id));
-          const mQuote = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
-          await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${notional - makerFee - makerTds}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, mQuote.id));
+          if (!takerIsBot) {
+            const takerQuoteLocked = isMarket ? notional * (1 + takerFeeRate) : fillQty * limitPrice;
+            const takerSpend = notional + takerFee; // what we actually take from locked
+            const takerRefund = takerQuoteLocked - takerSpend; // could be 0 (market) or positive (limit at better price)
+            const tQuote = await ensureWallet(tx, taker.userId, pair.quoteCoinId);
+            await tx.update(walletsTable).set({
+              locked: sql`${walletsTable.locked} - ${takerQuoteLocked}`,
+              balance: takerRefund > 0 ? sql`${walletsTable.balance} + ${takerRefund}` : walletsTable.balance,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, tQuote.id));
+            const tBase = await ensureWallet(tx, taker.userId, pair.baseCoinId);
+            await tx.update(walletsTable).set({
+              balance: sql`${walletsTable.balance} + ${fillQty}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, tBase.id));
+          }
+          if (!makerIsBot) {
+            // Maker sell: release locked base, credit quote
+            const mBase = await ensureWallet(tx, maker.userId, pair.baseCoinId);
+            await tx.update(walletsTable).set({
+              locked: sql`${walletsTable.locked} - ${fillQty}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, mBase.id));
+            const mQuote = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
+            await tx.update(walletsTable).set({
+              balance: sql`${walletsTable.balance} + ${notional - makerFee - makerTds}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, mQuote.id));
+          }
         } else {
           // Taker SELL: locked base = remaining (qty units). Spend fillQty base, get notional - takerFee quote.
-          const tBase = await ensureWallet(tx, taker.userId, pair.baseCoinId);
-          await tx.update(walletsTable).set({
-            locked: sql`${walletsTable.locked} - ${fillQty}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, tBase.id));
-          const tQuote = await ensureWallet(tx, taker.userId, pair.quoteCoinId);
-          await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${notional - takerFee - takerTds}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, tQuote.id));
-          // Maker buy: locked quote = makerRem * makerPrice; spend = notional + makerFee; refund leftover lock for this slice = (makerPrice * fillQty) - (notional + makerFee) = -makerFee since tradePrice = makerPrice
-          const makerLockSlice = fillQty * tradePrice;
-          const makerSpend = notional + makerFee;
-          // Negative refund means we need to take fee from balance because we pre-locked exact notional only.
-          // Strategy: reduce locked by makerLockSlice (release), then debit fee from balance.
-          const mQuote = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
-          await tx.update(walletsTable).set({
-            locked: sql`${walletsTable.locked} - ${makerLockSlice}`,
-            balance: sql`${walletsTable.balance} - ${makerFee}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, mQuote.id));
-          const mBase = await ensureWallet(tx, maker.userId, pair.baseCoinId);
-          await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${fillQty}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, mBase.id));
+          if (!takerIsBot) {
+            const tBase = await ensureWallet(tx, taker.userId, pair.baseCoinId);
+            await tx.update(walletsTable).set({
+              locked: sql`${walletsTable.locked} - ${fillQty}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, tBase.id));
+            const tQuote = await ensureWallet(tx, taker.userId, pair.quoteCoinId);
+            await tx.update(walletsTable).set({
+              balance: sql`${walletsTable.balance} + ${notional - takerFee - takerTds}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, tQuote.id));
+          }
+          if (!makerIsBot) {
+            // Maker buy: locked quote = makerRem * makerPrice; spend = notional + makerFee; refund leftover lock for this slice = (makerPrice * fillQty) - (notional + makerFee) = -makerFee since tradePrice = makerPrice
+            const makerLockSlice = fillQty * tradePrice;
+            // Negative refund means we need to take fee from balance because we pre-locked exact notional only.
+            // Strategy: reduce locked by makerLockSlice (release), then debit fee from balance.
+            const mQuote = await ensureWallet(tx, maker.userId, pair.quoteCoinId);
+            await tx.update(walletsTable).set({
+              locked: sql`${walletsTable.locked} - ${makerLockSlice}`,
+              balance: sql`${walletsTable.balance} - ${makerFee}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, mQuote.id));
+            const mBase = await ensureWallet(tx, maker.userId, pair.baseCoinId);
+            await tx.update(walletsTable).set({
+              balance: sql`${walletsTable.balance} + ${fillQty}`,
+              updatedAt: new Date(),
+            }).where(eq(walletsTable.id, mBase.id));
+          }
         }
 
         // Insert trades (one row per side for accounting clarity? Use single row with taker side)
@@ -207,21 +227,36 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           side: maker.side, price: String(tradePrice), qty: String(fillQty), fee: String(makerFee),
         });
 
-        // Update orders
-        const newTakerFilled = Number(taker.filledQty ?? 0) + fillQty;
+        // Update orders. avgPrice is the volume-weighted average across
+        // all fills, so a buy that sweeps multiple lower-priced sells
+        // ends up with a true blended cost basis instead of the last
+        // tape print.
+        const oldTakerFilled = Number(taker.filledQty ?? 0);
+        const oldTakerAvg = Number(taker.avgPrice ?? 0);
+        const newTakerFilled = oldTakerFilled + fillQty;
+        const newTakerAvg = newTakerFilled > 0
+          ? (oldTakerFilled * oldTakerAvg + fillQty * tradePrice) / newTakerFilled
+          : tradePrice;
         const takerFinished = newTakerFilled >= Number(taker.qty) - 1e-12;
-        const newMakerFilled = Number(maker.filledQty ?? 0) + fillQty;
+
+        const oldMakerFilled = Number(maker.filledQty ?? 0);
+        const oldMakerAvg = Number(maker.avgPrice ?? 0);
+        const newMakerFilled = oldMakerFilled + fillQty;
+        const newMakerAvg = newMakerFilled > 0
+          ? (oldMakerFilled * oldMakerAvg + fillQty * tradePrice) / newMakerFilled
+          : tradePrice;
         const makerFinished = newMakerFilled >= Number(maker.qty) - 1e-12;
+
         await tx.update(ordersTable).set({
           filledQty: String(newTakerFilled),
-          avgPrice: String(tradePrice),
+          avgPrice: String(newTakerAvg.toFixed(8)),
           fee: sql`${ordersTable.fee} + ${takerFee}`,
           status: takerFinished ? "filled" : "partial",
           updatedAt: new Date(),
         }).where(eq(ordersTable.id, taker.id));
         await tx.update(ordersTable).set({
           filledQty: String(newMakerFilled),
-          avgPrice: String(tradePrice),
+          avgPrice: String(newMakerAvg.toFixed(8)),
           fee: sql`${ordersTable.fee} + ${makerFee}`,
           status: makerFinished ? "filled" : "partial",
           updatedAt: new Date(),
