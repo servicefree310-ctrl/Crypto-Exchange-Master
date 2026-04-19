@@ -7,6 +7,8 @@ import {
   StyleSheet, Platform, Modal, Animated, Alert
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Rect, Line, Path, G, Text as SvgText } from "react-native-svg";
+import { PanResponder } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -93,115 +95,322 @@ function apiToUiTrades(raw: any[], pricePrecision: number, qtyPrecision: number)
 function CandleChart({ candles, width, height, showMA, showBB }: {
   candles: Candle[]; width: number; height: number; showMA: boolean; showBB: boolean;
 }) {
-  if (!width) return null;
-  if (!candles.length) return null;
-  const volH = 36;
-  const chartH = height - volH - 4;
-  const prices = candles.flatMap(c => [c.high, c.low]);
-  const minP = Math.min(...prices), maxP = Math.max(...prices);
-  const range = maxP - minP || 1;
-  const vols = candles.map(c => c.vol);
-  const maxVol = Math.max(...vols);
-  const candleW = Math.max(3, (width / candles.length) - 1.5);
-  const py = (v: number) => ((maxP - v) / range) * chartH;
-  const slot = width / candles.length;
+  // ---- Pan/Zoom state (X = candle count, Y = price range stretch) ----
+  const MIN_VIS = 15, MAX_VIS = 400;
+  const [visibleCount, setVisibleCount] = useState(60);
+  const [endOffset, setEndOffset] = useState(0); // candles back from latest
+  const [yZoom, setYZoom] = useState(1);          // >1 stretches price, <1 compresses
+  const [yPan, setYPan] = useState(0);            // pixel offset for vertical pan
+  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | null>(null);
 
-  // Simple 20-period MA
-  const ma: number[] = candles.map((_, i) => {
-    if (i < 19) return -1;
-    const slice = candles.slice(i - 19, i + 1).map(c => (c.open + c.close) / 2);
-    return slice.reduce((s, v) => s + v, 0) / 20;
+  const clampVis = (n: number) => Math.max(MIN_VIS, Math.min(MAX_VIS, Math.round(n)));
+  const total = candles.length;
+  const clampOff = (o: number, vis: number) => Math.max(0, Math.min(o, Math.max(0, total - vis)));
+
+  const panStart = useRef({ vis: 60, off: 0, yZoom: 1, yPan: 0, dist: 0, vDist: 0 });
+  const liveRef = useRef({ visibleCount, endOffset, yZoom, yPan, candleW: 1, total: 0 });
+  liveRef.current = { visibleCount, endOffset, yZoom, yPan, candleW: 1, total };
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, g) =>
+      Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2 || (g.numberActiveTouches ?? 0) >= 2,
+    onPanResponderGrant: (e) => {
+      const cur = liveRef.current;
+      panStart.current.vis = cur.visibleCount;
+      panStart.current.off = cur.endOffset;
+      panStart.current.yZoom = cur.yZoom;
+      panStart.current.yPan = cur.yPan;
+      const t = (e.nativeEvent as any).touches || [];
+      if (t.length >= 2) {
+        const dx = t[0].pageX - t[1].pageX;
+        const dy = t[0].pageY - t[1].pageY;
+        panStart.current.dist = Math.hypot(dx, dy) || 1;
+        panStart.current.vDist = Math.abs(dy) || 1;
+      }
+      // Tap → show crosshair at touch point
+      const lx = (e.nativeEvent as any).locationX ?? 0;
+      const ly = (e.nativeEvent as any).locationY ?? 0;
+      setCrosshair({ x: lx, y: ly });
+    },
+    onPanResponderMove: (e, g) => {
+      const t = (e.nativeEvent as any).touches || [];
+      const cur = liveRef.current;
+      if (t.length >= 2) {
+        // Two-finger: horizontal pinch = X zoom, vertical spread = Y zoom
+        const dx = t[0].pageX - t[1].pageX;
+        const dy = t[0].pageY - t[1].pageY;
+        const dist = Math.hypot(dx, dy) || 1;
+        const vDist = Math.abs(dy) || 1;
+        // If movement is more horizontal → X zoom; more vertical → Y zoom
+        if (Math.abs(dx) > Math.abs(dy)) {
+          const ratio = panStart.current.dist / dist;
+          setVisibleCount(clampVis(panStart.current.vis * ratio));
+        } else {
+          const ratio = vDist / panStart.current.vDist;
+          setYZoom(Math.max(0.3, Math.min(5, panStart.current.yZoom * ratio)));
+        }
+        setCrosshair(null);
+      } else {
+        // One-finger drag: horizontal = scroll candles back/forward, vertical = pan price
+        const dxCandles = Math.round(g.dx / Math.max(1, cur.candleW));
+        setEndOffset(clampOff(panStart.current.off + dxCandles, cur.visibleCount));
+        setYPan(panStart.current.yPan + g.dy);
+        // Update crosshair while dragging horizontally only (avoid noise)
+        if (Math.abs(g.dx) < 4 && Math.abs(g.dy) < 4) {
+          const lx = (e.nativeEvent as any).locationX ?? 0;
+          const ly = (e.nativeEvent as any).locationY ?? 0;
+          setCrosshair({ x: lx, y: ly });
+        } else {
+          setCrosshair(null);
+        }
+      }
+    },
+    onPanResponderRelease: () => {
+      // Keep crosshair visible after a tap (no drag); auto-hide after 2s
+      setTimeout(() => setCrosshair(null), 2200);
+    },
+  }), []);
+
+  // Web mouse-wheel: scroll = X zoom, shift+scroll = Y zoom
+  const containerRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const target = document.querySelector('[data-trade-chart="1"]') as HTMLElement | null;
+    if (!target) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+      if (e.shiftKey) {
+        setYZoom(z => Math.max(0.3, Math.min(5, z * factor)));
+      } else {
+        setVisibleCount(v => clampVis(v * factor));
+      }
+    };
+    target.addEventListener("wheel", onWheel, { passive: false });
+    return () => target.removeEventListener("wheel", onWheel);
+  }, [width]);
+
+  const reset = useCallback(() => {
+    setVisibleCount(60); setEndOffset(0); setYZoom(1); setYPan(0); setCrosshair(null);
+  }, []);
+
+  // Always render container so onLayout fires; show placeholder if no data
+  if (!width || !candles.length) {
+    return <View style={{ width: width || "100%", height }} />;
+  }
+
+  // Layout
+  const padR = 56; // right gutter for price labels
+  const padB = 18; // bottom for time labels
+  const volH = Math.max(34, height * 0.18);
+  const gap = 4;
+  const chartH = height - padB - volH - gap;
+  const innerW = Math.max(40, width - padR);
+
+  // Visible window
+  const safeOff = clampOff(endOffset, visibleCount);
+  const endIdx = total - safeOff;
+  const startIdx = Math.max(0, endIdx - visibleCount);
+  const visible = candles.slice(startIdx, endIdx);
+  const candleW = innerW / Math.max(1, visible.length);
+  liveRef.current.candleW = candleW;
+  const bodyW = Math.max(1, candleW * 0.7);
+
+  // Y-axis price range with zoom + pan
+  const highs = visible.map(c => c.high), lows = visible.map(c => c.low);
+  let maxP = Math.max(...highs), minP = Math.min(...lows);
+  const mid = (maxP + minP) / 2;
+  const half = ((maxP - minP) / 2) / Math.max(0.1, yZoom);
+  maxP = mid + half * 1.06;
+  minP = mid - half * 1.06;
+  const range = maxP - minP || 1;
+  const py = (v: number) => ((maxP - v) / range) * chartH + yPan;
+
+  // Volume scale
+  const maxVol = Math.max(...visible.map(c => c.vol), 1);
+  const volBaseY = chartH + gap + volH;
+  const volY = (v: number) => volBaseY - (v / maxVol) * volH;
+
+  // MA20 over close
+  const ma: (number | null)[] = visible.map((_, i) => {
+    if (i < 19) return null;
+    let s = 0;
+    for (let j = i - 19; j <= i; j++) s += visible[j].close;
+    return s / 20;
+  });
+  let maPath = "";
+  ma.forEach((v, i) => {
+    if (v == null) return;
+    const x = i * candleW + candleW / 2;
+    const y = py(v);
+    maPath += (maPath ? " L" : "M") + ` ${x.toFixed(1)} ${y.toFixed(1)}`;
   });
 
-  // Simple Bollinger upper/lower (20-period, 2σ)
-  const bb = candles.map((_, i) => {
-    if (i < 19) return { upper: -1, lower: -1 };
-    const slice = candles.slice(i - 19, i + 1).map(c => (c.open + c.close) / 2);
+  // Bollinger
+  const bbU: (number | null)[] = [], bbL: (number | null)[] = [];
+  visible.forEach((_, i) => {
+    if (i < 19) { bbU.push(null); bbL.push(null); return; }
+    const slice = visible.slice(i - 19, i + 1).map(c => c.close);
     const mean = slice.reduce((s, v) => s + v, 0) / 20;
     const std = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / 20);
-    return { upper: mean + 2 * std, lower: mean - 2 * std };
+    bbU.push(mean + 2 * std); bbL.push(mean - 2 * std);
+  });
+  const bbPath = (arr: (number | null)[]) => {
+    let p = "";
+    arr.forEach((v, i) => {
+      if (v == null) return;
+      const x = i * candleW + candleW / 2;
+      const y = py(v);
+      p += (p ? " L" : "M") + ` ${x.toFixed(1)} ${y.toFixed(1)}`;
+    });
+    return p;
+  };
+
+  // Grid + price labels (5 lines)
+  const grid = Array.from({ length: 6 }, (_, i) => {
+    const p = minP + (range * (5 - i)) / 5;
+    return { y: py(p), price: p };
   });
 
+  // Time labels (5)
+  const timeMarks = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const i = Math.min(visible.length - 1, Math.floor(f * (visible.length - 1)));
+    return { x: i * candleW + candleW / 2, label: visible[i].time };
+  });
+
+  const last = visible[visible.length - 1];
+  const lastY = py(last.close);
+  const lastUp = last.close >= last.open;
+  const lastColor = lastUp ? "#0ecb81" : "#f6465d";
+
+  // Crosshair logic
+  let crosshairCandle: Candle | null = null;
+  let crosshairPrice = 0;
+  if (crosshair && crosshair.x < innerW && crosshair.y < chartH) {
+    const idx = Math.max(0, Math.min(visible.length - 1, Math.floor(crosshair.x / candleW)));
+    crosshairCandle = visible[idx];
+    crosshairPrice = maxP - ((crosshair.y - yPan) / chartH) * range;
+  }
+
+  const fmtP = (p: number) => p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(2) : p.toFixed(5);
+
   return (
-    <View style={{ width, overflow: "hidden" }}>
-      <View style={{ width, height: chartH, overflow: "hidden" }}>
-        {/* Y-grid lines */}
-        {[0,1,2,3,4].map(i => (
-          <View key={`g${i}`} style={{
-            position: "absolute", left: 0, right: 0,
-            top: (i / 4) * chartH, height: 1, backgroundColor: "#2b2f3622",
-          }} />
+    <View
+      ref={containerRef}
+      {...({ dataSet: { tradeChart: "1" } } as any)}
+      style={{ width, height }}
+      {...panResponder.panHandlers}
+    >
+      <Svg width={width} height={height}>
+        {/* Grid + price labels */}
+        {grid.map((g, i) => (
+          <G key={`g${i}`}>
+            <Line x1={0} y1={g.y} x2={innerW} y2={g.y} stroke="#2b2f3666" strokeWidth={0.5} strokeDasharray="3 3" />
+            <SvgText x={innerW + 4} y={g.y + 3} fill="#9ca3af" fontSize={9}>{fmtP(g.price)}</SvgText>
+          </G>
         ))}
-        {/* Candles */}
-        {candles.map((c, i) => {
-          const x = i * slot + (slot - candleW) / 2;
+
+        {/* Volume bars */}
+        {visible.map((c, i) => {
+          const x = i * candleW + (candleW - bodyW) / 2;
           const isGreen = c.close >= c.open;
-          const color = isGreen ? "#0ecb81" : "#f6465d";
-          const bodyTop = py(Math.max(c.open, c.close));
-          const bodyH = Math.max(1.5, Math.abs(py(c.open) - py(c.close)));
-          const wickTop = py(c.high);
-          const wickH = Math.max(1, Math.abs(py(c.high) - py(c.low)));
-          return (
-            <View key={i} pointerEvents="none">
-              <View style={{ position:"absolute", left: x + candleW/2 - 0.5, top: wickTop, width: 1, height: wickH, backgroundColor: color, opacity: 0.8 }} />
-              <View style={{ position:"absolute", left: x, top: bodyTop, width: candleW, height: bodyH, backgroundColor: color, borderRadius: 1 }} />
-            </View>
-          );
+          const vy = volY(c.vol);
+          const vh = Math.max(0.5, volBaseY - vy);
+          return <Rect key={`v${i}`} x={x} y={vy} width={bodyW} height={vh} fill={(isGreen ? "#0ecb81" : "#f6465d") + "55"} />;
         })}
-        {/* MA line */}
-        {showMA && ma.slice(0,-1).map((v, i) => {
-          if (v < 0 || ma[i+1] < 0) return null;
-          const x1 = i * slot + slot/2, y1 = py(v);
-          const x2 = (i+1)*slot + slot/2, y2 = py(ma[i+1]);
-          const len = Math.sqrt((x2-x1)**2+(y2-y1)**2);
-          const angle = Math.atan2(y2-y1, x2-x1) * (180/Math.PI);
-          return (
-            <View key={`ma${i}`} style={{
-              position:"absolute", left: x1, top: y1, width: len, height: 1.5,
-              backgroundColor: "#fcd535", opacity: 0.8,
-              transform:[{rotate:`${angle}deg`}], transformOrigin:"0 50%",
-            } as any} pointerEvents="none" />
-          );
-        })}
+
         {/* Bollinger bands */}
-        {showBB && bb.slice(0,-1).map((b, i) => {
-          if (b.upper < 0) return null;
-          const nb = bb[i+1];
-          const x1 = i*slot+slot/2, x2 = (i+1)*slot+slot/2;
-          const renderLine = (y1: number, y2: number, color: string, key: string) => {
-            const len = Math.sqrt((x2-x1)**2+(y2-y1)**2);
-            const angle = Math.atan2(y2-y1, x2-x1) * (180/Math.PI);
-            return (
-              <View key={key} style={{
-                position:"absolute", left: x1, top: y1, width: len, height: 1,
-                backgroundColor: color, opacity: 0.5,
-                transform:[{rotate:`${angle}deg`}], transformOrigin:"0 50%",
-              } as any} pointerEvents="none" />
-            );
-          };
-          return [
-            renderLine(py(b.upper), py(nb.upper), "#627EEA", `bbu${i}`),
-            renderLine(py(b.lower), py(nb.lower), "#627EEA", `bbl${i}`),
-          ];
-        })}
-      </View>
-      {/* Volume bars */}
-      <View style={{ width, height: volH, flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
-        {candles.map((c, i) => {
+        {showBB && (
+          <>
+            <Path d={bbPath(bbU)} stroke="#627EEA" strokeWidth={1} fill="none" opacity={0.6} />
+            <Path d={bbPath(bbL)} stroke="#627EEA" strokeWidth={1} fill="none" opacity={0.6} />
+          </>
+        )}
+
+        {/* Candles */}
+        {visible.map((c, i) => {
+          const x = i * candleW + (candleW - bodyW) / 2;
+          const cx = i * candleW + candleW / 2;
           const isGreen = c.close >= c.open;
-          const barH = Math.max(2, (c.vol / maxVol) * (volH - 4));
+          const col = isGreen ? "#0ecb81" : "#f6465d";
+          const bodyTop = py(Math.max(c.open, c.close));
+          const bodyBot = py(Math.min(c.open, c.close));
+          const bodyH = Math.max(1, bodyBot - bodyTop);
           return (
-            <View key={i} style={{
-              width: Math.max(2, candleW), marginHorizontal: (slot - candleW) / 2,
-              height: barH, backgroundColor: isGreen ? "#0ecb8140" : "#f6465d40",
-              borderTopLeftRadius: 1, borderTopRightRadius: 1,
-            }} />
+            <G key={`c${i}`}>
+              <Line x1={cx} y1={py(c.high)} x2={cx} y2={bodyTop} stroke={col} strokeWidth={1} />
+              <Rect x={x} y={bodyTop} width={bodyW} height={bodyH} fill={col} />
+              <Line x1={cx} y1={bodyBot} x2={cx} y2={py(c.low)} stroke={col} strokeWidth={1} />
+            </G>
           );
         })}
+
+        {/* MA20 */}
+        {showMA && maPath ? <Path d={maPath} stroke="#fcd535" strokeWidth={1.3} fill="none" /> : null}
+
+        {/* Last price line */}
+        <Line x1={0} y1={lastY} x2={innerW} y2={lastY} stroke={lastColor} strokeWidth={0.6} strokeDasharray="2 3" opacity={0.85} />
+        <Rect x={innerW + 1} y={lastY - 7} width={padR - 2} height={14} fill={lastColor} rx={2} />
+        <SvgText x={innerW + 4} y={lastY + 3} fill="#fff" fontSize={9} fontWeight="700">{fmtP(last.close)}</SvgText>
+
+        {/* Time axis */}
+        {timeMarks.map((m, i) => (
+          <SvgText key={`t${i}`} x={m.x} y={height - 4} fill="#9ca3af" fontSize={8.5} textAnchor="middle">{m.label}</SvgText>
+        ))}
+
+        {/* Crosshair */}
+        {crosshair && crosshairCandle && (
+          <G>
+            <Line x1={crosshair.x} y1={0} x2={crosshair.x} y2={chartH} stroke="#9ca3af" strokeWidth={0.5} strokeDasharray="2 2" />
+            <Line x1={0} y1={crosshair.y} x2={innerW} y2={crosshair.y} stroke="#9ca3af" strokeWidth={0.5} strokeDasharray="2 2" />
+            <Rect x={innerW + 1} y={crosshair.y - 7} width={padR - 2} height={14} fill="#1f2937" rx={2} />
+            <SvgText x={innerW + 4} y={crosshair.y + 3} fill="#fff" fontSize={9} fontWeight="700">{fmtP(crosshairPrice)}</SvgText>
+          </G>
+        )}
+
+        {/* OHLC chip header */}
+        <Rect x={2} y={2} width={Math.min(innerW - 4, 290)} height={14} fill="#0b0e11cc" rx={3} />
+        <SvgText x={6} y={12} fill="#e5e7eb" fontSize={9}>
+          {`O ${fmtP((crosshairCandle || last).open)}  H ${fmtP((crosshairCandle || last).high)}  L ${fmtP((crosshairCandle || last).low)}  C ${fmtP((crosshairCandle || last).close)}`}
+        </SvgText>
+      </Svg>
+
+      {/* Zoom controls */}
+      <View style={{ position: "absolute", top: 20, right: padR + 4, flexDirection: "row", gap: 4 }}>
+        <TouchableOpacity onPress={() => setVisibleCount(v => clampVis(v / 1.4))} style={chartCtrlBtn}>
+          <Feather name="zoom-in" size={11} color="#e5e7eb" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setVisibleCount(v => clampVis(v * 1.4))} style={chartCtrlBtn}>
+          <Feather name="zoom-out" size={11} color="#e5e7eb" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setYZoom(z => Math.min(5, z * 1.3))} style={chartCtrlBtn}>
+          <Feather name="chevrons-up" size={11} color="#e5e7eb" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setYZoom(z => Math.max(0.3, z / 1.3))} style={chartCtrlBtn}>
+          <Feather name="chevrons-down" size={11} color="#e5e7eb" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={reset} style={chartCtrlBtn}>
+          <Feather name="maximize-2" size={11} color="#e5e7eb" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Status pill */}
+      <View style={{ position: "absolute", bottom: padB + 2, left: 4, paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 3, backgroundColor: "#0b0e11cc" }}>
+        <Text style={{ color: "#9ca3af", fontSize: 8.5 }}>
+          {visible.length}c · y{yZoom.toFixed(1)}x{safeOff > 0 ? ` · ←${safeOff}` : ""}
+        </Text>
       </View>
     </View>
   );
 }
+
+const chartCtrlBtn = {
+  width: 22, height: 22, borderRadius: 5,
+  backgroundColor: "#1f2937cc",
+  alignItems: "center" as const, justifyContent: "center" as const,
+  borderWidth: 0.5, borderColor: "#2b2f36",
+};
 
 const BOTTOM_TABS = ["Open Orders","Order History","Trade History","Funds"] as const;
 type BottomTab = typeof BOTTOM_TABS[number];
