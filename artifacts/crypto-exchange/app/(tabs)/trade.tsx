@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { tradingApi, marketApi, api } from "@/lib/api";
+import { tradingApi, marketApi, api, settingsApi } from "@/lib/api";
 
 interface Candle { open: number; high: number; low: number; close: number; vol: number; time: string }
 interface OrderEntry { price: string; amount: string; total: string; depth: number }
@@ -423,10 +423,35 @@ export default function TradeScreen() {
     setAmount(side === "buy" ? ((bal*p/100)/pr).toFixed(dp) : (bal*p/100).toFixed(dp));
   }, [price, side, base, quote, spotBalance, currentPrice, isInr]);
 
+  const [feeSettings, setFeeSettings] = useState<{ fee?: number; gst?: number; tds?: number }>({});
+  useEffect(() => {
+    let alive = true;
+    settingsApi.getAll().then(s => {
+      if (!alive) return;
+      setFeeSettings({
+        fee: s["spot.fee_percent"] ? Number(s["spot.fee_percent"]) : undefined,
+        gst: s["spot.gst_percent"] ? Number(s["spot.gst_percent"]) : undefined,
+        tds: s["tds.percent"] ? Number(s["tds.percent"]) : undefined,
+      });
+    });
+    return () => { alive = false; };
+  }, []);
+
   const totalNum = parseFloat(price||"0") * parseFloat(amount||"0");
-  const feeRate = orderType === "market" ? (currentFeeTier?.spotTaker ?? 0.25) / 100 : (currentFeeTier?.spotMaker ?? 0.20) / 100;
-  const feeAmt = totalNum * feeRate;
-  const receiveAmt = side === "buy" ? parseFloat(amount||"0") * (1 - feeRate) : totalNum * (1 - feeRate);
+  const qtyNum = parseFloat(amount||"0");
+  const adminFeePct = feeSettings.fee ?? (orderType === "market" ? (currentFeeTier?.spotTaker ?? 0.25) : (currentFeeTier?.spotMaker ?? 0.20));
+  const gstPct = feeSettings.gst ?? 18;
+  const tdsPct = feeSettings.tds ?? 1;
+  const feeRate = adminFeePct / 100;
+  const gstRate = gstPct / 100;
+  const tdsRate = tdsPct / 100;
+  const feeAmt = totalNum * feeRate;            // trading fee in quote
+  const gstAmt = feeAmt * gstRate;              // GST on the fee
+  const tdsAmt = side === "sell" ? totalNum * tdsRate : 0; // TDS on sell value (Indian crypto reg)
+  const totalDeductions = feeAmt + gstAmt + tdsAmt;
+  const receiveAmt = side === "buy"
+    ? qtyNum * (1 - feeRate - feeRate * gstRate)              // buyer receives qty minus fee+GST in base
+    : Math.max(0, totalNum - totalDeductions);                // seller receives quote minus fee+GST+TDS
 
   const obRows = showOB ? 8 : 0;
 
@@ -712,24 +737,42 @@ export default function TradeScreen() {
               })}
             </View>
 
-            {/* Total + Fee preview */}
+            {/* Total + Fee + GST + TDS breakdown */}
             <View style={[styles.summaryBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
               <View style={styles.summaryRow}>
-                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>Total</Text>
+                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>Order value</Text>
                 <Text style={[styles.val, { color: colors.foreground, fontFamily: "Inter_700Bold" }]}>
                   {totalNum > 0 ? fmtBal(totalNum, 2) : "0.00"} {quote}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={[styles.lbl, { color: colors.mutedForeground }]}>
-                  Fee ({orderType === "market" ? "Taker" : "Maker"} {((orderType === "market" ? currentFeeTier?.spotTaker : currentFeeTier?.spotMaker) ?? 0).toFixed(2)}%)
+                  Fee ({adminFeePct.toFixed(2)}%)
                 </Text>
                 <Text style={[styles.val, { color: colors.mutedForeground }]}>
-                  {feeAmt > 0 ? fmtBal(feeAmt, isInr ? 2 : 4) : "0.00"} {quote}
+                  − {feeAmt > 0 ? fmtBal(feeAmt, isInr ? 2 : 4) : "0.00"} {quote}
                 </Text>
               </View>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>
+                  GST ({gstPct.toFixed(0)}% on fee)
+                </Text>
+                <Text style={[styles.val, { color: colors.mutedForeground }]}>
+                  − {gstAmt > 0 ? fmtBal(gstAmt, isInr ? 2 : 4) : "0.00"} {quote}
+                </Text>
+              </View>
+              {side === "sell" && (
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.lbl, { color: colors.destructive }]}>
+                    TDS ({tdsPct.toFixed(2)}% on sell)
+                  </Text>
+                  <Text style={[styles.val, { color: colors.destructive }]}>
+                    − {tdsAmt > 0 ? fmtBal(tdsAmt, isInr ? 2 : 4) : "0.00"} {quote}
+                  </Text>
+                </View>
+              )}
               <View style={[styles.summaryRow, { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4, marginTop: 2 }]}>
-                <Text style={[styles.lbl, { color: colors.mutedForeground }]}>You receive</Text>
+                <Text style={[styles.lbl, { color: colors.foreground, fontFamily: "Inter_600SemiBold" }]}>You {side === "buy" ? "receive" : "get"}</Text>
                 <Text style={[styles.val, { color: side === "buy" ? colors.success : colors.destructive, fontFamily: "Inter_700Bold" }]}>
                   ≈ {receiveAmt > 0 ? fmtBal(receiveAmt, side === "buy" ? 6 : 2) : "0.00"} {side === "buy" ? base : quote}
                 </Text>

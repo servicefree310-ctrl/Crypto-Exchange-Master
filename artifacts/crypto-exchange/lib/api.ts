@@ -201,6 +201,12 @@ export const marketApi = {
   },
 };
 
+export const settingsApi = {
+  getAll: async (): Promise<Record<string, string>> => {
+    try { return await api.get<Record<string, string>>('/settings'); } catch { return {}; }
+  },
+};
+
 export const promoApi = {
   getBanners: async (): Promise<any[]> => {
     try { return await api.get<any[]>('/banners?platform=mobile'); } catch { return []; }

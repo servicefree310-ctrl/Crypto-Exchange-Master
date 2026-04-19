@@ -48,6 +48,13 @@ router.get("/legal/:slug", async (req, res): Promise<void> => {
   res.json(p);
 });
 
+router.get("/settings", async (_req, res): Promise<void> => {
+  const rows = await db.select().from(settingsTable);
+  const map: Record<string, string> = {};
+  rows.forEach((s: any) => { map[s.key] = s.value; });
+  res.json(map);
+});
+
 router.get("/settings/:key", async (req, res): Promise<void> => {
   const key = Array.isArray(req.params.key) ? req.params.key[0] : req.params.key;
   if (!key) { res.status(400).json({ error: "key required" }); return; }
