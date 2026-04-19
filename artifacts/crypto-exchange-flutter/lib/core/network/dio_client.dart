@@ -1,6 +1,7 @@
 import 'dart:developer' as dev;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:injectable/injectable.dart';
@@ -192,32 +193,38 @@ class _AuthInterceptor extends Interceptor {
     RequestInterceptorHandler handler,
   ) async {
     if (_secureStorage != null) {
-      final accessToken = await _secureStorage.read(
-        key: AppConstants.accessTokenKey,
-      );
-
+      final accessToken = await _readTokenSafe(AppConstants.accessTokenKey);
       if (accessToken != null) {
         options.headers['Authorization'] = 'Bearer $accessToken';
       }
 
-      final csrfToken = await _secureStorage.read(
-        key: AppConstants.csrfTokenKey,
-      );
-
+      final csrfToken = await _readTokenSafe(AppConstants.csrfTokenKey);
       if (csrfToken != null) {
         options.headers['X-CSRF-Token'] = csrfToken;
       }
 
-      final sessionId = await _secureStorage.read(
-        key: AppConstants.sessionIdKey,
-      );
-
+      final sessionId = await _readTokenSafe(AppConstants.sessionIdKey);
       if (sessionId != null) {
         options.headers['sessionid'] = sessionId;
       }
     }
 
     handler.next(options);
+  }
+
+  // Mirrors the web fallback used in AuthLocalDataSource: on Flutter web,
+  // read tokens from SharedPreferences (stable) instead of FSS (Web Crypto
+  // OperationError). On native, fall back to FSS.
+  Future<String?> _readTokenSafe(String key) async {
+    try {
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        return prefs.getString('_tok_$key');
+      }
+      return await _secureStorage!.read(key: key);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

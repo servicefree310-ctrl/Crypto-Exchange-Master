@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:developer' as dev;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,6 +35,32 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
     required this.sharedPreferences,
     required this.secureStorage,
   });
+
+  // On Flutter web, flutter_secure_storage uses Web Crypto API which throws
+  // intermittent OperationError, breaking login persistence. Fall back to
+  // SharedPreferences (less secure but reliable) for tokens on web only.
+  Future<void> _writeToken(String key, String value) async {
+    if (kIsWeb) {
+      await sharedPreferences.setString('_tok_$key', value);
+    } else {
+      await secureStorage.write(key: key, value: value);
+    }
+  }
+
+  Future<String?> _readToken(String key) async {
+    if (kIsWeb) {
+      return sharedPreferences.getString('_tok_$key');
+    }
+    return secureStorage.read(key: key);
+  }
+
+  Future<void> _deleteToken(String key) async {
+    if (kIsWeb) {
+      await sharedPreferences.remove('_tok_$key');
+    } else {
+      await secureStorage.delete(key: key);
+    }
+  }
 
   @override
   Future<UserModel?> getCachedUser() async {
@@ -99,10 +126,10 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
     
     try {
       await Future.wait([
-        secureStorage.write(key: AppConstants.accessTokenKey, value: accessToken),
-        secureStorage.write(key: AppConstants.refreshTokenKey, value: refreshToken),
-        secureStorage.write(key: AppConstants.sessionIdKey, value: sessionId),
-        secureStorage.write(key: AppConstants.csrfTokenKey, value: csrfToken),
+        _writeToken(AppConstants.accessTokenKey, accessToken),
+        _writeToken(AppConstants.refreshTokenKey, refreshToken),
+        _writeToken(AppConstants.sessionIdKey, sessionId),
+        _writeToken(AppConstants.csrfTokenKey, csrfToken),
       ]);
       dev.log('🟢 AUTH_LOCAL_DS: All tokens saved successfully');
     } catch (e) {
@@ -114,7 +141,7 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   @override
   Future<String?> getAccessToken() async {
     try {
-      return await secureStorage.read(key: AppConstants.accessTokenKey);
+      return await _readToken(AppConstants.accessTokenKey);
     } catch (e) {
       throw CacheException('Failed to get access token');
     }
@@ -123,7 +150,7 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   @override
   Future<String?> getRefreshToken() async {
     try {
-      return await secureStorage.read(key: AppConstants.refreshTokenKey);
+      return await _readToken(AppConstants.refreshTokenKey);
     } catch (e) {
       throw CacheException('Failed to get refresh token');
     }
@@ -132,7 +159,7 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   @override
   Future<String?> getSessionId() async {
     try {
-      return await secureStorage.read(key: AppConstants.sessionIdKey);
+      return await _readToken(AppConstants.sessionIdKey);
     } catch (e) {
       throw CacheException('Failed to get session ID');
     }
@@ -141,7 +168,7 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   @override
   Future<String?> getCsrfToken() async {
     try {
-      return await secureStorage.read(key: AppConstants.csrfTokenKey);
+      return await _readToken(AppConstants.csrfTokenKey);
     } catch (e) {
       throw CacheException('Failed to get CSRF token');
     }
@@ -151,10 +178,10 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   Future<void> clearTokens() async {
     try {
       await Future.wait([
-        secureStorage.delete(key: AppConstants.accessTokenKey),
-        secureStorage.delete(key: AppConstants.refreshTokenKey),
-        secureStorage.delete(key: AppConstants.sessionIdKey),
-        secureStorage.delete(key: AppConstants.csrfTokenKey),
+        _deleteToken(AppConstants.accessTokenKey),
+        _deleteToken(AppConstants.refreshTokenKey),
+        _deleteToken(AppConstants.sessionIdKey),
+        _deleteToken(AppConstants.csrfTokenKey),
       ]);
     } catch (e) {
       throw CacheException('Failed to clear tokens');

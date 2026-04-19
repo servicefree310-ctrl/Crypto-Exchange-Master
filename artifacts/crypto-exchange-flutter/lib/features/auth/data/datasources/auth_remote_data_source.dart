@@ -134,7 +134,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
                 'User', // Default name, will be updated from profile API later
             lastName:
                 '', // Default name, will be updated from profile API later
-            role: userInfo['role'].toString(),
+            role: (userInfo['role'] ?? 0).toString(),
             emailVerified: true, // Assume verified since login was successful
             status: 'ACTIVE',
             avatar: null,
@@ -332,7 +332,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
             email: email,
             firstName: firstName,
             lastName: lastName,
-            role: userInfo['role'].toString(),
+            role: (userInfo['role'] ?? 0).toString(),
             emailVerified: true, // Auto-verified when email verification is disabled
             status: 'ACTIVE',
             avatar: null,
