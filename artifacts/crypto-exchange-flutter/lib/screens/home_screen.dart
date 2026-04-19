@@ -1250,7 +1250,13 @@ class _PriceRowState extends State<_PriceRow> with SingleTickerProviderStateMixi
                 const SizedBox(height: 3),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: (up ? AppColors.success : AppColors.danger).withValues(alpha: 0.13), borderRadius: BorderRadius.circular(4)),
+                  decoration: BoxDecoration(
+                    color: (up ? AppColors.success : AppColors.danger).withValues(alpha: 0.13 + (_dir != null ? 0.40 * _flash.value : 0)),
+                    borderRadius: BorderRadius.circular(4),
+                    border: _dir != null && _flash.value > 0
+                        ? Border.all(color: flashColor.withValues(alpha: 0.7 * _flash.value), width: 1)
+                        : null,
+                  ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(up ? Icons.arrow_upward : Icons.arrow_downward, size: 9, color: up ? AppColors.success : AppColors.danger),
                     const SizedBox(width: 2),
