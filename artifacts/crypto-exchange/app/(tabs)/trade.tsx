@@ -432,7 +432,7 @@ type BottomTab = typeof BOTTOM_TABS[number];
 export default function TradeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { apiCoins, apiPairs, coins: liveCoins, user, orders: liveOrders, cancelOrder: ctxCancelOrder, refreshWallets, walletBalances, currentFeeTier } = useApp();
+  const { apiCoins, apiPairs, coins: liveCoins, user, orders: liveOrders, cancelOrder: ctxCancelOrder, refreshWallets, walletBalances, currentFeeTier, inrUsdtRate } = useApp();
   const coinById = useMemo(() => {
     const m = new Map<number, any>();
     (apiCoins || []).forEach((c: any) => m.set(c.id, c));
@@ -568,11 +568,58 @@ export default function TradeScreen() {
     setPrice(target.toFixed(pricePrec));
   }, [bestAsk, bestBid]);
 
+  // For USDT/INR pair: synthesize candles around admin-set rate (1 USDT = inrUsdtRate INR)
+  const isUsdtInr = base === "USDT" && quote === "INR";
+  const synthUsdtInrCandles = useCallback((rate: number): Candle[] => {
+    if (!rate || rate <= 0) return [];
+    const intervalMs = ({
+      "1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
+      "1H": 3_600_000, "4H": 14_400_000, "1D": 86_400_000, "1W": 604_800_000,
+    } as Record<string, number>)[interval_] || 60_000;
+    const now = Date.now();
+    const arr: Candle[] = [];
+    // 60 candles ending at "now". Tiny ±0.05% jitter so chart doesn't look flat-dead.
+    let prevClose = rate;
+    for (let i = 59; i >= 0; i--) {
+      const ts = now - i * intervalMs;
+      const drift = (Math.sin((ts / intervalMs) * 0.7) + Math.cos((ts / intervalMs) * 1.3)) * 0.0003 * rate;
+      const open = prevClose;
+      const close = i === 0 ? rate : Math.max(0.0001, rate + drift);
+      const hi = Math.max(open, close) * 1.0008;
+      const lo = Math.min(open, close) * 0.9992;
+      const d = new Date(ts);
+      const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      arr.push({ open, high: hi, low: lo, close, vol: 1000 + Math.random() * 4000, time });
+      prevClose = close;
+    }
+    return arr;
+  }, [interval_]);
+
   // Initial fetch on pair/interval change: live candles + orderbook + recent trades
   useEffect(() => {
     let cancel = false;
     const sym = pair.replace("/", "").toUpperCase();
     const apiInt = UI_TO_API_INTERVAL[interval_] || "1m";
+
+    // Special-case USDT/INR: chart driven by admin rate, no klines call needed
+    if (isUsdtInr) {
+      setCandles(synthUsdtInrCandles(inrUsdtRate || 84));
+      // still fetch orderbook + trades (they exist for USDT/INR pair)
+      (async () => {
+        try {
+          const [ob, tr] = await Promise.all([
+            marketApi.getOrderbook(sym).catch(() => ({ bids: [], asks: [] })),
+            marketApi.getTrades(sym).catch(() => []),
+          ]);
+          if (cancel) return;
+          const { p, q } = precRef.current;
+          setOrderBook(apiToUiBook(ob.bids, ob.asks, p, q));
+          setTrades(apiToUiTrades(tr, p, q));
+        } catch {}
+      })();
+      return () => { cancel = true; };
+    }
+
     (async () => {
       try {
         const [cRes, ob, tr] = await Promise.all([
@@ -589,7 +636,7 @@ export default function TradeScreen() {
       } catch { /* keep previous */ }
     })();
     return () => { cancel = true; };
-  }, [pair, interval_]);
+  }, [pair, interval_, isUsdtInr, inrUsdtRate, synthUsdtInrCandles]);
 
   // Poll Redis-backed orderbook + recent trades every 1.5s — deps only on pair so the interval is stable
   useEffect(() => {
