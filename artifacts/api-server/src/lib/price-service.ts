@@ -141,8 +141,8 @@ async function tick() {
       const qPx = cache.get(quote.symbol)?.usdt ?? 1;
       if (bPx > 0 && qPx > 0) {
         const last = bPx / qPx;
-        const ch = cache.get(base.symbol)?.change24h ?? 0;
-        const vol = cache.get(base.symbol)?.volume24h ?? 0;
+        const tickCh = cache.get(base.symbol)?.change24h ?? 0;
+        const tickVol = cache.get(base.symbol)?.volume24h ?? 0;
         // NOTE: do NOT write volume_24h/change_24h here — those are owned by
         // the pair-stats service which aggregates real fills from tradesTable.
         // This loop only refreshes lastPrice for pairs whose base coin uses
@@ -150,7 +150,23 @@ async function tick() {
         await db.update(pairsTable).set({
           lastPrice: String(last.toFixed(8)),
         }).where(eq(pairsTable.id, p.id));
-        void rSet(`pair:${p.symbol}`, JSON.stringify({ symbol: p.symbol, last, change24h: ch, volume24h: vol, ts: Date.now() }), 60);
+        // Redis pair cache: overlay real pair-stats when fills exist so
+        // any consumer (chart fallback, ticker fallback, etc.) sees the
+        // authoritative numbers, not the empty external-feed coin volume.
+        const display = `${base.symbol}/${quote.symbol}`;
+        const ps = getPairStats(display);
+        const hasFills = !!ps && ps.trades24h > 0;
+        const cachePayload = {
+          symbol: p.symbol,
+          last: hasFills ? ps!.lastPrice : last,
+          change24h: hasFills ? ps!.change24h : tickCh,
+          volume24h: hasFills ? ps!.baseVolume : tickVol,
+          quoteVolume24h: hasFills ? ps!.quoteVolume : tickVol * last,
+          high24h: hasFills ? ps!.high24h : 0,
+          low24h: hasFills ? ps!.low24h : 0,
+          ts: Date.now(),
+        };
+        void rSet(`pair:${p.symbol}`, JSON.stringify(cachePayload), 60);
       }
     }
   } catch {}

@@ -12,6 +12,7 @@ import { seedCacheConfigs } from "./routes/redis-admin";
 import { warmAllCaches, startWarmupRefresh } from "./lib/cache-warmup";
 import { startPairStatsService } from "./lib/pair-stats";
 import { startPriceHistory } from "./lib/price-history";
+import { getPairStats } from "./lib/pair-stats";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -55,25 +56,28 @@ function toTickersFrame(ticks: any[]): Record<string, any> {
     if (t.symbol === "USDT" || t.symbol === "INR") continue;
     const usdt = Number(t.usdt ?? 0);
     const inr = Number(t.inr ?? 0);
-    const pctRaw = Number(t.change24h ?? 0);
-    const pct = pctRaw <= -100 ? -99.99 : pctRaw;
-    const vol = Number(t.volume24h ?? 0);
-    if (usdt > 0) {
-      out[`${t.symbol}/USDT`] = {
-        last: usdt, change: pct, baseVolume: vol, quoteVolume: vol * usdt,
-        high: usdt * (1 + Math.max(pct, 0) / 100),
-        low: usdt * (1 + Math.min(pct, 0) / 100),
-        timestamp: Number(t.ts ?? Date.now()),
+    const pctRawTick = Number(t.change24h ?? 0);
+    const tickVol = Number(t.volume24h ?? 0);
+    const build = (sym: string, feedPx: number) => {
+      // Overlay authoritative DB pair-stats (volume / change / hi-lo / last)
+      // when the pair has any real fills. Falls back to the synthetic
+      // external-feed tick when the pair has never traded.
+      const ps = getPairStats(sym);
+      const hasFills = !!ps && ps.trades24h > 0;
+      const px = hasFills ? (ps!.lastPrice || feedPx) : feedPx;
+      const pctRaw = hasFills ? ps!.change24h : pctRawTick;
+      const pct = pctRaw <= -100 ? -99.99 : pctRaw;
+      const baseVol = hasFills ? ps!.baseVolume : tickVol;
+      const quoteVol = hasFills ? ps!.quoteVolume : baseVol * px;
+      const high = hasFills ? (ps!.high24h || px) : px * (1 + Math.max(pct, 0) / 100);
+      const low = hasFills ? (ps!.low24h || px) : px * (1 + Math.min(pct, 0) / 100);
+      return {
+        last: px, change: pct, baseVolume: baseVol, quoteVolume: quoteVol,
+        high, low, timestamp: Number(t.ts ?? Date.now()),
       };
-    }
-    if (inr > 0) {
-      out[`${t.symbol}/INR`] = {
-        last: inr, change: pct, baseVolume: vol, quoteVolume: vol * inr,
-        high: inr * (1 + Math.max(pct, 0) / 100),
-        low: inr * (1 + Math.min(pct, 0) / 100),
-        timestamp: Number(t.ts ?? Date.now()),
-      };
-    }
+    };
+    if (usdt > 0) out[`${t.symbol}/USDT`] = build(`${t.symbol}/USDT`, usdt);
+    if (inr > 0) out[`${t.symbol}/INR`] = build(`${t.symbol}/INR`, inr);
   }
   return out;
 }
@@ -85,23 +89,28 @@ function tickerFrameFor(symbol: string, ticks: any[]) {
   const [base, quote = "USDT"] = symbol.split("/");
   const t = ticks.find((x) => x && x.symbol === base);
   if (!t) return null;
-  const px = quote === "INR" ? Number(t.inr ?? 0) : Number(t.usdt ?? 0);
+  const feedPx = quote === "INR" ? Number(t.inr ?? 0) : Number(t.usdt ?? 0);
+  const ps = getPairStats(symbol);
+  const hasFills = !!ps && ps.trades24h > 0;
+  const px = hasFills ? (ps!.lastPrice || feedPx) : feedPx;
   if (!(px > 0)) return null;
-  const pctRaw = Number(t.change24h ?? 0);
+  const pctRaw = hasFills ? ps!.change24h : Number(t.change24h ?? 0);
   const pct = pctRaw <= -100 ? -99.99 : pctRaw;
-  const vol = Number(t.volume24h ?? 0);
+  const baseVol = hasFills ? ps!.baseVolume : Number(t.volume24h ?? 0);
+  const quoteVol = hasFills ? ps!.quoteVolume : baseVol * px;
+  const high = hasFills ? (ps!.high24h || px) : px * (1 + Math.max(pct, 0) / 100);
+  const low = hasFills ? (ps!.low24h || px) : px * (1 + Math.min(pct, 0) / 100);
   return {
     symbol,
     last: px,
     bid: px,
     ask: px,
-    high: px * (1 + Math.max(pct, 0) / 100),
-    low: px * (1 + Math.min(pct, 0) / 100),
+    high, low,
     open: px / (1 + pct / 100),
     close: px,
     percentage: pct,
-    baseVolume: vol,
-    quoteVolume: vol * px,
+    baseVolume: baseVol,
+    quoteVolume: quoteVol,
     timestamp: Number(t.ts ?? Date.now()),
   };
 }
@@ -219,7 +228,7 @@ server.listen(port, async () => {
   startDepositSweeper(30000);
   startWithdrawalWatcher();
   startFuturesEngine();
-  startPairStatsService(30000);
+  startPairStatsService(5000);
 });
 
 const shutdown = async () => { await shutdownRedis(); process.exit(0); };

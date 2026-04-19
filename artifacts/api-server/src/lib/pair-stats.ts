@@ -1,9 +1,35 @@
-import { db, pairsTable, tradesTable } from "@workspace/db";
+import { db, pairsTable, tradesTable, coinsTable } from "@workspace/db";
 import { sql, eq } from "drizzle-orm";
 import { logger } from "./logger";
 
+// In-memory snapshot of authoritative pair stats keyed by display symbol
+// ("BTC/USDT", "SOL/INR"). Updated each pair-stats recompute. WS frames
+// + Redis cache + ticker routes overlay this so the same numbers reach
+// every consumer without re-querying the DB on the price-tick hot path.
+export type PairStatsCacheEntry = {
+  symbol: string;          // "SOL/INR"
+  pairId: number;
+  trades24h: number;
+  baseVolume: number;      // pairs.volume_24h
+  quoteVolume: number;     // pairs.quote_volume_24h
+  change24h: number;       // percent
+  high24h: number;
+  low24h: number;
+  lastPrice: number;
+  ts: number;
+};
+const pairStatsCache = new Map<string, PairStatsCacheEntry>();
+export function getPairStats(displaySymbol: string): PairStatsCacheEntry | undefined {
+  return pairStatsCache.get(displaySymbol);
+}
+export function getAllPairStats(): PairStatsCacheEntry[] {
+  return Array.from(pairStatsCache.values());
+}
+
 export async function recomputePairStats(): Promise<void> {
   const pairs = await db.select().from(pairsTable);
+  const coins = await db.select().from(coinsTable);
+  const coinById = new Map(coins.map((c) => [c.id, c]));
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   for (const p of pairs) {
@@ -55,6 +81,26 @@ export async function recomputePairStats(): Promise<void> {
         }
       } else {
         await db.execute(sql`UPDATE pairs SET trades_24h = 0 WHERE id = ${p.id}`);
+      }
+
+      // Refresh in-memory cache so WS frames + Redis writers can overlay
+      // these values on the next price tick (no extra DB round-trip).
+      const baseSym = coinById.get(p.baseCoinId)?.symbol;
+      const quoteSym = coinById.get(p.quoteCoinId)?.symbol;
+      if (baseSym && quoteSym) {
+        const display = `${baseSym}/${quoteSym}`;
+        pairStatsCache.set(display, {
+          symbol: display,
+          pairId: p.id,
+          trades24h: cnt,
+          baseVolume: cnt > 0 ? Number(agg?.vol ?? 0) : 0,
+          quoteVolume: cnt > 0 ? Number(agg?.quoteVol ?? 0) : 0,
+          change24h: cnt > 0 ? change : 0,
+          high24h: cnt > 0 ? Number(agg?.high ?? 0) : 0,
+          low24h: cnt > 0 ? Number(agg?.low ?? 0) : 0,
+          lastPrice: cnt > 0 && last > 0 ? last : Number(p.lastPrice ?? 0),
+          ts: Date.now(),
+        });
       }
     } catch (e: any) {
       logger.warn({ err: e?.message, pairId: p.id }, "pair stats recompute failed");
