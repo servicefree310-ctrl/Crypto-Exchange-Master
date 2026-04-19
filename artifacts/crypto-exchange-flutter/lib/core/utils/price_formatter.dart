@@ -130,6 +130,74 @@ class PriceFormatter {
     }
   }
 
+  /// Currency symbol for a given asset code (₹ for INR, $ for USD/USDT, etc.)
+  static String currencySymbol(String currency) {
+    final c = currency.toUpperCase();
+    switch (c) {
+      case 'INR':
+        return '₹';
+      case 'USD':
+      case 'USDT':
+      case 'USDC':
+      case 'BUSD':
+        return '\$';
+      case 'EUR':
+        return '€';
+      case 'GBP':
+        return '£';
+      case 'JPY':
+        return '¥';
+      default:
+        return '';
+    }
+  }
+
+  /// Indian-style number grouping (1,00,000) for INR; western style otherwise
+  static String _groupedDigits(String intPart, {required bool indian}) {
+    if (intPart.isEmpty) return '0';
+    final negative = intPart.startsWith('-');
+    var digits = negative ? intPart.substring(1) : intPart;
+    if (digits.length <= 3) return (negative ? '-' : '') + digits;
+    if (!indian) {
+      // 1,234,567
+      final buf = StringBuffer();
+      var idx = 0;
+      for (var i = 0; i < digits.length; i++) {
+        if (i > 0 && (digits.length - i) % 3 == 0) buf.write(',');
+        buf.write(digits[i]);
+        idx++;
+      }
+      return (negative ? '-' : '') + buf.toString();
+    }
+    // Indian: last 3 digits, then groups of 2
+    final last3 = digits.substring(digits.length - 3);
+    final rest = digits.substring(0, digits.length - 3);
+    final buf = StringBuffer();
+    for (var i = 0; i < rest.length; i++) {
+      if (i > 0 && (rest.length - i) % 2 == 0) buf.write(',');
+      buf.write(rest[i]);
+    }
+    return (negative ? '-' : '') + buf.toString() + ',' + last3;
+  }
+
+  /// Format an amount as a currency string with the appropriate symbol & grouping.
+  /// INR uses Indian-style grouping (₹1,00,000.00); crypto prices keep more decimals.
+  static String formatCurrency(double amount, String currency, {int? decimals}) {
+    final c = currency.toUpperCase();
+    final isFiat = ['INR', 'USD', 'EUR', 'GBP', 'JPY'].contains(c) ||
+        ['USDT', 'USDC', 'BUSD'].contains(c);
+    final useIndian = c == 'INR';
+    final dec = decimals ?? (isFiat ? 2 : (amount >= 1 ? 4 : 8));
+    final fixed = amount.toStringAsFixed(dec);
+    final dotIdx = fixed.indexOf('.');
+    final intPart = dotIdx == -1 ? fixed : fixed.substring(0, dotIdx);
+    final fracPart = dotIdx == -1 ? '' : fixed.substring(dotIdx);
+    final grouped = _groupedDigits(intPart, indian: useIndian);
+    final sym = currencySymbol(c);
+    final body = '$grouped$fracPart';
+    return sym.isEmpty ? '$body $c' : '$sym$body';
+  }
+
   /// Format volume with K/M/B notation
   static String formatVolume(double volume) {
     if (volume >= 1000000000) {

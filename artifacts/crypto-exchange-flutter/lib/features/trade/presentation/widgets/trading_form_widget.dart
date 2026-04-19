@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../../core/theme/global_theme_extensions.dart';
+import '../../../../core/utils/price_formatter.dart';
 import '../../../../injection/injection.dart';
 import '../bloc/trading_form_bloc.dart';
 import '../../../wallet/presentation/bloc/spot_deposit_bloc.dart';
@@ -325,16 +326,51 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
   }
 
   Widget _buildPriceInput(BuildContext context, TradingFormLoaded state) {
+    final bestPrice = state.bestPriceForSide;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Limit(${state.quoteCurrency})',
-          style: TextStyle(
-            color: context.textSecondary,
-            fontSize: 10,
-            fontWeight: FontWeight.w500,
-          ),
+        Row(
+          children: [
+            Text(
+              'Limit (${state.quoteCurrency})',
+              style: TextStyle(
+                color: context.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Spacer(),
+            if (bestPrice > 0)
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  _formBloc.add(const TradingFormUseBestPrice());
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: (state.isBuy
+                            ? context.priceUpColor
+                            : context.priceDownColor)
+                        .withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Best ${state.isBuy ? 'Ask' : 'Bid'}: '
+                    '${PriceFormatter.formatCurrency(bestPrice, state.quoteCurrency)}',
+                    style: TextStyle(
+                      color: state.isBuy
+                          ? context.priceUpColor
+                          : context.priceDownColor,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 4),
         Row(
@@ -349,29 +385,28 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
                 ),
                 child: Row(
                   children: [
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: TextFormField(
-                          key: ValueKey(state.formattedPrice),
-                          initialValue: state.formattedPrice,
+                    if (PriceFormatter.currencySymbol(state.quoteCurrency)
+                        .isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Text(
+                          PriceFormatter.currencySymbol(state.quoteCurrency),
                           style: TextStyle(
-                            color: context.textPrimary,
+                            color: context.textSecondary,
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          onChanged: (value) {
-                            final price = double.tryParse(value) ?? 0.0;
-                            _formBloc
-                                .add(TradingFormPriceChanged(price: price));
-                          },
+                        ),
+                      ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: _NumericField(
+                          value: state.price,
+                          formatted: state.formattedPrice,
+                          textColor: context.textPrimary,
+                          onChanged: (v) => _formBloc
+                              .add(TradingFormPriceChanged(price: v)),
                         ),
                       ),
                     ),
@@ -422,7 +457,7 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
         ),
         const SizedBox(height: 2),
         Text(
-          '≈${(state.price * 20).toStringAsFixed(2)} USD',
+          '≈ ${PriceFormatter.formatCurrency(state.price, state.quoteCurrency)}',
           style: TextStyle(
             color: context.textTertiary,
             fontSize: 9,
@@ -460,26 +495,12 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: TextFormField(
-                          key: ValueKey(state.formattedStopPrice),
-                          initialValue: state.formattedStopPrice,
-                          style: TextStyle(
-                            color: context.textPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          onChanged: (value) {
-                            final sp = double.tryParse(value) ?? 0.0;
-                            _formBloc.add(
-                                TradingFormStopPriceChanged(stopPrice: sp));
-                          },
+                        child: _NumericField(
+                          value: state.stopPrice,
+                          formatted: state.formattedStopPrice,
+                          textColor: context.textPrimary,
+                          onChanged: (v) => _formBloc
+                              .add(TradingFormStopPriceChanged(stopPrice: v)),
                         ),
                       ),
                     ),
@@ -557,28 +578,13 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: TextFormField(
-                    key: ValueKey(state.formattedQuantity),
-                    initialValue:
+                  child: _NumericField(
+                    value: state.quantity,
+                    formatted:
                         state.quantity > 0 ? state.formattedQuantity : '',
-                    style: TextStyle(
-                      color: context.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (value) {
-                      final quantity = double.tryParse(value) ?? 0.0;
-                      _formBloc.add(
-                        TradingFormQuantityChanged(quantity: quantity),
-                      );
-                    },
+                    textColor: context.textPrimary,
+                    onChanged: (v) => _formBloc
+                        .add(TradingFormQuantityChanged(quantity: v)),
                   ),
                 ),
               ),
@@ -711,7 +717,7 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '≈${state.formattedTotal} USD',
+              '≈ ${PriceFormatter.formatCurrency(state.estimatedTotal, state.quoteCurrency)}',
               style: TextStyle(
                 color: context.textSecondary,
                 fontSize: 11,
@@ -724,6 +730,8 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
   }
 
   Widget _buildAvailableBalance(BuildContext context, TradingFormLoaded state) {
+    final balanceCurrency =
+        state.isBuy ? state.quoteCurrency : state.baseCurrency;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -737,7 +745,8 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
         Row(
           children: [
             Text(
-              '${state.formattedBalance} ${state.isBuy ? state.quoteCurrency : state.baseCurrency}',
+              PriceFormatter.formatCurrency(
+                  state.availableBalance, balanceCurrency),
               style: TextStyle(
                 color: context.textPrimary,
                 fontSize: 10,
@@ -908,6 +917,98 @@ class _TradingFormWidgetState extends State<TradingFormWidget>
         height: height,
         decoration: _skeletonDecoration,
       ),
+    );
+  }
+}
+
+/// A numeric input that keeps a stable [TextEditingController] (so the cursor
+/// doesn't jump while typing) but stays in sync with externally-driven values
+/// such as best-price autofill, percentage taps, or order-type changes.
+class _NumericField extends StatefulWidget {
+  const _NumericField({
+    required this.value,
+    required this.formatted,
+    required this.textColor,
+    required this.onChanged,
+  });
+
+  final double value;
+  final String formatted;
+  final Color textColor;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_NumericField> createState() => _NumericFieldState();
+}
+
+class _NumericFieldState extends State<_NumericField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.formatted);
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void didUpdateWidget(_NumericField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final localValue = double.tryParse(_controller.text) ?? 0.0;
+    final drift = (widget.value - localValue).abs();
+    if (_focusNode.hasFocus) {
+      // While the user is editing, only overwrite the controller if an
+      // EXTERNAL change pushed the underlying numeric value to something
+      // genuinely different (e.g. best-price tap, percentage button,
+      // tab switch). Reformatting alone (drift ≈ 0) must never clobber
+      // what the user is currently typing.
+      if (drift > 0.0000001) {
+        _controller.value = TextEditingValue(
+          text: widget.formatted,
+          selection:
+              TextSelection.collapsed(offset: widget.formatted.length),
+        );
+      }
+    } else {
+      // Field not focused — safe to sync display text to the formatted value.
+      if (_controller.text != widget.formatted) {
+        _controller.value = TextEditingValue(
+          text: widget.formatted,
+          selection:
+              TextSelection.collapsed(offset: widget.formatted.length),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      style: TextStyle(
+        color: widget.textColor,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: const InputDecoration(
+        border: InputBorder.none,
+        isDense: true,
+        contentPadding: EdgeInsets.zero,
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      onChanged: (value) {
+        final parsed = double.tryParse(value) ?? 0.0;
+        widget.onChanged(parsed);
+      },
     );
   }
 }

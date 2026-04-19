@@ -74,12 +74,29 @@ class TradingFormOrderPlaced extends TradingFormEvent {
 }
 
 class _TradingFormCurrentPriceUpdated extends TradingFormEvent {
-  const _TradingFormCurrentPriceUpdated({required this.currentPrice});
+  const _TradingFormCurrentPriceUpdated({
+    required this.currentPrice,
+    this.bid,
+    this.ask,
+  });
 
   final double currentPrice;
+  final double? bid;
+  final double? ask;
 
   @override
-  List<Object?> get props => [currentPrice];
+  List<Object?> get props => [currentPrice, bid, ask];
+}
+
+class _TradingFormBalanceRefreshed extends TradingFormEvent {
+  const _TradingFormBalanceRefreshed({required this.availableBalance});
+  final double availableBalance;
+  @override
+  List<Object?> get props => [availableBalance];
+}
+
+class TradingFormUseBestPrice extends TradingFormEvent {
+  const TradingFormUseBestPrice();
 }
 
 class TradingFormStopPriceChanged extends TradingFormEvent {
@@ -120,6 +137,8 @@ class TradingFormLoaded extends TradingFormState {
     required this.estimatedTotal,
     required this.fees,
     required this.currentPrice,
+    this.bestBid,
+    this.bestAsk,
   });
 
   final String symbol;
@@ -133,6 +152,15 @@ class TradingFormLoaded extends TradingFormState {
   final double estimatedTotal;
   final double fees;
   final double currentPrice;
+  final double? bestBid;
+  final double? bestAsk;
+
+  /// The best price for the current side: ask for Buy, bid for Sell.
+  /// Falls back to currentPrice when bid/ask not available.
+  double get bestPriceForSide {
+    if (isBuy) return bestAsk ?? currentPrice;
+    return bestBid ?? currentPrice;
+  }
 
   @override
   List<Object?> get props => [
@@ -147,6 +175,8 @@ class TradingFormLoaded extends TradingFormState {
         estimatedTotal,
         fees,
         currentPrice,
+        bestBid,
+        bestAsk,
       ];
 
   TradingFormLoaded copyWith({
@@ -161,6 +191,8 @@ class TradingFormLoaded extends TradingFormState {
     double? estimatedTotal,
     double? fees,
     double? currentPrice,
+    Object? bestBid = _unset,
+    Object? bestAsk = _unset,
   }) {
     return TradingFormLoaded(
       symbol: symbol ?? this.symbol,
@@ -174,8 +206,14 @@ class TradingFormLoaded extends TradingFormState {
       estimatedTotal: estimatedTotal ?? this.estimatedTotal,
       fees: fees ?? this.fees,
       currentPrice: currentPrice ?? this.currentPrice,
+      // Sentinel `_unset` distinguishes "argument not passed" from "explicit null"
+      // so we can clear stale bid/ask when the ticker reports null.
+      bestBid: identical(bestBid, _unset) ? this.bestBid : bestBid as double?,
+      bestAsk: identical(bestAsk, _unset) ? this.bestAsk : bestAsk as double?,
     );
   }
+
+  static const Object _unset = Object();
 
   String get baseCurrency => symbol.contains('/') ? symbol.split('/')[0] : 'FT';
   String get quoteCurrency =>
@@ -241,6 +279,8 @@ class TradingFormBloc extends Bloc<TradingFormEvent, TradingFormState> {
     on<TradingFormPercentageSelected>(_onPercentageSelected);
     on<TradingFormOrderPlaced>(_onOrderPlaced);
     on<_TradingFormCurrentPriceUpdated>(_onCurrentPriceUpdated);
+    on<_TradingFormBalanceRefreshed>(_onBalanceRefreshed);
+    on<TradingFormUseBestPrice>(_onUseBestPrice);
     on<TradingFormStopPriceChanged>(_onStopPriceChanged);
   }
 
@@ -275,17 +315,22 @@ class TradingFormBloc extends Bloc<TradingFormEvent, TradingFormState> {
     balanceResult.fold(
       (_) {},
       (data) {
-        // default to base currency balance
-        availableBalance = data['CURRENCY'] ?? 0.0;
+        // Default selected side is Buy → show the quote (PAIR) balance.
+        // _onTabChanged will refresh to base balance when user switches to Sell.
+        availableBalance = (data['PAIR'] ?? data[quote] ?? 0.0).toDouble();
       },
     );
 
-    // Subscribe to live ticker from global service
+    // Subscribe to live ticker from global service — relay bid/ask too
     _tickerSub = _tradingWebSocketService.tickerStream
         .where((ticker) => ticker.symbol == event.symbol)
         .listen((ticker) {
       if (!isClosed) {
-        add(_TradingFormCurrentPriceUpdated(currentPrice: ticker.last));
+        add(_TradingFormCurrentPriceUpdated(
+          currentPrice: ticker.last,
+          bid: ticker.bid,
+          ask: ticker.ask,
+        ));
       }
     });
 
@@ -307,18 +352,76 @@ class TradingFormBloc extends Bloc<TradingFormEvent, TradingFormState> {
     ));
   }
 
+  /// Refresh wallet balance for the currently active side & emit it.
+  Future<void> _refreshBalance(TradingFormLoaded current) async {
+    final base = current.baseCurrency;
+    final quote = current.quoteCurrency;
+    final balanceResult = await _getSymbolBalancesUseCase(
+      GetSymbolBalancesParams(type: 'SPOT', currency: base, pair: quote),
+    );
+    balanceResult.fold(
+      (_) {},
+      (data) {
+        final bal = current.isBuy
+            ? (data['PAIR'] ?? data[quote] ?? 0.0)
+            : (data['CURRENCY'] ?? data[base] ?? 0.0);
+        if (!isClosed) {
+          add(_TradingFormBalanceRefreshed(availableBalance: bal));
+        }
+      },
+    );
+  }
+
   Future<void> _onTabChanged(
     TradingFormTabChanged event,
     Emitter<TradingFormState> emit,
   ) async {
     if (state is TradingFormLoaded) {
       final currentState = state as TradingFormLoaded;
+      // Best price for the new side
+      final newBestPrice = event.isBuy
+          ? (currentState.bestAsk ?? currentState.currentPrice)
+          : (currentState.bestBid ?? currentState.currentPrice);
+      // Auto-fill price for limit/stop on side switch (user can still edit)
+      double newPrice = currentState.price;
+      if (currentState.orderType == OrderType.limit ||
+          currentState.orderType == OrderType.stop) {
+        if (newBestPrice > 0) newPrice = newBestPrice;
+      } else if (currentState.orderType == OrderType.market) {
+        newPrice = newBestPrice;
+      }
       emit(currentState.copyWith(
         isBuy: event.isBuy,
         selectedPercentage: 0,
         quantity: 0.0,
+        price: newPrice,
       ));
       _calculateTotal(emit);
+      // Refresh balance for the new side (Buy uses quote, Sell uses base)
+      unawaited(_refreshBalance(state as TradingFormLoaded));
+    }
+  }
+
+  Future<void> _onUseBestPrice(
+    TradingFormUseBestPrice event,
+    Emitter<TradingFormState> emit,
+  ) async {
+    if (state is TradingFormLoaded) {
+      final currentState = state as TradingFormLoaded;
+      final best = currentState.bestPriceForSide;
+      if (best <= 0) return;
+      emit(currentState.copyWith(price: best));
+      _calculateTotal(emit);
+    }
+  }
+
+  Future<void> _onBalanceRefreshed(
+    _TradingFormBalanceRefreshed event,
+    Emitter<TradingFormState> emit,
+  ) async {
+    if (state is TradingFormLoaded) {
+      final currentState = state as TradingFormLoaded;
+      emit(currentState.copyWith(availableBalance: event.availableBalance));
     }
   }
 
@@ -529,13 +632,25 @@ class TradingFormBloc extends Bloc<TradingFormEvent, TradingFormState> {
     if (state is TradingFormLoaded) {
       final currentState = state as TradingFormLoaded;
 
-      // Update current price and market order price if needed
+      // Update current price + bid/ask, and market order price if needed.
+      // For limit/stop, seed the price from the best ask/bid when user hasn't
+      // entered one yet (price == 0); otherwise leave the user's value alone.
+      double newPrice = currentState.price;
+      if (currentState.orderType == OrderType.market) {
+        newPrice = event.currentPrice;
+      } else if (currentState.price <= 0) {
+        if (currentState.isBuy) {
+          newPrice = event.ask ?? event.currentPrice;
+        } else {
+          newPrice = event.bid ?? event.currentPrice;
+        }
+      }
+
       emit(currentState.copyWith(
         currentPrice: event.currentPrice,
-        // Only update the price if it's a market order
-        price: currentState.orderType == OrderType.market
-            ? event.currentPrice
-            : currentState.price,
+        bestBid: event.bid,
+        bestAsk: event.ask,
+        price: newPrice,
       ));
 
       // Recalculate total with new prices
