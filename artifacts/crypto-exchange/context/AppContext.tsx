@@ -585,6 +585,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let wsHealthy = false;
     const applyTicks = (inrRate: number, ticks: any[]) => {
       if (typeof inrRate === 'number' && inrRate > 0) setInrUsdtRate(inrRate);
+      const tickBySym = new Map<string, any>();
+      for (const t of ticks) tickBySym.set(t.symbol, t);
       setApiCoins(prev => {
         const map = new Map(prev.map(c => [c.symbol, c]));
         for (const t of ticks) {
@@ -592,6 +594,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (ex) map.set(t.symbol, { ...ex, currentPrice: String(t.usdt), change24h: String(t.change24h), priceInr: t.inr });
         }
         return Array.from(map.values());
+      });
+      // Also push live price into apiPairs so trade/markets screens tick live (not just on REST refresh)
+      setApiPairs(prev => {
+        if (!prev?.length || !ticks.length) return prev;
+        const coinById = new Map<number, any>();
+        // apiCoins ref via closure isn't fresh — derive base/quote symbols from cached map below at call time.
+        // Build a lookup of coinId→symbol from previous pairs' embedded base/quote if present, else fallback by id ↔ ticker.
+        // Simpler: walk pairs, derive symbol from p.symbol (e.g. "SOLINR") and split off known quotes.
+        const KNOWN_QUOTES = ['USDT', 'INR', 'BTC', 'ETH', 'BNB'];
+        let changed = false;
+        const next = prev.map((p: any) => {
+          const sym: string = p.symbol || '';
+          const quote = KNOWN_QUOTES.find(q => sym.endsWith(q));
+          if (!quote) return p;
+          const base = sym.slice(0, sym.length - quote.length);
+          const tk = tickBySym.get(base);
+          if (!tk) return p;
+          const newLast = quote === 'USDT' ? Number(tk.usdt) : (quote === 'INR' ? Number(tk.inr) : Number(p.lastPrice));
+          const newChg = Number(tk.change24h);
+          if (Number(p.lastPrice) === newLast && Number(p.change24h) === newChg) return p;
+          changed = true;
+          return { ...p, lastPrice: String(newLast), change24h: String(newChg) };
+        });
+        return changed ? next : prev;
       });
     };
     const restFallback = async () => {
