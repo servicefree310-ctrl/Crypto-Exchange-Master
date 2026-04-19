@@ -18,6 +18,11 @@ type Bot = {
   spreadBps: number; levels: number; priceStepBps: number;
   orderSize: string; refreshSec: number; maxOrderAgeSec: number;
   fillOnCross: boolean; spotEnabled: boolean; futuresEnabled: boolean;
+  topOfBookBoostPct: number;
+  marketTakerEnabled: boolean; marketTakerSizeMult: string;
+  priceMoveTriggerBps: number; bigOrderTriggerQty: string; bigOrderAbsorbMult: string;
+  marketTakerCooldownSec: number;
+  lastMarketOrderAt: string | null; lastMidPrice: string | null;
   startAt: string | null; status: string; lastRunAt: string | null; lastError: string | null;
 };
 
@@ -33,6 +38,10 @@ function BotForm({ initial, pairs, takenPairIds, onSubmit }: { initial?: Partial
     enabled: false, spreadBps: 20, levels: 5, priceStepBps: 10,
     orderSize: "0.01", refreshSec: 8, maxOrderAgeSec: 60, fillOnCross: true,
     spotEnabled: true, futuresEnabled: false, startAt: null,
+    topOfBookBoostPct: 50,
+    marketTakerEnabled: false, marketTakerSizeMult: "2.00",
+    priceMoveTriggerBps: 30, bigOrderTriggerQty: "0", bigOrderAbsorbMult: "1.50",
+    marketTakerCooldownSec: 30,
   });
   const [pairSearch, setPairSearch] = useState("");
   const isEdit = !!initial?.id;
@@ -84,10 +93,46 @@ function BotForm({ initial, pairs, takenPairIds, onSubmit }: { initial?: Partial
           <p className="text-xs text-muted-foreground mt-1">20 = 0.2% from mid</p></div>
         <div><Label>Levels per side</Label><Input type="number" value={v.levels ?? 5} onChange={(e) => setV({ ...v, levels: Number(e.target.value) })} /></div>
         <div><Label>Price step (bps)</Label><Input type="number" value={v.priceStepBps ?? 10} onChange={(e) => setV({ ...v, priceStepBps: Number(e.target.value) })} /></div>
-        <div><Label>Order size</Label><Input value={v.orderSize ?? "0.01"} onChange={(e) => setV({ ...v, orderSize: e.target.value })} /></div>
+        <div><Label>Base order size</Label><Input value={v.orderSize ?? "0.01"} onChange={(e) => setV({ ...v, orderSize: e.target.value })} /></div>
         <div><Label>Refresh interval (sec)</Label><Input type="number" value={v.refreshSec ?? 8} onChange={(e) => setV({ ...v, refreshSec: Number(e.target.value) })} /></div>
         <div><Label>Max order age (sec)</Label><Input type="number" value={v.maxOrderAgeSec ?? 60} onChange={(e) => setV({ ...v, maxOrderAgeSec: Number(e.target.value) })} /></div>
+        <div className="col-span-2">
+          <Label>Top-of-book boost (%)</Label>
+          <Input type="number" value={v.topOfBookBoostPct ?? 50} onChange={(e) => setV({ ...v, topOfBookBoostPct: Number(e.target.value) })} />
+          <p className="text-xs text-muted-foreground mt-1">Extra qty on the level closest to mid. 50 = 1.5× size at top, 100 = 2× size at top.</p>
+        </div>
       </div>
+
+      <div className="border-2 border-amber-500/30 rounded-lg p-3 bg-amber-500/5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Switch checked={!!v.marketTakerEnabled} onCheckedChange={(c) => setV({ ...v, marketTakerEnabled: c })} />
+          <Label className="font-bold text-amber-600">⚡ Market-Taker Mode</Label>
+        </div>
+        <p className="text-xs text-muted-foreground">Bot fires synthetic market orders when price moves sharply OR when a big user order appears. Adds momentum, absorbs whales, makes the tape look alive.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Market order size mult</Label>
+            <Input value={v.marketTakerSizeMult ?? "2.00"} onChange={(e) => setV({ ...v, marketTakerSizeMult: e.target.value })} />
+            <p className="text-xs text-muted-foreground mt-1">2.0 = 2× base size</p>
+          </div>
+          <div><Label className="text-xs">Cooldown (sec)</Label>
+            <Input type="number" value={v.marketTakerCooldownSec ?? 30} onChange={(e) => setV({ ...v, marketTakerCooldownSec: Number(e.target.value) })} />
+            <p className="text-xs text-muted-foreground mt-1">Min gap between market orders</p>
+          </div>
+          <div className="col-span-2"><Label className="text-xs">Price-move trigger (bps)</Label>
+            <Input type="number" value={v.priceMoveTriggerBps ?? 30} onChange={(e) => setV({ ...v, priceMoveTriggerBps: Number(e.target.value) })} />
+            <p className="text-xs text-muted-foreground mt-1">Mid price ne 1 tick me itne bps move ki → bot fires market in same direction (chase). 30 = 0.30%, 0 = disabled.</p>
+          </div>
+          <div><Label className="text-xs">Big-order trigger qty</Label>
+            <Input value={v.bigOrderTriggerQty ?? "0"} onChange={(e) => setV({ ...v, bigOrderTriggerQty: e.target.value })} />
+            <p className="text-xs text-muted-foreground mt-1">User order qty ≥ this → bot absorbs. 0 = disabled.</p>
+          </div>
+          <div><Label className="text-xs">Absorb size mult</Label>
+            <Input value={v.bigOrderAbsorbMult ?? "1.50"} onChange={(e) => setV({ ...v, bigOrderAbsorbMult: e.target.value })} />
+            <p className="text-xs text-muted-foreground mt-1">1.5 = bot absorbs 1.5× base size</p>
+          </div>
+        </div>
+      </div>
+
       <Button onClick={() => onSubmit(v)} className="w-full">{isEdit ? "Save Bot" : "Create Bot"}</Button>
     </div>
   );

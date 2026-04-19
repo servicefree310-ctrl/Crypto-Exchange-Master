@@ -131,7 +131,7 @@ async function runBotForPair(bot: any, uid: number) {
     }
   }
 
-  // 3) Count current open bot orders, top-up to `levels` per side
+  // 3) Count current open bot orders, top-up to `levels` per side (with top-of-book boost on level 0)
   const existing = await db.select().from(ordersTable).where(and(
     eq(ordersTable.botId, bot.id), eq(ordersTable.status, "open"),
   ));
@@ -139,14 +139,17 @@ async function runBotForPair(bot: any, uid: number) {
   const sellCount = existing.filter(o => o.side === "sell").length;
   const stepFrac = bot.priceStepBps / 10_000;
   const halfSpread = bot.spreadBps / 20_000;
+  const baseSize = Number(bot.orderSize);
+  const boostMult = 1 + (Number(bot.topOfBookBoostPct ?? 0) / 100);
+  const sizeForLevel = (i: number) => i === 0 ? baseSize * boostMult : baseSize;
   const newOrders: any[] = [];
   for (let i = buyCount; i < bot.levels; i++) {
     const px = mid * (1 - halfSpread - stepFrac * i);
-    if (px > 0) newOrders.push({ userId: uid, pairId: pair.id, side: "buy", type: "limit", price: String(px.toFixed(8)), qty: String(Number(bot.orderSize).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
+    if (px > 0) newOrders.push({ userId: uid, pairId: pair.id, side: "buy", type: "limit", price: String(px.toFixed(8)), qty: String(sizeForLevel(i).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
   }
   for (let i = sellCount; i < bot.levels; i++) {
     const px = mid * (1 + halfSpread + stepFrac * i);
-    newOrders.push({ userId: uid, pairId: pair.id, side: "sell", type: "limit", price: String(px.toFixed(8)), qty: String(Number(bot.orderSize).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
+    newOrders.push({ userId: uid, pairId: pair.id, side: "sell", type: "limit", price: String(px.toFixed(8)), qty: String(sizeForLevel(i).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
   }
   if (newOrders.length) {
     const inserted = await db.insert(ordersTable).values(newOrders).returning();
@@ -157,8 +160,78 @@ async function runBotForPair(bot: any, uid: number) {
     }
   }
 
+  // 4) MARKET-TAKER: fire synthetic market orders on price moves or against big user orders
+  let marketReason: string | null = null;
+  let marketSide: "buy" | "sell" | null = null;
+  let marketQty = 0;
+  if (bot.marketTakerEnabled) {
+    const cooldownMs = bot.marketTakerCooldownSec * 1000;
+    const lastMkt = bot.lastMarketOrderAt ? new Date(bot.lastMarketOrderAt).getTime() : 0;
+    const cooledDown = Date.now() - lastMkt >= cooldownMs;
+    const lastMid = bot.lastMidPrice ? Number(bot.lastMidPrice) : 0;
+
+    // (a) Big-order detection: scan opposite-side user orders for any single qty exceeding threshold
+    const bigThreshold = Number(bot.bigOrderTriggerQty ?? 0);
+    if (cooledDown && bigThreshold > 0) {
+      const opposite = await db.select().from(ordersTable).where(and(
+        eq(ordersTable.pairId, pair.id),
+        eq(ordersTable.status, "open"),
+        eq(ordersTable.isBot, 0),
+        sql`(CAST(${ordersTable.qty} AS DECIMAL) - CAST(${ordersTable.filledQty} AS DECIMAL)) >= ${bigThreshold}`,
+      )).limit(5);
+      if (opposite.length > 0) {
+        // Aggregate biggest order; pick a side that absorbs it
+        const biggest = opposite.reduce((a, b) => (Number(a.qty) - Number(a.filledQty)) > (Number(b.qty) - Number(b.filledQty)) ? a : b);
+        // If user has big SELL → bot fires market BUY to absorb (price goes up). And vice versa.
+        marketSide = biggest.side === "sell" ? "buy" : "sell";
+        marketQty = baseSize * Number(bot.bigOrderAbsorbMult);
+        marketReason = `absorb big ${biggest.side} #${biggest.id} qty=${(Number(biggest.qty) - Number(biggest.filledQty)).toFixed(4)}`;
+      }
+    }
+
+    // (b) Price-move trigger: if mid moved beyond threshold since last tick → chase market in direction of move
+    if (!marketSide && cooledDown && lastMid > 0 && bot.priceMoveTriggerBps > 0) {
+      const moveBps = Math.abs(mid - lastMid) / lastMid * 10_000;
+      if (moveBps >= bot.priceMoveTriggerBps) {
+        marketSide = mid > lastMid ? "buy" : "sell"; // chase momentum
+        marketQty = baseSize * Number(bot.marketTakerSizeMult);
+        marketReason = `chase ${moveBps.toFixed(1)}bps move (${lastMid.toFixed(8)} → ${mid.toFixed(8)})`;
+      }
+    }
+
+    if (marketSide && marketQty > 0) {
+      // Synthetic market trade at current mid (no wallet movements; pure tape print + order record)
+      const [mktOrder] = await db.insert(ordersTable).values({
+        userId: uid, pairId: pair.id, side: marketSide, type: "market",
+        price: String(mid.toFixed(8)), qty: String(marketQty.toFixed(8)),
+        filledQty: String(marketQty.toFixed(8)), avgPrice: String(mid.toFixed(8)),
+        status: "filled", isBot: 1, botId: bot.id,
+      }).returning();
+      const [trade] = await db.insert(tradesTable).values({
+        orderId: mktOrder.id, userId: uid, pairId: pair.id, side: marketSide,
+        price: String(mid.toFixed(8)), qty: String(marketQty.toFixed(8)), fee: "0",
+      }).returning();
+      try {
+        const tradePayload = JSON.stringify({
+          id: trade.id, pairId: pair.id, side: marketSide,
+          price: Number(mid.toFixed(8)), qty: Number(marketQty.toFixed(8)),
+          ts: Date.now(), bot: true, market: true,
+        });
+        await rLpush(`trades:${pair.symbol}`, tradePayload);
+        await rPublish(`trades.${pair.symbol}`, JSON.parse(tradePayload));
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "bot: failed to publish market trade");
+      }
+      logger.info({ botId: bot.id, symbol: pair.symbol, side: marketSide, qty: marketQty, reason: marketReason }, "bot: fired market order");
+    }
+  }
+
   await db.update(marketBotsTable).set({
-    status: "running", lastError: null, lastRunAt: new Date(),
+    status: "running",
+    lastError: marketReason ? `market: ${marketReason}` : null,
+    lastRunAt: new Date(),
+    lastMidPrice: String(mid.toFixed(8)),
+    ...(marketSide ? { lastMarketOrderAt: new Date() } : {}),
   }).where(eq(marketBotsTable.id, bot.id));
 }
 

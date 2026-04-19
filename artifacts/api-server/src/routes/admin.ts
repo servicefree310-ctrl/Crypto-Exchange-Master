@@ -299,6 +299,13 @@ router.post("/admin/bots", adminOnly, async (req, res): Promise<void> => {
       fillOnCross: b.fillOnCross !== false,
       spotEnabled: b.spotEnabled !== false,
       futuresEnabled: !!b.futuresEnabled,
+      topOfBookBoostPct: Number(b.topOfBookBoostPct ?? 50),
+      marketTakerEnabled: !!b.marketTakerEnabled,
+      marketTakerSizeMult: String(b.marketTakerSizeMult ?? "2.00"),
+      priceMoveTriggerBps: Number(b.priceMoveTriggerBps ?? 30),
+      bigOrderTriggerQty: String(b.bigOrderTriggerQty ?? "0"),
+      bigOrderAbsorbMult: String(b.bigOrderAbsorbMult ?? "1.50"),
+      marketTakerCooldownSec: Number(b.marketTakerCooldownSec ?? 30),
       startAt: b.startAt ? new Date(b.startAt) : null,
     }).returning();
     res.status(201).json(row);
@@ -308,11 +315,13 @@ router.post("/admin/bots", adminOnly, async (req, res): Promise<void> => {
 });
 router.patch("/admin/bots/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-  const allowed = ["enabled", "spreadBps", "levels", "priceStepBps", "orderSize", "refreshSec", "maxOrderAgeSec", "fillOnCross", "spotEnabled", "futuresEnabled", "startAt"];
+  const allowed = ["enabled", "spreadBps", "levels", "priceStepBps", "orderSize", "refreshSec", "maxOrderAgeSec", "fillOnCross", "spotEnabled", "futuresEnabled", "startAt", "topOfBookBoostPct", "marketTakerEnabled", "marketTakerSizeMult", "priceMoveTriggerBps", "bigOrderTriggerQty", "bigOrderAbsorbMult", "marketTakerCooldownSec"];
   const b: Record<string, any> = {};
   for (const k of allowed) if (req.body[k] !== undefined) b[k] = req.body[k];
-  if (b.orderSize !== undefined) b.orderSize = String(b.orderSize);
-  for (const k of ["spreadBps", "levels", "priceStepBps", "refreshSec", "maxOrderAgeSec"]) {
+  for (const k of ["orderSize", "marketTakerSizeMult", "bigOrderTriggerQty", "bigOrderAbsorbMult"]) {
+    if (b[k] !== undefined) b[k] = String(b[k]);
+  }
+  for (const k of ["spreadBps", "levels", "priceStepBps", "refreshSec", "maxOrderAgeSec", "topOfBookBoostPct", "priceMoveTriggerBps", "marketTakerCooldownSec"]) {
     if (b[k] !== undefined) b[k] = Number(b[k]);
   }
   if (b.startAt !== undefined) b.startAt = b.startAt ? new Date(b.startAt) : null;
