@@ -300,13 +300,50 @@ export default function TradeScreen() {
   const precRef = useRef({ p: pricePrec, q: qtyPrec });
   precRef.current = { p: pricePrec, q: qtyPrec };
 
+  // Best ask = lowest sell price (orderBook.asks is sorted ascending), Best bid = highest buy
+  const bestAsk = useMemo(() => {
+    const a = orderBook.asks?.[0]?.price;
+    return a ? parseFloat(String(a).replace(/,/g, "")) : 0;
+  }, [orderBook.asks]);
+  const bestBid = useMemo(() => {
+    const b = orderBook.bids?.[0]?.price;
+    return b ? parseFloat(String(b).replace(/,/g, "")) : 0;
+  }, [orderBook.bids]);
+  const midPrice = useMemo(() => {
+    if (bestAsk > 0 && bestBid > 0) return (bestAsk + bestBid) / 2;
+    return 0;
+  }, [bestAsk, bestBid]);
+
   // Drive currentPrice from WS-fed livePriceMap; reset price input on pair change
   useEffect(() => {
     if (!basePrice) return;
     prevPrice.current = currentPrice || basePrice;
     setCurrentPrice(basePrice);
-    setPrice(basePrice.toFixed(pricePrec));
   }, [basePrice]);
+
+  // Track whether user manually edited the price input — if not, keep auto-filling with best price
+  const priceTouchedRef = useRef(false);
+  const onPriceChange = (v: string) => { priceTouchedRef.current = true; setPrice(v); };
+
+  // Auto-fill price input with best ask (buy) / best bid (sell). On side change, force-refresh.
+  // For limit orders only; market orders don't use price.
+  useEffect(() => {
+    if (orderType === "market") return;
+    const target = side === "buy" ? bestAsk : bestBid;
+    if (!target) return;
+    // If user hasn't manually edited, always sync. If they have, only sync on side toggle.
+    setPrice(target.toFixed(pricePrec));
+    priceTouchedRef.current = false;
+  }, [side, pair, orderType]);
+
+  // While untouched, keep price tracking the best price as the orderbook moves
+  useEffect(() => {
+    if (priceTouchedRef.current) return;
+    if (orderType === "market") return;
+    const target = side === "buy" ? bestAsk : bestBid;
+    if (!target) return;
+    setPrice(target.toFixed(pricePrec));
+  }, [bestAsk, bestBid]);
 
   // Initial fetch on pair/interval change: live candles + orderbook + recent trades
   useEffect(() => {
@@ -496,22 +533,33 @@ export default function TradeScreen() {
                     <Text style={[styles.obColText, { color: colors.mutedForeground, textAlign:"right" }]}>Qty</Text>
                   </View>
                   {[...orderBook.asks].reverse().slice(0, obRows).map((a, i) => (
-                    <View key={`ask${i}`} style={styles.obRow}>
+                    <TouchableOpacity key={`ask${i}`} style={styles.obRow}
+                      onPress={() => { priceTouchedRef.current = true; setPrice(String(a.price).replace(/,/g, "")); Haptics.selectionAsync(); }}>
                       <View style={[styles.obBar, { right: 0, backgroundColor: "#f6465d0e", width: `${a.depth * 0.7}%` as any }]} />
                       <Text style={[styles.obPrice, { color: colors.destructive }]}>{a.price}</Text>
                       <Text style={[styles.obAmt, { color: colors.mutedForeground }]}>{a.amount}</Text>
-                    </View>
+                    </TouchableOpacity>
                   ))}
-                  <View style={[styles.spreadRow, { backgroundColor: colors.secondary }]}>
-                    <Text style={[styles.spreadP, { color: priceUp ? colors.success : colors.destructive }]}>{fmtP(currentPrice)}</Text>
-                    <Feather name={priceUp ? "arrow-up" : "arrow-down"} size={9} color={priceUp ? colors.success : colors.destructive} />
+                  <View style={[styles.spreadRow, { backgroundColor: colors.secondary, justifyContent: "space-between", paddingHorizontal: 6 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={[styles.spreadP, { color: priceUp ? colors.success : colors.destructive }]}>{fmtP(currentPrice)}</Text>
+                      <Feather name={priceUp ? "arrow-up" : "arrow-down"} size={9} color={priceUp ? colors.success : colors.destructive} />
+                    </View>
+                    {midPrice > 0 && (
+                      <TouchableOpacity onPress={() => { priceTouchedRef.current = true; setPrice(midPrice.toFixed(pricePrec)); Haptics.selectionAsync(); }}>
+                        <Text style={{ fontSize: 9, color: colors.mutedForeground, fontFamily: "Inter_600SemiBold" }}>
+                          Mid {midPrice.toFixed(pricePrec)}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   {orderBook.bids.slice(0, obRows).map((b, i) => (
-                    <View key={`bid${i}`} style={styles.obRow}>
+                    <TouchableOpacity key={`bid${i}`} style={styles.obRow}
+                      onPress={() => { priceTouchedRef.current = true; setPrice(String(b.price).replace(/,/g, "")); Haptics.selectionAsync(); }}>
                       <View style={[styles.obBar, { right: 0, backgroundColor: "#0ecb810e", width: `${b.depth * 0.7}%` as any }]} />
                       <Text style={[styles.obPrice, { color: colors.success }]}>{b.price}</Text>
                       <Text style={[styles.obAmt, { color: colors.mutedForeground }]}>{b.amount}</Text>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </>
               ) : (
@@ -579,7 +627,7 @@ export default function TradeScreen() {
             {orderType !== "market" && (
               <View style={[styles.inputWrap, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
                 <Text style={[styles.inputLbl, { color: colors.mutedForeground }]}>Price</Text>
-                <TextInput testID="input-price" value={price} onChangeText={setPrice} keyboardType="numeric"
+                <TextInput testID="input-price" value={price} onChangeText={onPriceChange} keyboardType="numeric"
                   style={[styles.inputField, { color: colors.foreground }]} placeholderTextColor={colors.mutedForeground} />
                 <Text style={[styles.inputLbl, { color: colors.mutedForeground }]}>{quote}</Text>
               </View>
