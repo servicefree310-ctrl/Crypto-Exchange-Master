@@ -1,0 +1,17 @@
+{
+  "baseUrl": "https://your-backend-url.com",
+  "wsBaseUrl": "wss://your-backend-url.com",
+  "appName": "BiCrypto",
+  "appVersion": "5.0.0",
+  
+  "stripePublishableKey": "",
+  "googleServerClientId": "",
+  
+  "defaultExchangeProvider": "bin",
+  "defaultTradingPair": "BTC/USDT",
+  
+  "defaultShowComingSoon": true,
+  
+  "settingsCacheDuration": 3600,
+  "backgroundUpdateInterval": 60
+} 

@@ -1,6 +1,6 @@
 {
-    "name": "crypto_exchange_flutter",
-    "short_name": "crypto_exchange_flutter",
+    "name": "mobile",
+    "short_name": "mobile",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
