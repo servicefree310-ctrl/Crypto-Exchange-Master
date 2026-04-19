@@ -111,16 +111,37 @@ function CandleChart({ candles, width, height, showMA, showBB }: {
   const liveRef = useRef({ visibleCount, endOffset, yZoom, yPan, candleW: 1, total: 0 });
   liveRef.current = { visibleCount, endOffset, yZoom, yPan, candleW: 1, total };
 
+  // rAF-throttled state setters to avoid 60+ setState per second
+  const rafPending = useRef(false);
+  const pendingState = useRef<{ vc?: number; eo?: number; yz?: number; yp?: number }>({});
+  const flushPending = () => {
+    rafPending.current = false;
+    const p = pendingState.current;
+    pendingState.current = {};
+    if (p.vc !== undefined) setVisibleCount(p.vc);
+    if (p.eo !== undefined) setEndOffset(p.eo);
+    if (p.yz !== undefined) setYZoom(p.yz);
+    if (p.yp !== undefined) setYPan(p.yp);
+  };
+  const scheduleFlush = () => {
+    if (rafPending.current) return;
+    rafPending.current = true;
+    if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(flushPending);
+    else setTimeout(flushPending, 16);
+  };
+
+  const moveDistRef = useRef(0);
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, g) =>
-      Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2 || (g.numberActiveTouches ?? 0) >= 2,
+      Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4 || (g.numberActiveTouches ?? 0) >= 2,
     onPanResponderGrant: (e) => {
       const cur = liveRef.current;
       panStart.current.vis = cur.visibleCount;
       panStart.current.off = cur.endOffset;
       panStart.current.yZoom = cur.yZoom;
       panStart.current.yPan = cur.yPan;
+      moveDistRef.current = 0;
       const t = (e.nativeEvent as any).touches || [];
       if (t.length >= 2) {
         const dx = t[0].pageX - t[1].pageX;
@@ -128,47 +149,40 @@ function CandleChart({ candles, width, height, showMA, showBB }: {
         panStart.current.dist = Math.hypot(dx, dy) || 1;
         panStart.current.vDist = Math.abs(dy) || 1;
       }
-      // Tap → show crosshair at touch point
-      const lx = (e.nativeEvent as any).locationX ?? 0;
-      const ly = (e.nativeEvent as any).locationY ?? 0;
-      setCrosshair({ x: lx, y: ly });
+      // Hide crosshair on new touch; will only show on stationary release
+      if (liveRef.current.yZoom !== undefined) setCrosshair(null);
     },
     onPanResponderMove: (e, g) => {
       const t = (e.nativeEvent as any).touches || [];
       const cur = liveRef.current;
+      moveDistRef.current = Math.max(moveDistRef.current, Math.abs(g.dx) + Math.abs(g.dy));
       if (t.length >= 2) {
-        // Two-finger: horizontal pinch = X zoom, vertical spread = Y zoom
         const dx = t[0].pageX - t[1].pageX;
         const dy = t[0].pageY - t[1].pageY;
         const dist = Math.hypot(dx, dy) || 1;
         const vDist = Math.abs(dy) || 1;
-        // If movement is more horizontal → X zoom; more vertical → Y zoom
         if (Math.abs(dx) > Math.abs(dy)) {
           const ratio = panStart.current.dist / dist;
-          setVisibleCount(clampVis(panStart.current.vis * ratio));
+          pendingState.current.vc = clampVis(panStart.current.vis * ratio);
         } else {
           const ratio = vDist / panStart.current.vDist;
-          setYZoom(Math.max(0.3, Math.min(5, panStart.current.yZoom * ratio)));
+          pendingState.current.yz = Math.max(0.3, Math.min(5, panStart.current.yZoom * ratio));
         }
-        setCrosshair(null);
       } else {
-        // One-finger drag: horizontal = scroll candles back/forward, vertical = pan price
         const dxCandles = Math.round(g.dx / Math.max(1, cur.candleW));
-        setEndOffset(clampOff(panStart.current.off + dxCandles, cur.visibleCount));
-        setYPan(panStart.current.yPan + g.dy);
-        // Update crosshair while dragging horizontally only (avoid noise)
-        if (Math.abs(g.dx) < 4 && Math.abs(g.dy) < 4) {
-          const lx = (e.nativeEvent as any).locationX ?? 0;
-          const ly = (e.nativeEvent as any).locationY ?? 0;
-          setCrosshair({ x: lx, y: ly });
-        } else {
-          setCrosshair(null);
-        }
+        pendingState.current.eo = clampOff(panStart.current.off + dxCandles, cur.visibleCount);
+        pendingState.current.yp = panStart.current.yPan + g.dy;
       }
+      scheduleFlush();
     },
-    onPanResponderRelease: () => {
-      // Keep crosshair visible after a tap (no drag); auto-hide after 2s
-      setTimeout(() => setCrosshair(null), 2200);
+    onPanResponderRelease: (e) => {
+      // Stationary tap → show crosshair at release point
+      if (moveDistRef.current < 6) {
+        const lx = (e.nativeEvent as any).locationX ?? 0;
+        const ly = (e.nativeEvent as any).locationY ?? 0;
+        setCrosshair({ x: lx, y: ly });
+        setTimeout(() => setCrosshair(null), 2500);
+      }
     },
   }), []);
 
