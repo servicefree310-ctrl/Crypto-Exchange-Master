@@ -943,6 +943,25 @@ export default function TradeScreen() {
 
           {/* Order Form */}
           <View style={[styles.orderForm, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {!user ? (
+            <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 40, paddingHorizontal: 18, gap: 12 }}>
+              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primary + "22", alignItems: "center", justifyContent: "center" }}>
+                <Feather name="user" size={28} color={colors.primary} />
+              </View>
+              <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, color: colors.foreground, textAlign: "center" }}>Login to Trade</Text>
+              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: colors.mutedForeground, textAlign: "center", lineHeight: 17, paddingHorizontal: 8 }}>
+                Sign in to your account to place buy/sell orders, manage positions, and track your portfolio.
+              </Text>
+              <TouchableOpacity testID="btn-login-cta" onPress={() => router.push("/(auth)/login")} style={{ backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 6, width: "100%", alignItems: "center" }}>
+                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 14, color: "#fff" }}>Login / Sign Up</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push("/(auth)/register")} style={{ paddingVertical: 6 }}>
+                <Text style={{ fontFamily: "Inter_500Medium", fontSize: 12, color: colors.mutedForeground }}>
+                  New here? <Text style={{ color: colors.primary }}>Create an account</Text>
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (<>
             <View style={[styles.sideTabs]}>
               <TouchableOpacity testID="btn-buy" onPress={() => { setSide("buy"); Haptics.selectionAsync(); }}
                 style={[styles.sideTab, { borderBottomColor: side==="buy" ? colors.success : "transparent", backgroundColor: side==="buy" ? colors.success+"15" : "transparent" }]}>
@@ -1156,6 +1175,7 @@ export default function TradeScreen() {
                 VIP {currentFeeTier?.tier ?? 0} · M {(currentFeeTier?.spotMaker ?? 0).toFixed(2)}% / T {(currentFeeTier?.spotTaker ?? 0).toFixed(2)}%
               </Text>
             </View>
+          </>)}
           </View>
         </View>
 
