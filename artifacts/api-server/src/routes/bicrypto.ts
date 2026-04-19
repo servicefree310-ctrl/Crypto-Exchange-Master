@@ -8,6 +8,7 @@ import { eq, or, and, desc, gt, sql } from "drizzle-orm";
 import {
   db, usersTable, loginLogsTable, walletsTable, coinsTable, pairsTable, sessionsTable, otpCodesTable,
   networksTable, cryptoWithdrawalsTable, inrWithdrawalsTable, bankAccountsTable,
+  cryptoDepositsTable, inrDepositsTable,
   ordersTable, tradesTable,
 } from "@workspace/db";
 import {
@@ -681,7 +682,130 @@ r.get("/finance/wallet/transfer-options", bicryptoAuth, (_req, res) =>
   // ECO removed — ecosystem feature is disabled.
   res.json({ from: ["FIAT", "SPOT", "FUTURES"], to: ["FIAT", "SPOT", "FUTURES"] }));
 
-r.get("/finance/transaction", bicryptoAuth, (_req, res) => res.json({ items: [], pagination: emptyPg() }));
+// Unified transaction history for Flutter wallet/history screens. Aggregates
+// the user's trades, INR + crypto deposits, and INR + crypto withdrawals into
+// a single list shaped for TransactionModel.fromJson. Sorted by createdAt
+// desc and paginated. Filters supported via query: type=DEPOSIT|WITHDRAW|TRADE,
+// status, currency, page, perPage.
+r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void> => {
+  const userId = req.bcUser.id as number;
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const perPage = Math.min(100, Math.max(1, Number(req.query.perPage) || 20));
+  const typeFilter = String(req.query.type || "").toUpperCase();
+  const statusFilter = String(req.query.status || "").toUpperCase();
+  const currencyFilter = String(req.query.currency || "").toUpperCase();
+
+  const want = (t: string) => !typeFilter || typeFilter === "ALL" || typeFilter === t;
+
+  // Pull recent rows from each source. We cap each side at 200 then merge.
+  const [trades, inrDeps, cryptoDeps, inrWdrs, cryptoWdrs, coins, pairs] = await Promise.all([
+    want("TRADE")
+      ? db.select().from(tradesTable).where(eq(tradesTable.userId, userId)).orderBy(desc(tradesTable.createdAt)).limit(200)
+      : Promise.resolve([] as any[]),
+    want("DEPOSIT")
+      ? db.select().from(inrDepositsTable).where(eq(inrDepositsTable.userId, userId)).orderBy(desc(inrDepositsTable.createdAt)).limit(200)
+      : Promise.resolve([] as any[]),
+    want("DEPOSIT")
+      ? db.select().from(cryptoDepositsTable).where(eq(cryptoDepositsTable.userId, userId)).orderBy(desc(cryptoDepositsTable.createdAt)).limit(200)
+      : Promise.resolve([] as any[]),
+    want("WITHDRAW")
+      ? db.select().from(inrWithdrawalsTable).where(eq(inrWithdrawalsTable.userId, userId)).orderBy(desc(inrWithdrawalsTable.createdAt)).limit(200)
+      : Promise.resolve([] as any[]),
+    want("WITHDRAW")
+      ? db.select().from(cryptoWithdrawalsTable).where(eq(cryptoWithdrawalsTable.userId, userId)).orderBy(desc(cryptoWithdrawalsTable.createdAt)).limit(200)
+      : Promise.resolve([] as any[]),
+    db.select().from(coinsTable),
+    db.select().from(pairsTable),
+  ]);
+
+  const coinById = new Map(coins.map(c => [c.id, c.symbol]));
+  const pairById = new Map(pairs.map(p => [p.id, p.symbol]));
+
+  const rows: any[] = [];
+
+  for (const t of trades) {
+    const sym = pairById.get(t.pairId) ?? "";
+    // Symbol like SOL/INR or SOLINR — base currency is the first chunk.
+    const base = sym.includes("/") ? sym.split("/")[0] : sym.replace(/INR$|USDT$/i, "");
+    rows.push({
+      id: `trade-${t.id}`,
+      userId: String(userId),
+      walletId: "",
+      type: "TRADE",
+      status: "COMPLETED",
+      amount: Number(t.qty),
+      fee: Number(t.fee || 0),
+      description: `${String(t.side).toUpperCase()} ${sym} @ ${Number(t.price)}`,
+      metadata: { pair: sym, side: t.side, price: Number(t.price), orderId: t.orderId },
+      referenceId: t.uid,
+      trxId: t.uid,
+      createdAt: t.createdAt,
+      updatedAt: t.createdAt,
+      wallet: { currency: base, type: "SPOT" },
+    });
+  }
+
+  const pushDeposit = (d: any, currency: string, walletType: string) => {
+    rows.push({
+      id: `dep-${walletType.toLowerCase()}-${d.id}`,
+      userId: String(userId),
+      walletId: "",
+      type: "DEPOSIT",
+      status: String(d.status || "pending").toUpperCase(),
+      amount: Number(d.amount),
+      fee: Number(d.fee || 0),
+      description: `Deposit ${currency}`,
+      metadata: { refId: d.refId ?? d.txHash ?? null },
+      referenceId: d.refId ?? d.txHash ?? null,
+      trxId: d.uid,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt ?? d.createdAt,
+      wallet: { currency, type: walletType },
+    });
+  };
+
+  for (const d of inrDeps) pushDeposit(d, "INR", "FIAT");
+  for (const d of cryptoDeps) pushDeposit(d, coinById.get(d.coinId) ?? "", "SPOT");
+
+  const pushWithdrawal = (w: any, currency: string, walletType: string) => {
+    rows.push({
+      id: `wd-${walletType.toLowerCase()}-${w.id}`,
+      userId: String(userId),
+      walletId: "",
+      type: "WITHDRAW",
+      status: String(w.status || "pending").toUpperCase(),
+      amount: Number(w.amount),
+      fee: Number(w.fee || 0),
+      description: `Withdraw ${currency}`,
+      metadata: { refId: w.refId ?? w.txHash ?? null },
+      referenceId: w.refId ?? w.txHash ?? null,
+      trxId: w.uid,
+      createdAt: w.createdAt,
+      updatedAt: w.updatedAt ?? w.createdAt,
+      wallet: { currency, type: walletType },
+    });
+  };
+
+  for (const w of inrWdrs) pushWithdrawal(w, "INR", "FIAT");
+  for (const w of cryptoWdrs) pushWithdrawal(w, coinById.get(w.coinId) ?? "", "SPOT");
+
+  // Apply optional currency / status filters and sort newest first.
+  const filtered = rows.filter(r => {
+    if (currencyFilter && r.wallet.currency.toUpperCase() !== currencyFilter) return false;
+    if (statusFilter && statusFilter !== "ALL" && r.status.toUpperCase() !== statusFilter) return false;
+    return true;
+  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  const start = (page - 1) * perPage;
+  const items = filtered.slice(start, start + perPage);
+
+  res.json({
+    items,
+    pagination: { totalItems, currentPage: page, perPage, totalPages },
+  });
+});
 r.get("/finance/transaction/stats", bicryptoAuth, (_req, res) => res.json({
   totalDeposits: 0, totalWithdrawals: 0, totalTrades: 0, totalFees: 0,
   byCurrency: [], byMonth: [],
@@ -1276,15 +1400,59 @@ r.get("/exchange/chart", async (req, res) => {
   }
 });
 
+// Order list for Flutter trade screen. Flutter sends status `OPEN`/`CLOSED`/
+// `ALL` (uppercase) and optional currency+pair filters. DB stores statuses
+// lowercase as `open`/`partial`/`filled`/`cancelled`, so we map both ways
+// and return rows with `amount`+`symbol` aliases for OrderModel.fromJson.
 r.get("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
   const userId = req.bcUser.id as number;
-  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
-  const status = String(req.query.status || "all");
-  const where = status === "all"
-    ? eq(ordersTable.userId, userId)
-    : and(eq(ordersTable.userId, userId), eq(ordersTable.status, status));
-  const rows = await db.select().from(ordersTable).where(where).orderBy(desc(ordersTable.createdAt)).limit(limit);
-  res.json(rows);
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  const statusRaw = String(req.query.status || "all").toUpperCase();
+  const currency = String(req.query.currency || "").toUpperCase();
+  const pair = String(req.query.pair || "").toUpperCase();
+
+  const conds: any[] = [eq(ordersTable.userId, userId)];
+  if (statusRaw === "OPEN") {
+    conds.push(or(eq(ordersTable.status, "open"), eq(ordersTable.status, "partial"))!);
+  } else if (statusRaw === "CLOSED") {
+    conds.push(or(eq(ordersTable.status, "filled"), eq(ordersTable.status, "cancelled"))!);
+  } else if (statusRaw !== "ALL") {
+    conds.push(eq(ordersTable.status, statusRaw.toLowerCase()));
+  }
+
+  // Optional pair filter via base+quote symbol (e.g. SOLINR / SOL/INR).
+  if (currency && pair) {
+    const symCompact = `${currency}${pair}`;
+    const symSlash = `${currency}/${pair}`;
+    const [p] = await db.select().from(pairsTable)
+      .where(or(eq(pairsTable.symbol, symCompact), eq(pairsTable.symbol, symSlash)))
+      .limit(1);
+    if (p) conds.push(eq(ordersTable.pairId, p.id));
+  }
+
+  const rows = await db.select().from(ordersTable)
+    .where(and(...conds))
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(limit);
+
+  // Decorate with amount + symbol so the Flutter OrderModel decodes cleanly.
+  const pairIds = Array.from(new Set(rows.map(r => r.pairId)));
+  const pairs = pairIds.length
+    ? await db.select().from(pairsTable).where(or(...pairIds.map(id => eq(pairsTable.id, id)))!)
+    : [];
+  const pairBySym = new Map(pairs.map(p => [p.id, p.symbol]));
+
+  res.json(rows.map(o => {
+    const sym = pairBySym.get(o.pairId) ?? "";
+    const qtyN = Number(o.qty);
+    const priceN = Number(o.price);
+    return {
+      ...o,
+      symbol: sym,
+      amount: qtyN,
+      cost: priceN * qtyN,
+    };
+  }));
 });
 // Bicrypto Flutter mobile/web posts orders here. Translates the Bicrypto
 // payload shape ({currency, pair, side:BUY/SELL, type:LIMIT/MARKET, amount,
