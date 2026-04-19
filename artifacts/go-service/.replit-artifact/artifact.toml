@@ -11,7 +11,7 @@ version = "1.0.0"
 
 [[services]]
 name = "web"
-paths = [ "/go-service/", "/go-service/ws" ]
+paths = [ "/go-service/", "/go-service/healthz", "/go-service/ws", "/go-service/api" ]
 localPort = 23004
 
 [services.development]
