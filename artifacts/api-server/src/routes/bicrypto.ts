@@ -389,7 +389,7 @@ r.post("/auth/reset", async (req, res): Promise<void> => {
         expiresAt,
       });
       // eslint-disable-next-line no-console
-      console.log(`[OTP] reset email → ${lower}: ${code}`);
+      console.log(`[OTP] reset email → ${lower}: <redacted>`);
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn("[reset] failed to insert OTP", e);
