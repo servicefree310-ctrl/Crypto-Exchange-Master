@@ -140,7 +140,11 @@ class _AnimatedPriceState extends State<AnimatedPrice>
     }
 
     if (widget.showCurrencySymbol) {
-      result += '\$$formattedPrice';
+      final quote = widget.symbol.contains('/')
+          ? widget.symbol.split('/').last.toUpperCase()
+          : '';
+      final currencyPrefix = quote == 'INR' ? '₹' : '\$';
+      result += '$currencyPrefix$formattedPrice';
     } else {
       result += formattedPrice;
     }
