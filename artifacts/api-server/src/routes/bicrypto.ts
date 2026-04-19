@@ -1157,7 +1157,7 @@ function intervalMs(interval: string): number {
 // blended with the live tick buffer. Empty buckets carry forward the last
 // close so the chart never has gaps. The latest bucket always reflects the
 // current live price so the chart "breathes" in real time.
-async function buildChart(symbol: string, interval: string, limit: number) {
+export async function buildChart(symbol: string, interval: string, limit: number) {
   const stepMs = intervalMs(interval);
   const now = Date.now();
   const bucketStart = (ts: number) => Math.floor(ts / stepMs) * stepMs;

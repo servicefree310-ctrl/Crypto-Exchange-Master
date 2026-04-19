@@ -13,6 +13,7 @@ import { warmAllCaches, startWarmupRefresh } from "./lib/cache-warmup";
 import { startPairStatsService } from "./lib/pair-stats";
 import { startPriceHistory } from "./lib/price-history";
 import { getPairStats } from "./lib/pair-stats";
+import { isAllowedInterval } from "./lib/ohlcv-cache";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -124,11 +125,24 @@ wss.on("connection", (ws) => {
     tickerSymbols: Set<string>;
     orderbookSymbols: Map<string, number>; // symbol -> limit
     tradesSymbols: Set<string>;
+    // ohlcv: symbol -> set of intervals ("1m","5m","1h"...). One client
+    // can watch multiple timeframes but typically just one at a time.
+    ohlcvSymbols: Map<string, Set<string>>;
   } = {
     tickerSymbols: new Set(),
     orderbookSymbols: new Map(),
     tradesSymbols: new Set(),
+    ohlcvSymbols: new Map(),
   };
+  // Throttle OHLCV pushes — buildChart hits the DB. 2s gives a smooth
+  // "breathing" chart without hammering Postgres on every 1s price tick.
+  // The shared ohlcv-cache further dedupes work across all connections.
+  let lastOhlcvPushTs = 0;
+  let ohlcvPushInflight = false;
+  let ohlcvPushDirty = false;
+  // Cap to prevent abuse: one connection cannot subscribe to unbounded
+  // (symbol, interval) pairs.
+  const MAX_OHLCV_SUBS = 12;
 
   const safeSend = (payload: any) => {
     try {
@@ -160,6 +174,50 @@ wss.on("connection", (ws) => {
     } catch {}
   };
 
+  // Push fresh OHLCV candles for each (symbol, interval) the client is
+  // watching. Throttled to ~2s. Frame matches Bicrypto/Flutter contract:
+  //   { stream: "ohlcv:SOL/INR:1h", data: [[ts,o,h,l,c,v], ...] }
+  // The latest bucket always carries the live price so the chart breathes.
+  const pushOhlcv = async (force = false) => {
+    if (subs.ohlcvSymbols.size === 0) return;
+    const now = Date.now();
+    if (!force && now - lastOhlcvPushTs < 2000) return;
+    // In-flight coalescing: if a push is already running, mark dirty and
+    // re-run once it completes. Prevents overlapping DB-bound work when
+    // buildChart latency exceeds the throttle window.
+    if (ohlcvPushInflight) { ohlcvPushDirty = true; return; }
+    ohlcvPushInflight = true;
+    lastOhlcvPushTs = now;
+    try {
+      const { getOhlcv } = await import("./lib/ohlcv-cache");
+      // Fetch all subscribed (symbol, interval) frames in parallel via the
+      // shared cache (deduped across connections, so cost is O(unique pairs)).
+      const tasks: Promise<void>[] = [];
+      for (const [sym, intervals] of subs.ohlcvSymbols) {
+        for (const interval of intervals) {
+          tasks.push(
+            getOhlcv(sym, interval, 200)
+              .then((candles) => {
+                safeSend({ stream: `ohlcv:${sym}:${interval}`, data: candles });
+              })
+              .catch((err) => {
+                logger.warn({ sym, interval, err: String(err) }, "ohlcv push failed");
+              }),
+          );
+        }
+      }
+      await Promise.all(tasks);
+    } finally {
+      ohlcvPushInflight = false;
+      if (ohlcvPushDirty) {
+        ohlcvPushDirty = false;
+        // Reset throttle so the dirty rerun fires immediately.
+        lastOhlcvPushTs = 0;
+        void pushOhlcv();
+      }
+    }
+  };
+
   // Initial snapshot (legacy + Bicrypto-style bulk tickers).
   try {
     const ticks = getCache();
@@ -177,6 +235,7 @@ wss.on("connection", (ws) => {
     }
     // Fire-and-forget orderbook/trades push (do not await — keep tick loop tight).
     void pushBookAndTrades();
+    void pushOhlcv();
   });
 
   ws.on("message", (raw) => {
@@ -208,8 +267,30 @@ wss.on("connection", (ws) => {
       if (isSub) subs.tradesSymbols.add(symbol);
       else subs.tradesSymbols.delete(symbol);
       if (isSub) void pushBookAndTrades();
+    } else if (type === "ohlcv") {
+      const interval = String(p.interval || "1h");
+      // Reject unknown intervals upfront so a misbehaving client cannot
+      // force the cache key space to grow without bound.
+      if (!isAllowedInterval(interval)) return;
+      if (isSub) {
+        // Per-connection cap.
+        let total = 0;
+        for (const s of subs.ohlcvSymbols.values()) total += s.size;
+        if (total >= MAX_OHLCV_SUBS) return;
+        let set = subs.ohlcvSymbols.get(symbol);
+        if (!set) { set = new Set(); subs.ohlcvSymbols.set(symbol, set); }
+        set.add(interval);
+        // Send an immediate snapshot bypassing the throttle so the chart
+        // renders the moment the user opens it.
+        void pushOhlcv(true);
+      } else {
+        const set = subs.ohlcvSymbols.get(symbol);
+        if (set) {
+          set.delete(interval);
+          if (set.size === 0) subs.ohlcvSymbols.delete(symbol);
+        }
+      }
     }
-    // Note: ohlcv subscriptions are still served by /api/exchange/chart REST.
   });
 
   ws.on("close", () => unsub());
