@@ -161,7 +161,9 @@ class WebSocketService {
         _updateDebounceTimer?.cancel();
         _updateDebounceTimer = Timer(_updateDebounceDelay, () {
           if (_pendingTickerUpdate != null) {
-            _tickersController.add(_pendingTickerUpdate!);
+            if (!_tickersController.isClosed) {
+              _tickersController.add(_pendingTickerUpdate!);
+            }
             _marketService.updateMarketsWithTickers(_pendingTickerUpdate!);
             _pendingTickerUpdate = null;
           }
@@ -318,7 +320,9 @@ class WebSocketService {
   void _updateStatus(WebSocketConnectionStatus status) {
     if (_status != status) {
       _status = status;
-      _statusController.add(status);
+      if (!_statusController.isClosed) {
+        _statusController.add(status);
+      }
     }
   }
 

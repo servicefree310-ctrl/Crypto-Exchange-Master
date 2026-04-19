@@ -48,13 +48,17 @@ class PriceAnimationService {
     }
 
     // Emit color change
-    _colorControllers[symbol]?.add(priceColor);
+    final priceCtl = _colorControllers[symbol];
+    if (priceCtl != null && !priceCtl.isClosed) {
+      priceCtl.add(priceColor);
+    }
 
     // Set up auto-reset timer if color changed
     if (priceColor != Colors.white) {
       _resetTimers[symbol]?.cancel();
       _resetTimers[symbol] = Timer(const Duration(seconds: 2), () {
-        _colorControllers[symbol]?.add(Colors.white);
+        final c = _colorControllers[symbol];
+        if (c != null && !c.isClosed) c.add(Colors.white);
       });
     }
   }
@@ -82,13 +86,17 @@ class PriceAnimationService {
     }
 
     // Emit color change for change percentage
-    _colorControllers[symbol]?.add(changeColor);
+    final changeCtl = _colorControllers[symbol];
+    if (changeCtl != null && !changeCtl.isClosed) {
+      changeCtl.add(changeColor);
+    }
 
     // Set up auto-reset timer if color changed
     if (changeColor != Colors.white) {
       _resetTimers[symbol]?.cancel();
       _resetTimers[symbol] = Timer(const Duration(seconds: 2), () {
-        _colorControllers[symbol]?.add(Colors.white);
+        final c = _colorControllers[symbol];
+        if (c != null && !c.isClosed) c.add(Colors.white);
       });
     }
   }
