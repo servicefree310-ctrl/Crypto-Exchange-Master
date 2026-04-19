@@ -26,6 +26,7 @@ const PRICE_WS_PATHS = [
   "/api/ws/prices",          // current canonical
   "/api/exchange/ticker",    // Flutter spot exchange page
   "/api/exchange/ws",        // Flutter generic market socket
+  "/api/exchange/market",    // Flutter trading_websocket_service
   "/api/futures/ws",         // Flutter futures page (price stream only for now)
   "/api/ws/exchange",        // additional alias seen in some Bicrypto builds
 ];
