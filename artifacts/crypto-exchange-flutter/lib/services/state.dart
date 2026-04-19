@@ -106,32 +106,69 @@ class MarketsState extends ChangeNotifier {
       final ir = data['inrRate'];
       if (ir is num) inrRate = ir.toDouble();
       final ticks = data['ticks'];
-      if (ticks is Map) {
-        // Merge: prices map keyed by symbol like 'BTC' → {price, change, ...} OR {usd, inr}
-        ticks.forEach((k, v) {
-          if (v is Map) {
-            prices[k.toString()] = Map<String, dynamic>.from(v);
-          } else if (v is num) {
-            prices[k.toString()] = v;
+      if (ticks is! List) return;
+
+      // Build symbol -> tick map from array
+      final tickBySym = <String, Map>{};
+      for (final t in ticks) {
+        if (t is Map) {
+          final sym = (t['symbol'] ?? '').toString();
+          if (sym.isNotEmpty) {
+            tickBySym[sym] = t;
+            // Also store in prices for symbol-level lookup
+            prices[sym] = {
+              'price': (t['usdt'] is num) ? (t['usdt'] as num).toDouble() : 0.0,
+              'inr': (t['inr'] is num) ? (t['inr'] as num).toDouble() : 0.0,
+              'usdt': (t['usdt'] is num) ? (t['usdt'] as num).toDouble() : 0.0,
+              'change': (t['change24h'] is num) ? (t['change24h'] as num).toDouble() : 0.0,
+              'change24h': (t['change24h'] is num) ? (t['change24h'] as num).toDouble() : 0.0,
+              'volume24h': (t['volume24h'] is num) ? (t['volume24h'] as num).toDouble() : 0.0,
+            };
           }
-        });
-        // Also patch coins[].currentPrice & change24h so home recomputes priceMap
-        for (var i = 0; i < coins.length; i++) {
-          final c = coins[i];
-          if (c is Map) {
-            final sym = (c['symbol'] ?? '').toString();
-            final t = ticks[sym];
-            if (t is Map) {
-              if (t['price'] is num) c['currentPrice'] = (t['price'] as num).toString();
-              if (t['usd'] is num) c['currentPrice'] = (t['usd'] as num).toString();
-              if (t['inr'] is num) c['priceInr'] = (t['inr'] as num).toString();
-              if (t['change'] is num) c['change24h'] = (t['change'] as num).toString();
-              if (t['change24h'] is num) c['change24h'] = (t['change24h'] as num).toString();
+        }
+      }
+
+      // Patch coins[] in-place so dashboard's priceMap recomputes with live data
+      for (var i = 0; i < coins.length; i++) {
+        final c = coins[i];
+        if (c is Map) {
+          final sym = (c['symbol'] ?? '').toString();
+          final t = tickBySym[sym];
+          if (t != null) {
+            if (t['usdt'] is num) c['currentPrice'] = (t['usdt'] as num).toString();
+            if (t['inr'] is num) c['priceInr'] = (t['inr'] as num).toString();
+            if (t['change24h'] is num) c['change24h'] = (t['change24h'] as num).toString();
+          }
+        }
+      }
+      // Patch pairs[] lastPrice for symbols like BTCINR / BTCUSDT
+      for (var i = 0; i < pairs.length; i++) {
+        final p = pairs[i];
+        if (p is Map) {
+          final sym = (p['symbol'] ?? '').toString();
+          // Resolve base by stripping known quote suffix
+          String? base;
+          String? quote;
+          for (final q in const ['USDT', 'INR', 'USDC', 'USD', 'BTC', 'ETH']) {
+            if (sym.endsWith(q) && sym.length > q.length) {
+              base = sym.substring(0, sym.length - q.length);
+              quote = q;
+              break;
+            }
+          }
+          if (base != null) {
+            final t = tickBySym[base];
+            if (t != null) {
+              final price = quote == 'INR'
+                  ? (t['inr'] is num ? (t['inr'] as num).toDouble() : 0.0)
+                  : (t['usdt'] is num ? (t['usdt'] as num).toDouble() : 0.0);
+              if (price > 0) p['lastPrice'] = price.toString();
+              if (t['change24h'] is num) p['change24h'] = (t['change24h'] as num).toString();
             }
           }
         }
-        notifyListeners();
       }
+      notifyListeners();
     } catch (_) {/* ignore malformed */}
   }
 
