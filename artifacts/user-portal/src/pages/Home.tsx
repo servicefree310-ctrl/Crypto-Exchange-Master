@@ -359,18 +359,19 @@ export default function Home() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
               </span>
-              <span className="text-xs font-medium text-success">Live on Zebvix L1 · Chain {ZBX_CHAIN.id}</span>
+              <span className="text-xs font-medium text-success">Live on Zebvix Blockchain · Chain {ZBX_CHAIN.id}</span>
             </div>
 
             <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
               The exchange built on{" "}
               <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-500 bg-clip-text text-transparent">
-                its own L1
+                its own Blockchain
               </span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-xl">
               Trade spot &amp; perpetual futures, mint and trade <span className="text-foreground font-semibold">ZBX-20</span> tokens, and
-              bridge across chains — all powered by the high-throughput, EVM-compatible Zebvix L1.
+              bridge across chains — all powered by the <span className="text-foreground font-semibold">Zebvix Blockchain</span>, our
+              high-throughput, EVM-compatible Layer-1.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -526,7 +527,7 @@ export default function Home() {
             </Badge>
             <h2 className="text-3xl font-bold tracking-tight">One brand. Six powerful products.</h2>
             <p className="text-muted-foreground text-sm mt-2">
-              From CEX-grade trading to native L1 smart contracts — Zebvix gives you the full stack.
+              From CEX-grade trading to native blockchain smart contracts — Zebvix gives you the full stack.
             </p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -617,13 +618,13 @@ export default function Home() {
         <div className="container mx-auto px-4 max-w-3xl">
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold tracking-tight">Frequently asked</h2>
-            <p className="text-muted-foreground text-sm mt-2">Everything you wanted to know about Zebvix Exchange &amp; Zebvix L1.</p>
+            <p className="text-muted-foreground text-sm mt-2">Everything you wanted to know about Zebvix Exchange &amp; the Zebvix Blockchain.</p>
           </div>
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="q1" className="border-border">
-              <AccordionTrigger className="text-left">What is Zebvix L1?</AccordionTrigger>
+              <AccordionTrigger className="text-left">What is the Zebvix Blockchain?</AccordionTrigger>
               <AccordionContent className="text-muted-foreground">
-                Zebvix L1 is our own high-throughput, EVM-compatible Layer-1 blockchain (chain ID {ZBX_CHAIN.id}). It comes
+                Zebvix Blockchain is our own high-throughput, EVM-compatible Layer-1 (chain ID {ZBX_CHAIN.id}). It comes
                 with built-in DEX, bridge and Pay-ID primitives, and powers the Zebvix Exchange end-to-end. ZBX is the
                 native gas &amp; staking token.
               </AccordionContent>
@@ -631,8 +632,9 @@ export default function Home() {
             <AccordionItem value="q2" className="border-border">
               <AccordionTrigger className="text-left">What is a ZBX-20 token?</AccordionTrigger>
               <AccordionContent className="text-muted-foreground">
-                ZBX-20 is the standard for fungible tokens on Zebvix L1 — fully EVM-compatible, similar to ERC-20 / BEP-20.
-                You can mint your own ZBX-20 token, list it on the native AMM, and bridge it to other chains.
+                ZBX-20 is the standard for fungible tokens on the Zebvix Blockchain — fully EVM-compatible, similar to
+                ERC-20 / BEP-20. You can mint your own ZBX-20 token, list it on the native AMM, and bridge it to other
+                chains.
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="q3" className="border-border">
@@ -652,8 +654,8 @@ export default function Home() {
             <AccordionItem value="q5" className="border-border">
               <AccordionTrigger className="text-left">Can I bridge tokens to BSC / Ethereum?</AccordionTrigger>
               <AccordionContent className="text-muted-foreground">
-                Yes. The native cross-chain bridge supports lock-and-mint between Zebvix L1 and EVM chains like BSC, with
-                24/7 attestation and on-chain proofs.
+                Yes. The native cross-chain bridge supports lock-and-mint between the Zebvix Blockchain and EVM chains
+                like BSC, with 24/7 attestation and on-chain proofs.
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="q6" className="border-border">
@@ -671,10 +673,11 @@ export default function Home() {
       <section className="w-full py-16 bg-gradient-to-r from-amber-950/30 via-background to-orange-950/30 border-y border-border">
         <div className="container mx-auto px-4 text-center max-w-2xl">
           <h2 className="text-3xl lg:text-4xl font-bold tracking-tight">
-            Ready to trade on a <span className="text-primary">real Layer-1?</span>
+            Ready to trade on a <span className="text-primary">real Blockchain?</span>
           </h2>
           <p className="text-muted-foreground mt-3">
-            Sign up in under 60 seconds and get started with as little as ₹100 — KYC, INR rails &amp; ZBX wallet included.
+            Sign up in under 60 seconds and get started with as little as ₹100 — KYC, INR rails &amp; ZBX wallet on the
+            Zebvix Blockchain, all included.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             {!user ? (
@@ -726,18 +729,18 @@ function ZebvixChainSection() {
         <div className="space-y-5">
           <Badge variant="outline" className="border-violet-400/40 text-violet-300 bg-violet-500/10">
             <Layers className="h-3 w-3 mr-1.5" />
-            Powered by Zebvix L1
+            Powered by Zebvix Blockchain
           </Badge>
           <h2 className="text-3xl lg:text-4xl font-bold tracking-tight leading-tight">
             Not just an exchange.{" "}
             <span className="bg-gradient-to-r from-violet-300 to-fuchsia-400 bg-clip-text text-transparent">
-              An entire chain.
+              An entire blockchain.
             </span>
           </h2>
           <p className="text-muted-foreground leading-relaxed">
-            Zebvix L1 is our high-throughput, EVM-compatible Layer-1 blockchain. It comes with native DEX, cross-chain
-            bridge and Pay-ID primitives — so the exchange, your wallet and every dApp on the chain speak the same
-            language.
+            <span className="text-foreground font-semibold">Zebvix Blockchain</span> is our high-throughput,
+            EVM-compatible Layer-1 — built in-house. It ships with native DEX, cross-chain bridge and Pay-ID primitives,
+            so the exchange, your wallet and every dApp on the chain speak the same language.
           </p>
 
           {/* Capability bullets */}
@@ -884,11 +887,12 @@ function MobileCalloutSection() {
             Mobile wallet
           </Badge>
           <h2 className="text-3xl font-bold tracking-tight leading-tight">
-            Your chain, in your pocket.
+            Your blockchain, in your pocket.
           </h2>
           <p className="text-muted-foreground leading-relaxed max-w-lg">
             The Zebvix mobile wallet (built with Flutter) gives you self-custody of your ZBX, ZBX-20 tokens and Pay-ID
-            identity. Connect to dApps via QR, sign transactions with biometrics, and trade on the go.
+            identity on the Zebvix Blockchain. Connect to dApps via QR, sign transactions with biometrics, and trade on
+            the go.
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
             <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90" asChild>
@@ -1253,12 +1257,13 @@ console.log(result); // "${ZBX_CHAIN.hexId}" → ${ZBX_CHAIN.id} (${ZBX_CHAIN.na
             For developers
           </Badge>
           <h2 className="text-3xl lg:text-4xl font-bold tracking-tight leading-tight">
-            Build on{" "}
-            <span className="bg-gradient-to-r from-sky-300 to-cyan-400 bg-clip-text text-transparent">Zebvix L1</span>
+            Build on the{" "}
+            <span className="bg-gradient-to-r from-sky-300 to-cyan-400 bg-clip-text text-transparent">Zebvix Blockchain</span>
           </h2>
           <p className="text-muted-foreground leading-relaxed">
-            Zebvix speaks JSON-RPC and the standard EVM ABI — your existing tooling (ethers, viem, web3.js, hardhat,
-            foundry) works out of the box. Connect your wallet, deploy a contract, and you&apos;re live on chain {ZBX_CHAIN.id}.
+            The Zebvix Blockchain speaks JSON-RPC and the standard EVM ABI — your existing tooling (ethers, viem,
+            web3.js, hardhat, foundry) works out of the box. Connect your wallet, deploy a contract, and you&apos;re live on
+            chain {ZBX_CHAIN.id}.
           </p>
           <div className="grid sm:grid-cols-2 gap-3 pt-1">
             <DevFeature icon={<Database className="h-4 w-4" />} title="JSON-RPC + WebSocket" desc="Mainnet endpoints with archive node access." />
@@ -1398,7 +1403,7 @@ function RoadmapSection() {
           </Badge>
           <h2 className="text-3xl font-bold tracking-tight">Where we&apos;re headed</h2>
           <p className="text-muted-foreground text-sm mt-2">
-            A focused, public roadmap for Zebvix Exchange and the Zebvix L1 chain.
+            A focused, public roadmap for Zebvix Exchange and the Zebvix Blockchain.
           </p>
         </div>
 
