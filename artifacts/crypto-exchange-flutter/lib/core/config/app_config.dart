@@ -73,7 +73,7 @@ class AppConfig {
       // Load required settings
       _instance!.baseUrl = configJson['baseUrl'] ?? 'https://example.com';
       _instance!.wsBaseUrl = configJson['wsBaseUrl'] ?? 'wss://example.com';
-      _instance!.appName = configJson['appName'] ?? 'BiCrypto';
+      _instance!.appName = configJson['appName'] ?? 'CryptoX Exchange';
       _instance!.appVersion = configJson['appVersion'] ?? '5.0.0';
 
       // Load optional API keys

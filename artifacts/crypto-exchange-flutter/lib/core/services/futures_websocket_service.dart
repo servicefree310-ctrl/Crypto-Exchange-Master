@@ -218,7 +218,7 @@ class FuturesWebSocketService {
       open: (json['open'] as num?)?.toDouble(),
       close: (json['close'] as num?)?.toDouble(),
     );
-    _tickerCtrl.add(ticker);
+    if (!_tickerCtrl.isClosed) _tickerCtrl.add(ticker);
   }
 
   void _parseOrderBook(Map<String, dynamic>? json) {
@@ -256,6 +256,7 @@ class FuturesWebSocketService {
     buy.sort((a, b) => b.price.compareTo(a.price));
     sell.sort((a, b) => a.price.compareTo(b.price));
 
+    if (_orderBookCtrl.isClosed) return;
     _orderBookCtrl.add(OrderBookData(
       buyOrders: buy,
       sellOrders: sell,
@@ -272,7 +273,7 @@ class FuturesWebSocketService {
 
   void _parseTrades(dynamic payload) {
     // TODO – implement when backend provides data
-    _tradesCtrl.add(const []);
+    if (!_tradesCtrl.isClosed) _tradesCtrl.add(const []);
   }
 
   void _handleDisconnection() {

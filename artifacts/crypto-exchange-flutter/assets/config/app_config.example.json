@@ -1,7 +1,7 @@
 {
   "baseUrl": "https://your-backend-url.com",
   "wsBaseUrl": "wss://your-backend-url.com",
-  "appName": "BiCrypto",
+  "appName": "CryptoX Exchange",
   "appVersion": "5.0.0",
   
   "stripePublishableKey": "",

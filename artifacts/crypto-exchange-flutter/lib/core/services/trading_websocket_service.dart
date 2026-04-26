@@ -88,7 +88,7 @@ class TradingWebSocketService {
         '🔄 TRADING_WS: PUBLIC Symbol change requested from $_currentSymbol to $newSymbol');
 
     // Notify all listeners about symbol change
-    _symbolChangeController.add(newSymbol);
+    if (!_symbolChangeController.isClosed) _symbolChangeController.add(newSymbol);
 
     // Handle the symbol change
     await _changeSymbolInternal(newSymbol);
@@ -545,7 +545,7 @@ class TradingWebSocketService {
         // Emit to Trading streams
         dev.log(
             '📊 TRADING_WS: Ticker - ${tickerEntity.symbol}: ${tickerEntity.last} (${tickerEntity.change}%)');
-        _tickerController.add(tickerEntity);
+        if (!_tickerController.isClosed) _tickerController.add(tickerEntity);
 
         // Create MarketDataEntity for Chart features
         if (last > 0) {
@@ -571,7 +571,7 @@ class TradingWebSocketService {
           // Emit to Chart streams
           // dev.log(
           //     '✅ TRADING_WS: Updated ticker data for Chart - Price: $last, Change: ${percentage.toStringAsFixed(3)}%');
-          _chartTickerController.add(chartMarketData);
+          if (!_chartTickerController.isClosed) _chartTickerController.add(chartMarketData);
         }
       }
     } catch (e) {
@@ -605,7 +605,7 @@ class TradingWebSocketService {
             'candles': ohlcvData,
             'stream': stream,
           };
-          _ohlcvController.add(fullOhlcvMap);
+          if (!_ohlcvController.isClosed) _ohlcvController.add(fullOhlcvMap);
 
           // dev.log('📊 TRADING_WS: Processed ${ohlcvData.length} OHLCV candles');
         }
@@ -645,7 +645,7 @@ class TradingWebSocketService {
       };
 
       dev.log('📊 TRADING_WS: OHLCV data processed');
-      _ohlcvController.add(ohlcvMap);
+      if (!_ohlcvController.isClosed) _ohlcvController.add(ohlcvMap);
     } catch (e) {
       dev.log('❌ TRADING_WS: Error processing OHLCV candle: $e');
     }
@@ -721,7 +721,7 @@ class TradingWebSocketService {
         // Emit to OrderBook stream
         dev.log(
             '📊 TRADING_WS: OrderBook - ${bids.length} bids, ${asks.length} asks, spread: ${spread.toStringAsFixed(8)}');
-        _orderBookController.add(orderBookData);
+        if (!_orderBookController.isClosed) _orderBookController.add(orderBookData);
       }
     } catch (e) {
       dev.log('❌ TRADING_WS: Error handling orderbook data: $e');
@@ -768,7 +768,7 @@ class TradingWebSocketService {
 
           // Emit to Trades stream
           dev.log('📊 TRADING_WS: Trades - ${newTrades.length} trades');
-          _tradesController.add(newTrades);
+          if (!_tradesController.isClosed) _tradesController.add(newTrades);
         }
       }
     } catch (e) {

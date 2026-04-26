@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:developer' as dev;
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:math' as math;
-import 'dart:developer' as dev;
 
 import 'package:injectable/injectable.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -120,6 +118,9 @@ class WebSocketService {
 
     try {
       _status = WebSocketConnectionStatus.connecting;
+      // We're attempting a fresh connection; clear the manual-disconnect flag
+      // so error/close handlers know auto-reconnect is allowed.
+      _manuallyDisconnected = false;
       final url = '${ApiConstants.wsBaseUrl}${ApiConstants.wsMarketTicker}';
       dev.log('🔌 TICKER_WS: Connecting to $url');
 
@@ -178,7 +179,15 @@ class WebSocketService {
   void _handleError(error) {
     dev.log('❌ TICKER_WS: Error - $error');
     _status = WebSocketConnectionStatus.error;
-    _scheduleReconnect();
+    _channel = null;
+    _stopHeartbeat();
+
+    // Mirror the disconnect guard — only auto-reconnect when we still have
+    // active subscribers and we weren't manually torn down. Without these
+    // guards a transient ws error spams reconnects forever (the original bug).
+    if (!_manuallyDisconnected && _globalSubscriptionCount > 0) {
+      _scheduleReconnect();
+    }
   }
 
   /// Handle WebSocket disconnection
@@ -196,6 +205,9 @@ class WebSocketService {
 
   /// Schedule reconnection attempt
   void _scheduleReconnect() {
+    if (_manuallyDisconnected || _globalSubscriptionCount == 0) {
+      return;
+    }
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       dev.log('❌ TICKER_WS: Max reconnection attempts reached');
       return;
@@ -208,9 +220,12 @@ class WebSocketService {
     dev.log(
         '🔄 TICKER_WS: Reconnecting in ${delay.inSeconds}s (attempt $_reconnectAttempts/$_maxReconnectAttempts)');
 
-    Timer(delay, () async {
-      if (_status != WebSocketConnectionStatus.connected &&
-          _globalSubscriptionCount > 0) {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () async {
+      if (_manuallyDisconnected || _globalSubscriptionCount == 0) {
+        return;
+      }
+      if (_status != WebSocketConnectionStatus.connected) {
         await _connect();
       }
     });

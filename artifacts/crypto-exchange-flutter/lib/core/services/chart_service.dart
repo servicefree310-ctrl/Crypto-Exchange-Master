@@ -54,6 +54,15 @@ class ChartService {
     _chartData[symbol] = chart;
 
     // Emit update to stream
+    _emitChartUpdate();
+  }
+
+  /// Safely emit a chart-data snapshot, swallowing post-dispose writes.
+  /// Without this guard, the marketsStream subscription can fire after
+  /// dispose() and trigger "Bad state: Cannot add new events after calling
+  /// close" in the browser console.
+  void _emitChartUpdate() {
+    if (_chartUpdateController.isClosed) return;
     _chartUpdateController.add(Map.from(_chartData));
   }
 
@@ -107,13 +116,13 @@ class ChartService {
   /// Clear chart data for a symbol
   void clearChartData(String symbol) {
     _chartData.remove(symbol);
-    _chartUpdateController.add(Map.from(_chartData));
+    _emitChartUpdate();
   }
 
   /// Clear all chart data
   void clearAllChartData() {
     _chartData.clear();
-    _chartUpdateController.add(Map.from(_chartData));
+    _emitChartUpdate();
   }
 
   /// Initialize chart data for multiple symbols
@@ -130,7 +139,7 @@ class ChartService {
         );
       }
     }
-    _chartUpdateController.add(Map.from(_chartData));
+    _emitChartUpdate();
   }
 
   /// Get chart data stream for a specific symbol

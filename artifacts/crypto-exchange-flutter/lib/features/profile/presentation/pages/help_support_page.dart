@@ -308,7 +308,7 @@ class HelpSupportPage extends StatelessWidget {
   void _launchEmail() async {
     final Uri emailUri = Uri(
       scheme: 'mailto',
-      path: 'support@bicrypto.com',
+      path: 'support@cryptox.in',
       query: 'subject=${AppConstants.appName} Mobile App Support',
     );
 
