@@ -273,43 +273,314 @@ function AnimatedNumber({
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Market table row
+// Coin name dictionary (fallback to base symbol if not listed)
 // ──────────────────────────────────────────────────────────────────
-function MarketRow({ t }: { t: NormalizedTicker }) {
-  const positive = t.priceChangePercent >= 0;
+const COIN_NAMES: Record<string, string> = {
+  BTC: "Bitcoin", ETH: "Ethereum", BNB: "BNB", SOL: "Solana", XRP: "XRP",
+  ADA: "Cardano", DOGE: "Dogecoin", TRX: "TRON", AVAX: "Avalanche",
+  DOT: "Polkadot", MATIC: "Polygon", LINK: "Chainlink", LTC: "Litecoin",
+  BCH: "Bitcoin Cash", UNI: "Uniswap", ATOM: "Cosmos", XLM: "Stellar",
+  ETC: "Ethereum Classic", FIL: "Filecoin", APT: "Aptos", ARB: "Arbitrum",
+  OP: "Optimism", NEAR: "NEAR Protocol", INJ: "Injective", SUI: "Sui",
+  TIA: "Celestia", SHIB: "Shiba Inu", PEPE: "Pepe", WLD: "Worldcoin",
+  RNDR: "Render", FET: "Fetch.ai", AAVE: "Aave", MKR: "Maker",
+  ALGO: "Algorand", VET: "VeChain", ICP: "Internet Computer", HBAR: "Hedera",
+  USDT: "Tether", USDC: "USD Coin", DAI: "Dai", BUSD: "Binance USD",
+  ZBX: "Zebvix",
+};
+function coinName(sym: string): string {
+  return COIN_NAMES[baseAsset(sym).toUpperCase()] || baseAsset(sym);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Favorites hook — localStorage-backed Set<string>
+// ──────────────────────────────────────────────────────────────────
+const FAV_KEY = "zbx:favorite-markets";
+function useFavorites() {
+  const [favs, setFavs] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem(FAV_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const persist = (next: Set<string>) => {
+    try {
+      localStorage.setItem(FAV_KEY, JSON.stringify(Array.from(next)));
+    } catch {
+      /* ignore quota / privacy mode */
+    }
+  };
+  const toggle = (sym: string) => {
+    setFavs((prev) => {
+      const next = new Set(prev);
+      if (next.has(sym)) next.delete(sym);
+      else next.add(sym);
+      persist(next);
+      return next;
+    });
+  };
+  const has = (sym: string) => favs.has(sym);
+  return { favs, toggle, has };
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Detect price change direction (for the green/red flash on update)
+// ──────────────────────────────────────────────────────────────────
+function usePriceFlash(price: number) {
+  const [dir, setDir] = useState<"up" | "down" | null>(null);
+  const prev = useRef(price);
+  useEffect(() => {
+    if (!isFinite(price) || price === 0) return undefined;
+    if (prev.current && price !== prev.current) {
+      setDir(price > prev.current ? "up" : "down");
+      const id = setTimeout(() => setDir(null), 800);
+      prev.current = price;
+      return () => clearTimeout(id);
+    }
+    prev.current = price;
+    return undefined;
+  }, [price]);
+  return dir;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// 24h high/low range bar — current price's position within the range
+// ──────────────────────────────────────────────────────────────────
+function RangeBar({ low, high, last, positive }: { low: number; high: number; last: number; positive: boolean }) {
+  const valid = isFinite(low) && isFinite(high) && isFinite(last) && high > low;
+  const pct = valid ? Math.max(0, Math.min(100, ((last - low) / (high - low)) * 100)) : 50;
+  const fill = positive ? "bg-success" : "bg-destructive";
   return (
-    <Link
-      href={`/trade/${encodeSymbol(t.symbol)}`}
-      className="grid grid-cols-12 gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border/60 last:border-b-0"
-    >
-      <div className="col-span-4 sm:col-span-3 flex items-center gap-3 min-w-0">
-        <AssetIcon symbol={t.symbol} />
-        <div className="min-w-0">
-          <div className="font-bold text-sm truncate">{baseAsset(t.symbol)}</div>
-          <div className="text-[11px] text-muted-foreground truncate">/ {quoteAsset(t.symbol)}</div>
-        </div>
+    <div className="w-full">
+      <div className="relative h-1.5 rounded-full bg-muted/60 overflow-visible">
+        <div className={`absolute top-0 left-0 h-full rounded-full ${fill} opacity-70`} style={{ width: `${pct}%` }} />
+        <div
+          className={`absolute -top-0.5 h-2.5 w-2.5 rounded-full ${fill} ring-2 ring-background shadow`}
+          style={{ left: `calc(${pct}% - 5px)` }}
+        />
       </div>
-      <div className="col-span-3 sm:col-span-2 text-right font-mono tabular-nums text-sm">
-        {fmtPrice(t.lastPrice, t.symbol)}
+      <div className="flex justify-between mt-1 text-[10px] text-muted-foreground font-mono tabular-nums">
+        <span>L {fmtCompact(low)}</span>
+        <span>H {fmtCompact(high)}</span>
       </div>
-      <div
-        className={`col-span-3 sm:col-span-2 text-right font-mono tabular-nums text-sm ${
-          positive ? "text-success" : "text-destructive"
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Market table row — rich
+// ──────────────────────────────────────────────────────────────────
+function MarketRow({
+  t,
+  rank,
+  isFav,
+  onToggleFav,
+}: {
+  t: NormalizedTicker;
+  rank: number;
+  isFav: boolean;
+  onToggleFav: (sym: string) => void;
+}) {
+  const positive = t.priceChangePercent >= 0;
+  const flashDir = usePriceFlash(t.lastPrice);
+  return (
+    <div className="grid grid-cols-12 gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border/60 last:border-b-0 group">
+      {/* Rank + Star + Asset */}
+      <div className="col-span-5 sm:col-span-3 flex items-center gap-2.5 min-w-0">
+        <button
+          type="button"
+          aria-label={isFav ? "Unfavorite" : "Favorite"}
+          aria-pressed={isFav}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleFav(t.symbol);
+          }}
+          className="shrink-0 p-1 -m-1 rounded hover:bg-muted/50 transition-colors"
+          data-testid={`fav-${t.symbol}`}
+        >
+          <Star
+            className={`h-3.5 w-3.5 transition-colors ${
+              isFav ? "fill-amber-400 text-amber-400" : "text-muted-foreground/50 hover:text-amber-400"
+            }`}
+          />
+        </button>
+        <span className="hidden md:inline-block text-[10px] font-mono tabular-nums text-muted-foreground/70 w-4 text-center">
+          {rank}
+        </span>
+        <Link href={`/trade/${encodeSymbol(t.symbol)}`} className="flex items-center gap-2.5 min-w-0 flex-1">
+          <AssetIcon symbol={t.symbol} />
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-bold text-sm truncate">{baseAsset(t.symbol)}</span>
+              <span className="text-[10px] text-muted-foreground">/{quoteAsset(t.symbol)}</span>
+            </div>
+            <div className="text-[11px] text-muted-foreground truncate">{coinName(t.symbol)}</div>
+          </div>
+        </Link>
+      </div>
+
+      {/* Price (with flash) */}
+      <Link
+        href={`/trade/${encodeSymbol(t.symbol)}`}
+        className={`col-span-3 sm:col-span-2 text-right font-mono tabular-nums text-sm rounded px-1 ${
+          flashDir === "up" ? "flash-bg-up" : flashDir === "down" ? "flash-bg-down" : ""
         }`}
       >
-        {positive ? "+" : ""}
-        {t.priceChangePercent.toFixed(2)}%
+        {fmtPrice(t.lastPrice, t.symbol)}
+      </Link>
+
+      {/* % change chip */}
+      <Link
+        href={`/trade/${encodeSymbol(t.symbol)}`}
+        className="col-span-4 sm:col-span-2 flex justify-end"
+      >
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono tabular-nums font-semibold ${
+            positive
+              ? "bg-success/10 text-success border border-success/20"
+              : "bg-destructive/10 text-destructive border border-destructive/20"
+          }`}
+        >
+          {positive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+          {positive ? "+" : ""}
+          {t.priceChangePercent.toFixed(2)}%
+        </span>
+      </Link>
+
+      {/* 24h high/low range bar (lg+) */}
+      <div className="hidden lg:block lg:col-span-2 px-2">
+        <RangeBar low={t.low} high={t.high} last={t.lastPrice} positive={positive} />
       </div>
-      <div className="hidden sm:block sm:col-span-2 text-right font-mono tabular-nums text-xs text-muted-foreground">
+
+      {/* 24h volume (sm+) */}
+      <div className="hidden sm:block sm:col-span-2 lg:col-span-1 text-right font-mono tabular-nums text-xs text-muted-foreground">
         {fmtCompact(t.quoteVolume, isInr(t.symbol) ? "₹" : "$")}
       </div>
-      <div className="col-span-2 sm:col-span-2 flex justify-end">
+
+      {/* Sparkline */}
+      <div className="hidden sm:flex sm:col-span-2 lg:col-span-1 justify-end items-center">
         <Sparkline symbol={t.symbol} positive={positive} />
       </div>
-      <div className="hidden sm:flex sm:col-span-1 justify-end">
-        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+
+      {/* Trade quick-action (lg+) — visible on row hover OR keyboard focus */}
+      <div className="hidden lg:flex lg:col-span-1 justify-end">
+        <Button
+          asChild
+          size="sm"
+          variant="outline"
+          className="h-7 px-2.5 text-xs opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
+        >
+          <Link href={`/trade/${encodeSymbol(t.symbol)}`}>Trade</Link>
+        </Button>
       </div>
-    </Link>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Compact card for the grid view
+// ──────────────────────────────────────────────────────────────────
+function MarketCard({
+  t,
+  isFav,
+  onToggleFav,
+}: {
+  t: NormalizedTicker;
+  isFav: boolean;
+  onToggleFav: (sym: string) => void;
+}) {
+  const positive = t.priceChangePercent >= 0;
+  const flashDir = usePriceFlash(t.lastPrice);
+  return (
+    <Card className="relative p-4 border-border/60 hover:border-primary/40 hover:-translate-y-0.5 transition-all group overflow-hidden">
+      <button
+        type="button"
+        aria-label={isFav ? "Unfavorite" : "Favorite"}
+        aria-pressed={isFav}
+        onClick={() => onToggleFav(t.symbol)}
+        className="absolute top-2.5 right-2.5 p-1 rounded hover:bg-muted/60 transition-colors z-10"
+      >
+        <Star
+          className={`h-4 w-4 transition-colors ${
+            isFav ? "fill-amber-400 text-amber-400" : "text-muted-foreground/40 hover:text-amber-400"
+          }`}
+        />
+      </button>
+      <Link href={`/trade/${encodeSymbol(t.symbol)}`} className="block">
+        <div className="flex items-center gap-2.5 mb-3">
+          <AssetIcon symbol={t.symbol} />
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-bold text-sm truncate">{baseAsset(t.symbol)}</span>
+              <span className="text-[10px] text-muted-foreground">/{quoteAsset(t.symbol)}</span>
+            </div>
+            <div className="text-[11px] text-muted-foreground truncate">{coinName(t.symbol)}</div>
+          </div>
+        </div>
+        <div className="flex items-end justify-between gap-2 mb-2">
+          <div
+            className={`font-mono tabular-nums text-lg font-bold rounded px-1 -mx-1 ${
+              flashDir === "up" ? "flash-bg-up" : flashDir === "down" ? "flash-bg-down" : ""
+            }`}
+          >
+            {fmtPrice(t.lastPrice, t.symbol)}
+          </div>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono tabular-nums font-semibold ${
+              positive
+                ? "bg-success/10 text-success border border-success/20"
+                : "bg-destructive/10 text-destructive border border-destructive/20"
+            }`}
+          >
+            {positive ? "+" : ""}
+            {t.priceChangePercent.toFixed(2)}%
+          </span>
+        </div>
+        <div className="flex items-end justify-between">
+          <div className="text-[10px] text-muted-foreground">
+            Vol {fmtCompact(t.quoteVolume, isInr(t.symbol) ? "₹" : "$")}
+          </div>
+          <Sparkline symbol={t.symbol} positive={positive} />
+        </div>
+      </Link>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Skeleton row while data is loading
+// ──────────────────────────────────────────────────────────────────
+function MarketSkeletonRow() {
+  return (
+    <div className="grid grid-cols-12 gap-3 items-center px-4 py-3 border-b border-border/60 last:border-b-0 animate-pulse">
+      <div className="col-span-5 sm:col-span-3 flex items-center gap-2.5">
+        <div className="h-3.5 w-3.5 rounded bg-muted/60" />
+        <div className="h-8 w-8 rounded-full bg-muted/60" />
+        <div className="space-y-1.5">
+          <div className="h-3 w-14 rounded bg-muted/60" />
+          <div className="h-2.5 w-20 rounded bg-muted/40" />
+        </div>
+      </div>
+      <div className="col-span-3 sm:col-span-2 flex justify-end">
+        <div className="h-3 w-16 rounded bg-muted/60" />
+      </div>
+      <div className="col-span-4 sm:col-span-2 flex justify-end">
+        <div className="h-5 w-16 rounded-md bg-muted/60" />
+      </div>
+      <div className="hidden lg:block lg:col-span-2 px-2">
+        <div className="h-1.5 w-full rounded-full bg-muted/60" />
+      </div>
+      <div className="hidden sm:block sm:col-span-2 lg:col-span-1 text-right">
+        <div className="h-3 w-12 rounded bg-muted/40 ml-auto" />
+      </div>
+      <div className="hidden sm:flex sm:col-span-2 lg:col-span-1 justify-end">
+        <div className="h-9 w-24 rounded bg-muted/40" />
+      </div>
+    </div>
   );
 }
 
@@ -382,16 +653,48 @@ export default function Home() {
     [all]
   );
 
+  // ─── Live markets state ───────────────────────────────────────
+  const fav = useFavorites();
+  const [marketSearch, setMarketSearch] = useState("");
+  const [marketQuote, setMarketQuote] = useState<"ALL" | "INR" | "USDT" | "BTC">("ALL");
+  const [marketView, setMarketView] = useState<"list" | "grid">("list");
+  const [marketTab, setMarketTab] = useState<"favorites" | "hot" | "gainers" | "losers" | "vol">("hot");
+
+  // counts per quote (across all loaded tickers, not filtered)
+  const quoteCounts = useMemo(() => {
+    const c: Record<string, number> = { ALL: all.length, INR: 0, USDT: 0, BTC: 0 };
+    for (const t of all) {
+      const q = quoteAsset(t.symbol).toUpperCase();
+      if (q in c) c[q] += 1;
+    }
+    return c;
+  }, [all]);
+
+  // apply search + quote filters once
+  const filtered = useMemo(() => {
+    const q = marketSearch.trim().toLowerCase();
+    return all.filter((t) => {
+      if (marketQuote !== "ALL" && quoteAsset(t.symbol).toUpperCase() !== marketQuote) return false;
+      if (q) {
+        const sym = t.symbol.toLowerCase();
+        const name = coinName(t.symbol).toLowerCase();
+        if (!sym.includes(q) && !name.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [all, marketSearch, marketQuote]);
+
   const hot = useMemo(
     () =>
-      [...all]
+      [...filtered]
         .sort((a, b) => Math.abs(b.priceChangePercent) * (b.quoteVolume || 1) - Math.abs(a.priceChangePercent) * (a.quoteVolume || 1))
-        .slice(0, 8),
-    [all]
+        .slice(0, 10),
+    [filtered]
   );
-  const gainers = useMemo(() => [...all].sort((a, b) => b.priceChangePercent - a.priceChangePercent).slice(0, 8), [all]);
-  const losers = useMemo(() => [...all].sort((a, b) => a.priceChangePercent - b.priceChangePercent).slice(0, 8), [all]);
-  const volume = useMemo(() => [...all].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 8), [all]);
+  const gainers = useMemo(() => [...filtered].sort((a, b) => b.priceChangePercent - a.priceChangePercent).slice(0, 10), [filtered]);
+  const losers = useMemo(() => [...filtered].sort((a, b) => a.priceChangePercent - b.priceChangePercent).slice(0, 10), [filtered]);
+  const volume = useMemo(() => [...filtered].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 10), [filtered]);
+  const favorites = useMemo(() => filtered.filter((t) => fav.has(t.symbol)).slice(0, 20), [filtered, fav.favs]);
 
   return (
     <div className="flex flex-col w-full">
@@ -521,18 +824,120 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <Reveal className="flex items-end justify-between flex-wrap gap-4 mb-6">
             <div>
-              <h2 className="text-3xl font-bold tracking-tight">Live markets</h2>
-              <p className="text-muted-foreground text-sm mt-1">Real-time prices straight from the exchange.</p>
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-3xl font-bold tracking-tight">Live markets</h2>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-success/30 bg-success/10 text-success text-[11px] font-medium">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-success ring-pulse" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-success" />
+                  </span>
+                  LIVE
+                </span>
+              </div>
+              <p className="text-muted-foreground text-sm mt-1">
+                Real-time prices, streamed direct from the exchange engine.
+              </p>
             </div>
-            <Button variant="outline" asChild>
-              <Link href="/markets">
-                View all <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* List/Grid view toggle */}
+              <div className="hidden sm:inline-flex rounded-md border border-border bg-card p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMarketView("list")}
+                  aria-label="List view"
+                  aria-pressed={marketView === "list"}
+                  data-testid="view-list"
+                  className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
+                    marketView === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMarketView("grid")}
+                  aria-label="Grid view"
+                  aria-pressed={marketView === "grid"}
+                  data-testid="view-grid"
+                  className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
+                    marketView === "grid" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Boxes className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <Button variant="outline" asChild>
+                <Link href="/markets">
+                  View all <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </Reveal>
 
-          <Tabs defaultValue="hot" className="w-full">
-            <TabsList className="bg-card border border-border h-auto p-1">
+          {/* Search + quote-currency chip filter */}
+          <Reveal className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={marketSearch}
+                onChange={(e) => setMarketSearch(e.target.value)}
+                placeholder="Search BTC, Ethereum, SOL/INR…"
+                className="pl-9 h-10 bg-card border-border"
+                data-testid="market-search"
+              />
+              {marketSearch && (
+                <button
+                  type="button"
+                  onClick={() => setMarketSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-muted/60"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(["ALL", "INR", "USDT", "BTC"] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setMarketQuote(q)}
+                  aria-pressed={marketQuote === q}
+                  aria-label={`Filter by ${q === "ALL" ? "all quote currencies" : q}`}
+                  data-testid={`quote-${q}`}
+                  className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-semibold border transition-colors ${
+                    marketQuote === q
+                      ? "border-primary/60 bg-primary/10 text-primary"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-border"
+                  }`}
+                >
+                  {q === "ALL" ? "All" : q}
+                  <span
+                    className={`text-[10px] font-mono tabular-nums px-1.5 rounded-sm ${
+                      marketQuote === q ? "bg-primary/20" : "bg-muted/60"
+                    }`}
+                  >
+                    {quoteCounts[q] ?? 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Reveal>
+
+          <Tabs value={marketTab} onValueChange={(v) => setMarketTab(v as typeof marketTab)} className="w-full">
+            <TabsList className="bg-card border border-border h-auto p-1 flex-wrap">
+              <TabsTrigger
+                value="favorites"
+                data-testid="tab-favorites"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5"
+              >
+                <Star className="h-3.5 w-3.5" /> Favorites
+                {fav.favs.size > 0 && (
+                  <span className="text-[10px] font-mono tabular-nums px-1 rounded bg-amber-400/20 text-amber-400">
+                    {fav.favs.size}
+                  </span>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="hot" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-1.5">
                 <Flame className="h-3.5 w-3.5" /> Hot
               </TabsTrigger>
@@ -547,28 +952,121 @@ export default function Home() {
               </TabsTrigger>
             </TabsList>
 
-            {[
-              { key: "hot", data: hot },
-              { key: "gainers", data: gainers },
-              { key: "losers", data: losers },
-              { key: "vol", data: volume },
-            ].map(({ key, data }) => (
+            {(
+              [
+                { key: "favorites", data: favorites, isFavTab: true },
+                { key: "hot", data: hot, isFavTab: false },
+                { key: "gainers", data: gainers, isFavTab: false },
+                { key: "losers", data: losers, isFavTab: false },
+                { key: "vol", data: volume, isFavTab: false },
+              ] as const
+            ).map(({ key, data, isFavTab }) => (
               <TabsContent key={key} value={key} className="mt-4">
-                <Card className="overflow-hidden border-border/60">
-                  <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40 border-b border-border">
-                    <div className="col-span-3">Pair</div>
-                    <div className="col-span-2 text-right">Price</div>
-                    <div className="col-span-2 text-right">24h</div>
-                    <div className="col-span-2 text-right">24h vol</div>
-                    <div className="col-span-2 text-right">Last 24h</div>
-                    <div className="col-span-1" />
-                  </div>
-                  {data.length === 0 ? (
-                    <div className="p-12 text-center text-muted-foreground text-sm">Loading markets…</div>
-                  ) : (
-                    data.map((t) => <MarketRow key={t.symbol} t={t} />)
-                  )}
-                </Card>
+                {marketView === "list" ? (
+                  <Card className="overflow-hidden border-border/60">
+                    {/* Column headers */}
+                    <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40 border-b border-border">
+                      <div className="col-span-3">Pair</div>
+                      <div className="col-span-2 text-right">Price</div>
+                      <div className="col-span-2 text-right">24h change</div>
+                      <div className="hidden lg:block lg:col-span-2 text-center">24h range</div>
+                      <div className="hidden sm:block sm:col-span-2 lg:col-span-1 text-right">24h vol</div>
+                      <div className="hidden sm:block sm:col-span-2 lg:col-span-1 text-right">Last 24h</div>
+                      <div className="hidden lg:block lg:col-span-1" />
+                    </div>
+
+                    {all.length === 0 ? (
+                      // skeleton while initial socket data loads
+                      Array.from({ length: 6 }).map((_, i) => <MarketSkeletonRow key={i} />)
+                    ) : data.length === 0 ? (
+                      <div className="p-10 text-center text-sm">
+                        {isFavTab ? (
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="h-12 w-12 rounded-full bg-amber-400/10 border border-amber-400/30 flex items-center justify-center">
+                              <Star className="h-5 w-5 text-amber-400" />
+                            </div>
+                            <div className="text-foreground font-semibold">No favorites yet</div>
+                            <div className="text-muted-foreground max-w-sm">
+                              Tap the <Star className="h-3.5 w-3.5 inline -mt-0.5 text-amber-400" /> on any market to pin it here for one-tap access.
+                            </div>
+                          </div>
+                        ) : marketSearch || marketQuote !== "ALL" ? (
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="h-12 w-12 rounded-full bg-muted/60 flex items-center justify-center">
+                              <Search className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                            <div className="text-foreground font-semibold">No markets match your filters</div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setMarketSearch("");
+                                setMarketQuote("ALL");
+                              }}
+                            >
+                              Clear filters
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="text-muted-foreground">No markets to show.</div>
+                        )}
+                      </div>
+                    ) : (
+                      data.map((t, i) => (
+                        <MarketRow
+                          key={t.symbol}
+                          t={t}
+                          rank={i + 1}
+                          isFav={fav.has(t.symbol)}
+                          onToggleFav={fav.toggle}
+                        />
+                      ))
+                    )}
+                  </Card>
+                ) : (
+                  // Grid view
+                  <>
+                    {all.length === 0 ? (
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <Card key={i} className="p-4 border-border/60 animate-pulse">
+                            <div className="flex items-center gap-2.5 mb-3">
+                              <div className="h-8 w-8 rounded-full bg-muted/60" />
+                              <div className="space-y-1.5">
+                                <div className="h-3 w-14 rounded bg-muted/60" />
+                                <div className="h-2.5 w-20 rounded bg-muted/40" />
+                              </div>
+                            </div>
+                            <div className="h-5 w-24 rounded bg-muted/60 mb-2" />
+                            <div className="h-9 w-full rounded bg-muted/40" />
+                          </Card>
+                        ))}
+                      </div>
+                    ) : data.length === 0 ? (
+                      <Card className="border-border/60 p-10 text-center text-sm">
+                        {isFavTab ? (
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="h-12 w-12 rounded-full bg-amber-400/10 border border-amber-400/30 flex items-center justify-center">
+                              <Star className="h-5 w-5 text-amber-400" />
+                            </div>
+                            <div className="text-foreground font-semibold">No favorites yet</div>
+                            <div className="text-muted-foreground max-w-sm">
+                              Tap the star on any market to pin it here.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-muted-foreground">No markets match your filters.</div>
+                        )}
+                      </Card>
+                    ) : (
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        {data.map((t) => (
+                          <MarketCard key={t.symbol} t={t} isFav={fav.has(t.symbol)} onToggleFav={fav.toggle} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </TabsContent>
             ))}
           </Tabs>
