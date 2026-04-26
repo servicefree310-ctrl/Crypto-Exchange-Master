@@ -992,9 +992,27 @@ function OrdersTable({
           const filled = Number(o.filled ?? 0);
           const ts = Number(o.createdAt ? new Date(o.createdAt).getTime() : o.ts ?? Date.now());
           const status = String(o.status || "OPEN").toUpperCase();
+          // Pair label — API returns `symbol` (either "BTC/USDT" or "BTCUSDT").
+          // Older payloads may carry `currency`+`pair` instead. Normalize to BASE/QUOTE.
+          const pairLabel = (() => {
+            const sym = String(o.symbol ?? "").trim();
+            if (sym.includes("/")) return sym;
+            if (o.currency && o.pair) return `${o.currency}/${o.pair}`;
+            // Try splitting compact form against common quote suffixes.
+            if (sym) {
+              const QUOTES = ["USDT", "USDC", "BUSD", "INR", "BTC", "ETH", "ZBX"];
+              for (const q of QUOTES) {
+                if (sym.endsWith(q) && sym.length > q.length) {
+                  return `${sym.slice(0, -q.length)}/${q}`;
+                }
+              }
+              return sym;
+            }
+            return "—";
+          })();
           return (
             <tr key={o.id} className="border-b border-border last:border-b-0 hover:bg-muted/15">
-              <td className="px-3 py-1.5 font-semibold">{o.currency}/{o.pair}</td>
+              <td className="px-3 py-1.5 font-semibold whitespace-nowrap">{pairLabel}</td>
               <td className={`px-2 py-1.5 font-bold ${sideStr === "buy" ? "text-success" : "text-destructive"}`}>{sideStr.toUpperCase()}</td>
               <td className="px-2 py-1.5 capitalize text-muted-foreground">{String(o.type || "limit").toLowerCase()}</td>
               <td className="px-2 py-1.5 text-right font-mono tabular-nums">{px > 0 ? fmtNum(px, 2) : "—"}</td>
