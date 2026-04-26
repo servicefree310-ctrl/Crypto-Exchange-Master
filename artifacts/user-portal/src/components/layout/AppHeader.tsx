@@ -16,6 +16,7 @@ import {
   Settings,
   Shield,
   Gift,
+  LifeBuoy,
   Sparkles,
   Layers,
   Construction,
@@ -417,6 +418,11 @@ export function AppHeader() {
                   <DropdownMenuItem asChild>
                     <Link href="/invite" className="cursor-pointer">
                       <Gift className="h-4 w-4 mr-2" /> Invite & Earn
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/support" className="cursor-pointer">
+                      <LifeBuoy className="h-4 w-4 mr-2" /> Support & AI Chat
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />

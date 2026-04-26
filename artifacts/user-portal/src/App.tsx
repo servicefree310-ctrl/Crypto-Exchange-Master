@@ -20,6 +20,8 @@ import Banks from "@/pages/Banks";
 import Settings from "@/pages/Settings";
 import Earn from "@/pages/Earn";
 import Invite from "@/pages/Invite";
+import Support from "@/pages/Support";
+import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -64,6 +66,9 @@ function App() {
                 <Route path="/invite">
                   {() => <RequireAuth><Invite /></RequireAuth>}
                 </Route>
+                <Route path="/support">
+                  {() => <RequireAuth><Support /></RequireAuth>}
+                </Route>
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />
@@ -71,6 +76,7 @@ function App() {
                 <Route component={NotFound} />
               </Switch>
             </AppShell>
+            <SupportChatWidget />
             <Toaster />
           </WouterRouter>
         </TooltipProvider>

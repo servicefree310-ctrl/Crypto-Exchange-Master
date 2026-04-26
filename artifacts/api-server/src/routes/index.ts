@@ -17,6 +17,7 @@ import securityRouter from "./security";
 import klinesRouter from "./klines";
 import promoRouter from "./promo";
 import redisAdminRouter from "./redis-admin";
+import supportUserRouter from "./support-user";
 import bicryptoRouter from "./bicrypto";
 
 const router: IRouter = Router();
@@ -48,6 +49,7 @@ router.use(feesRouter);
 router.use(securityRouter);
 router.use(klinesRouter);
 router.use(promoRouter);
+router.use(supportUserRouter);
 router.use("/admin", redisAdminRouter);
 
 export default router;
