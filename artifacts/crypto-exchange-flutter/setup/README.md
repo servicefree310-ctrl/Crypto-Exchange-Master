@@ -1,6 +1,6 @@
-# BiCrypto Mobile App Setup
+# CryptoX Exchange Mobile App Setup
 
-This folder contains everything you need to set up your BiCrypto Mobile App.
+This folder contains everything you need to set up your CryptoX Exchange Mobile App.
 
 ## 📁 Folder Structure
 

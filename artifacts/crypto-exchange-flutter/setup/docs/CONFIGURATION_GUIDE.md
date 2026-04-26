@@ -1,8 +1,8 @@
-# BiCrypto Mobile App Configuration Guide
+# CryptoX Exchange Mobile App Configuration Guide
 
 ## Overview
 
-BiCrypto Mobile App uses a JSON configuration file to store environment-specific settings. This allows each user to customize their app without modifying source code, preventing corruption and making updates easier.
+CryptoX Exchange Mobile App uses a JSON configuration file to store environment-specific settings. This allows each user to customize their app without modifying source code, preventing corruption and making updates easier.
 
 **What's configured in the app:**
 - Backend API URLs

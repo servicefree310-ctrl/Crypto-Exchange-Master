@@ -1,4 +1,4 @@
-package com.bicrypto.mobile
+package com.cryptox.exchange
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

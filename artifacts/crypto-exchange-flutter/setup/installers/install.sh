@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# BiCrypto Mobile App Installer
+# CryptoX Exchange Mobile App Installer
 # Version: 5.0.0
-# This script helps you set up the BiCrypto mobile app with ease
+# This script helps you set up the CryptoX Exchange mobile app with ease
 
 # Color codes for better UI
 RED='\033[0;31m'
@@ -41,7 +41,7 @@ print_header() {
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════╗"
     echo "║                                                            ║"
-    echo "║              BiCrypto Mobile App Installer                 ║"
+    echo "║              CryptoX Exchange Mobile App Installer                 ║"
     echo "║                     Version 5.0.0                          ║"
     echo "║                                                            ║"
     echo "╚════════════════════════════════════════════════════════════╝"
@@ -361,7 +361,7 @@ configure_app() {
     # Copy example config
     cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
     
-    print_color "$CYAN" "Let's configure your BiCrypto app!"
+    print_color "$CYAN" "Let's configure your CryptoX Exchange app!"
     echo ""
     
     # Backend URL
@@ -399,8 +399,8 @@ configure_app() {
     echo ""
     print_color "$YELLOW" "   This will be displayed as your app's name everywhere"
     print_color "$YELLOW" "   Including: device home screen, app drawer, and inside the app"
-    read -p "   Enter your app name (default: BiCrypto): " app_name
-    app_name=${app_name:-BiCrypto}
+    read -p "   Enter your app name (default: CryptoX Exchange): " app_name
+    app_name=${app_name:-CryptoX Exchange}
     
     # Update app name in platform files
     update_app_name_in_platforms "$app_name"
@@ -844,7 +844,7 @@ build_app() {
 show_next_steps() {
     print_section "Setup Complete! 🎉"
     
-    print_color "$GREEN" "Your BiCrypto app is ready!"
+    print_color "$GREEN" "Your CryptoX Exchange app is ready!"
     echo ""
     print_color "$CYAN" "Next steps:"
     echo ""
@@ -935,7 +935,7 @@ main() {
     print_color "$GREEN" "✓ Flutter project found at: $(pwd)"
     
     # Welcome message
-    print_color "$CYAN" "Welcome to the BiCrypto Mobile App installer!"
+    print_color "$CYAN" "Welcome to the CryptoX Exchange Mobile App installer!"
     print_color "$WHITE" "This wizard will help you set up everything you need."
     echo ""
     read -p "Press Enter to start the installation..."

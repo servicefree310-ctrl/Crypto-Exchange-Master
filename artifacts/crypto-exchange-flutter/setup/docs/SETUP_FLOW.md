@@ -1,4 +1,4 @@
-# BiCrypto Mobile App - Setup Flow
+# CryptoX Exchange Mobile App - Setup Flow
 
 ## 🚀 Installation Flow Overview
 

@@ -1,4 +1,4 @@
-# BiCrypto Mobile App Installation Guide
+# CryptoX Exchange Mobile App Installation Guide
 
 ## 🚀 Quick Start - Automated Installation
 

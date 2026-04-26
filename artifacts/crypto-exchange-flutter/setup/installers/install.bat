@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM BiCrypto Mobile App Installer for Windows
+REM CryptoX Exchange Mobile App Installer for Windows
 REM Version: 5.0.0
 
 REM Color setup
@@ -24,7 +24,7 @@ cls
 echo %CYAN%
 echo ╔════════════════════════════════════════════════════════════╗
 echo ║                                                            ║
-echo ║              BiCrypto Mobile App Installer                 ║
+echo ║              CryptoX Exchange Mobile App Installer                 ║
 echo ║                     Version 5.0.0                          ║
 echo ║                   Windows Edition                          ║
 echo ║                                                            ║
@@ -109,7 +109,7 @@ if not exist pubspec.yaml (
 :project_found
 echo %GREEN%✓ Flutter project found at: %CD%%NC%
 
-echo %CYAN%Welcome to the BiCrypto Mobile App installer!%NC%
+echo %CYAN%Welcome to the CryptoX Exchange Mobile App installer!%NC%
 echo %WHITE%This wizard will help you set up everything you need.%NC%
 echo.
 pause
@@ -232,7 +232,7 @@ if exist %CONFIG_FILE% (
 REM Copy example config
 copy %CONFIG_EXAMPLE% %CONFIG_FILE% >nul
 
-echo %CYAN%Let's configure your BiCrypto app!%NC%
+echo %CYAN%Let's configure your CryptoX Exchange app!%NC%
 echo.
 
 REM Backend URL
@@ -267,8 +267,8 @@ echo.
 echo %WHITE%3. App Name%NC%
 echo %YELLOW%   This will be displayed as your app's name everywhere%NC%
 echo %YELLOW%   Including: device home screen, app drawer, and inside the app%NC%
-set /p app_name="   Enter your app name (default: BiCrypto): "
-if "!app_name!"=="" set app_name=BiCrypto
+set /p app_name="   Enter your app name (default: CryptoX Exchange): "
+if "!app_name!"=="" set app_name=CryptoX Exchange
 
 REM Update app name in platform files
 call :update_app_name_in_platforms "!app_name!"
@@ -654,7 +654,7 @@ echo %WHITE%  Setup Complete! 🎉%NC%
 echo %PURPLE%━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%NC%
 echo.
 
-echo %GREEN%Your BiCrypto app is ready!%NC%
+echo %GREEN%Your CryptoX Exchange app is ready!%NC%
 echo.
 echo %CYAN%Next steps:%NC%
 echo.

@@ -1,4 +1,4 @@
-BiCrypto Configuration Quick Reference
+CryptoX Exchange Configuration Quick Reference
 =====================================
 
 EXCHANGE PROVIDERS (use first 3 letters):

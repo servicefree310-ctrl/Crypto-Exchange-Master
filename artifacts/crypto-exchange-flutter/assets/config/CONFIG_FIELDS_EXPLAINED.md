@@ -33,7 +33,7 @@ This document explains each field in the `app_config.json` file with examples an
 - **Required**: Yes
 - **Examples**:
   ```
-  "appName": "BiCrypto"
+  "appName": "CryptoX Exchange"
   "appName": "MyExchange"
   "appName": "CryptoTrader Pro"
   ```

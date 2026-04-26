@@ -1,6 +1,6 @@
 # App Icon Configuration Guide
 
-This guide explains how to set up your custom app icon for BiCrypto Mobile App.
+This guide explains how to set up your custom app icon for CryptoX Exchange Mobile App.
 
 ## Icon Requirements
 

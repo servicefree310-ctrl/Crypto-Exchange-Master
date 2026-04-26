@@ -1,6 +1,6 @@
-# BiCrypto Mobile App - Complete Trading Platform
+# CryptoX Exchange Mobile App - Complete Trading Platform
 
-Thank you for purchasing BiCrypto Mobile App! This comprehensive Flutter application provides a complete cryptocurrency trading platform with support for spot trading, futures, P2P, staking, and many more features.
+Thank you for purchasing CryptoX Exchange Mobile App! This comprehensive Flutter application provides a complete cryptocurrency trading platform with support for spot trading, futures, P2P, staking, and many more features.
 
 ## 🎯 What You Get
 
@@ -176,7 +176,7 @@ flutter build web
 ## 📋 Requirements
 
 ### Backend
-- BiCrypto v5 backend (sold separately)
+- CryptoX Exchange v5 backend (sold separately)
 - Properly configured API endpoints
 - WebSocket support for real-time features
 
@@ -236,7 +236,7 @@ This is a commercial product. You have purchased a license to use this source co
 
 ## 🎉 Thank You!
 
-Thank you for choosing BiCrypto Mobile App. We've put tremendous effort into making this the most comprehensive and easy-to-use crypto trading app template available.
+Thank you for choosing CryptoX Exchange Mobile App. We've put tremendous effort into making this the most comprehensive and easy-to-use crypto trading app template available.
 
 Happy trading! 🚀
 
@@ -244,4 +244,4 @@ Happy trading! 🚀
 
 **Version:** 5.0.0  
 **Last Updated:** 2024  
-**Compatible with:** BiCrypto v5 Backend 
+**Compatible with:** CryptoX Exchange v5 Backend 
