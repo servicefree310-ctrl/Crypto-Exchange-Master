@@ -7,6 +7,7 @@ import { startBotService } from "./lib/bot-service";
 import { startDepositSweeper } from "./lib/deposit-sweeper";
 import { startWithdrawalWatcher } from "./lib/withdrawal-watcher";
 import { startFuturesEngine } from "./lib/futures-engine";
+import { restoreBooksOnBoot } from "./routes/futures";
 import { initRedis, shutdownRedis } from "./lib/redis";
 import { seedCacheConfigs } from "./routes/redis-admin";
 import { warmAllCaches, startWarmupRefresh } from "./lib/cache-warmup";
@@ -309,6 +310,11 @@ server.listen(port, async () => {
   startDepositSweeper(30000);
   startWithdrawalWatcher();
   startFuturesEngine();
+  // Re-seed the Go matching engine's in-memory book from any open futures
+  // limit orders left over from the last run. Async — the server is already
+  // accepting requests; new orders that arrive before this finishes simply
+  // can't match against a not-yet-restored book (acceptable trade-off).
+  void restoreBooksOnBoot();
   startPairStatsService(5000);
 });
 

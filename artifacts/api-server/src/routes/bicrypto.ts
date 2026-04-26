@@ -1523,7 +1523,10 @@ r.delete("/exchange/order/:id", bicryptoAuth, async (req: any, res): Promise<voi
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// Futures (real impl in Task #2 — for now empty)
+// Futures
+// Order, position, leverage, and cancel endpoints now live in
+// artifacts/api-server/src/routes/futures.ts (real matching engine + DB).
+// Only the read-only market list and chart helpers stay here.
 // ──────────────────────────────────────────────────────────────────────────
 
 r.get("/futures/market", async (_req, res): Promise<void> => {
@@ -1531,92 +1534,7 @@ r.get("/futures/market", async (_req, res): Promise<void> => {
   const coinMap = await loadCoinMap();
   res.json(pairs.map(p => pairToMarket(p, coinMap)));
 });
-// Flutter futures data sources expect either a raw list or `{data:[...]}` for
-// list endpoints, and either an object or `{data:{}}` for write endpoints.
-// Real implementations land in Task #2 (matching engine + futures service).
-r.get("/futures/position", bicryptoAuth, (_req, res) => res.json({ data: [] }));
-r.get("/futures/order", bicryptoAuth, (_req, res) => res.json({ data: [] }));
 
-// Flutter calls leverage with both PUT (set) and POST (update) — accept both.
-const setLeverage = (req: Request, res: Response): void => {
-  const { currency = "BTC", pair = "USDT", leverage = 10 } = req.body ?? {};
-  res.json({
-    data: {
-      id: "stub",
-      symbol: `${currency}/${pair}`,
-      currency, pair,
-      side: "LONG",
-      leverage: Number(leverage),
-      entryPrice: 0, markPrice: 0, liquidationPrice: 0,
-      amount: 0, margin: 0, unrealizedPnl: 0,
-      status: "OPEN",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  });
-};
-r.put("/futures/leverage", bicryptoAuth, setLeverage);
-r.post("/futures/leverage", bicryptoAuth, setLeverage);
-
-// Open a futures position (alias for POST /futures/order — Flutter calls both)
-r.post("/futures/position", bicryptoAuth, (req, res) => {
-  const b = req.body ?? {};
-  res.json({
-    data: {
-      id: `pos-${Date.now()}`,
-      symbol: `${b.currency}/${b.pair}`,
-      currency: b.currency, pair: b.pair,
-      side: b.side ?? "LONG",
-      leverage: Number(b.leverage ?? 10),
-      entryPrice: Number(b.price ?? 0),
-      markPrice: Number(b.price ?? 0),
-      liquidationPrice: 0,
-      amount: Number(b.amount ?? 0),
-      margin: Number(b.margin ?? 0),
-      unrealizedPnl: 0,
-      status: "OPEN",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  });
-});
-
-r.post("/futures/order", bicryptoAuth, (req, res) => {
-  const b = req.body ?? {};
-  res.json({
-    data: {
-      id: `stub-${Date.now()}`,
-      symbol: `${b.currency}/${b.pair}`,
-      currency: b.currency, pair: b.pair,
-      type: b.type, side: b.side,
-      amount: Number(b.amount ?? 0),
-      price: Number(b.price ?? 0),
-      leverage: Number(b.leverage ?? 1),
-      stopLossPrice: b.stopLossPrice ?? null,
-      takeProfitPrice: b.takeProfitPrice ?? null,
-      status: "PENDING",
-      filled: 0,
-      createdAt: new Date().toISOString(),
-    },
-  });
-});
-
-r.delete("/futures/order/:id", bicryptoAuth, (req, res) => {
-  res.json({ data: { id: req.params.id, status: "CANCELLED", createdAt: new Date().toISOString() } });
-});
-
-r.delete("/futures/position", bicryptoAuth, (req, res) => {
-  const { currency = "BTC", pair = "USDT", side = "LONG" } = req.body ?? {};
-  res.json({
-    data: {
-      id: "stub",
-      symbol: `${currency}/${pair}`,
-      currency, pair, side,
-      status: "CLOSED",
-      closedAt: new Date().toISOString(),
-    },
-  });
-});
 r.get("/futures/chart", (req, res) => {
   const symbol = String(req.query.symbol || "BTC/USDT");
   const interval = String(req.query.interval || "1h");

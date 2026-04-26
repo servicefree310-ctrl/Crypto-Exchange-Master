@@ -9,6 +9,7 @@ import marketsRouter from "./markets";
 import paymentsRouter from "./payments";
 import ordersRouter from "./orders";
 import positionsRouter from "./positions";
+import futuresRouter from "./futures";
 import transferRouter from "./transfer";
 import earnUserRouter from "./earn-user";
 import feesRouter from "./fees";
@@ -27,6 +28,10 @@ router.use(healthRouter);
 // define /auth/login or /auth/me so the legacy admin auth keeps owning
 // those (admin needs cookie-session login). bicrypto's /auth/logout also
 // clears the legacy SESSION cookie for compatibility.
+// Real futures router — must mount BEFORE bicrypto so its (now-removed)
+// futures paths cannot accidentally shadow real handlers if anyone re-adds
+// stubs there.
+router.use(futuresRouter);
 router.use(bicryptoRouter);
 router.use(authRouter);
 router.use(adminRouter);

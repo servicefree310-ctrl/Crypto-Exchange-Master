@@ -1,138 +1,189 @@
 package main
 
 import (
-        "encoding/json"
-        "log"
-        "net/http"
-        "os"
-        "strings"
-        "sync"
-        "time"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
 
-        "github.com/gorilla/websocket"
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
-        CheckOrigin: func(r *http.Request) bool {
-                // In production restrict WS to the configured origin host. In dev
-                // (or when ALLOWED_ORIGIN is unset) allow same-host upgrades only.
-                allowed := os.Getenv("ALLOWED_ORIGIN")
-                origin := r.Header.Get("Origin")
-                if origin == "" {
-                        // Native clients (mobile/Flutter) often send no Origin header.
-                        return true
-                }
-                if allowed != "" {
-                        return origin == allowed
-                }
-                // Dev fallback: allow Replit dev domain + localhost.
-                if dev := os.Getenv("REPLIT_DEV_DOMAIN"); dev != "" {
-                        if origin == "https://"+dev || origin == "http://"+dev {
-                                return true
-                        }
-                }
-                return strings.HasPrefix(origin, "http://localhost") ||
-                        strings.HasPrefix(origin, "http://127.0.0.1")
-        },
+	CheckOrigin: func(r *http.Request) bool {
+		// In production restrict WS to the configured origin host. In dev
+		// (or when ALLOWED_ORIGIN is unset) allow same-host upgrades only.
+		allowed := os.Getenv("ALLOWED_ORIGIN")
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Native clients (mobile/Flutter) often send no Origin header.
+			return true
+		}
+		if allowed != "" {
+			return origin == allowed
+		}
+		// Dev fallback: allow Replit dev domain + localhost.
+		if dev := os.Getenv("REPLIT_DEV_DOMAIN"); dev != "" {
+			if origin == "https://"+dev || origin == "http://"+dev {
+				return true
+			}
+		}
+		return strings.HasPrefix(origin, "http://localhost") ||
+			strings.HasPrefix(origin, "http://127.0.0.1")
+	},
 }
 
-type subSet struct {
-        mu       sync.Mutex
-        channels map[string]struct{}
+// Server is the long-lived process state shared by HTTP handlers + WS hub.
+type Server struct {
+	engine *Engine
+
+	wsMu  sync.RWMutex
+	wsSub map[*wsClient]struct{}
 }
 
-func newSubSet() *subSet { return &subSet{channels: map[string]struct{}{}} }
-func (s *subSet) add(ch string) {
-        s.mu.Lock()
-        defer s.mu.Unlock()
-        s.channels[ch] = struct{}{}
-}
-func (s *subSet) snapshot() []string {
-        s.mu.Lock()
-        defer s.mu.Unlock()
-        out := make([]string, 0, len(s.channels))
-        for k := range s.channels {
-                out = append(out, k)
-        }
-        return out
+type wsClient struct {
+	conn     *websocket.Conn
+	sendMu   sync.Mutex
+	channels map[string]struct{}
+	chMu     sync.Mutex
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(map[string]any{
-                "status":  "ok",
-                "service": "cryptox-go",
-                "ts":      time.Now().UnixMilli(),
-        })
+func (c *wsClient) hasChannel(ch string) bool {
+	c.chMu.Lock()
+	defer c.chMu.Unlock()
+	_, ok := c.channels[ch]
+	return ok
 }
 
-// Stub WebSocket: accepts {type:"subscribe", channel:"ticker:BTCUSDT"}
-// frames and broadcasts mock ticker updates every second. Real matching
-// engine + L2 book streams will replace this in Task #2.
-func handleWS(w http.ResponseWriter, r *http.Request) {
-        c, err := upgrader.Upgrade(w, r, nil)
-        if err != nil {
-                log.Println("upgrade:", err)
-                return
-        }
-        defer c.Close()
+func (c *wsClient) addChannel(ch string) {
+	c.chMu.Lock()
+	defer c.chMu.Unlock()
+	c.channels[ch] = struct{}{}
+}
 
-        subs := newSubSet()
+func newServer() *Server {
+	return &Server{
+		engine: NewEngine(),
+		wsSub:  make(map[*wsClient]struct{}),
+	}
+}
 
-        // reader
-        go func() {
-                for {
-                        _, msg, err := c.ReadMessage()
-                        if err != nil {
-                                return
-                        }
-                        var m map[string]any
-                        if json.Unmarshal(msg, &m) == nil {
-                                if t, _ := m["type"].(string); t == "subscribe" {
-                                        if ch, _ := m["channel"].(string); ch != "" {
-                                                subs.add(ch)
-                                        }
-                                }
-                        }
-                }
-        }()
+// broadcast pushes a JSON frame to every WS subscriber of `channel`.
+func (s *Server) broadcast(channel string, data any) {
+	frame, err := json.Marshal(map[string]any{
+		"channel": channel,
+		"ts":      time.Now().UnixMilli(),
+		"data":    data,
+	})
+	if err != nil {
+		return
+	}
+	s.wsMu.RLock()
+	clients := make([]*wsClient, 0, len(s.wsSub))
+	for c := range s.wsSub {
+		if c.hasChannel(channel) {
+			clients = append(clients, c)
+		}
+	}
+	s.wsMu.RUnlock()
+	for _, c := range clients {
+		c.sendMu.Lock()
+		_ = c.conn.WriteMessage(websocket.TextMessage, frame)
+		c.sendMu.Unlock()
+	}
+}
 
-        tk := time.NewTicker(time.Second)
-        defer tk.Stop()
-        for range tk.C {
-                for _, ch := range subs.snapshot() {
-                        payload, _ := json.Marshal(map[string]any{
-                                "channel": ch,
-                                "ts":      time.Now().UnixMilli(),
-                                "data":    map[string]any{"price": 50000.0, "qty": 0},
-                        })
-                        if err := c.WriteMessage(websocket.TextMessage, payload); err != nil {
-                                return
-                        }
-                }
-        }
+func (s *Server) registerClient(c *wsClient) {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	s.wsSub[c] = struct{}{}
+}
+
+func (s *Server) removeClient(c *wsClient) {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	delete(s.wsSub, c)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":  "ok",
+		"service": "cryptox-go",
+		"ts":      time.Now().UnixMilli(),
+		"books":   len(s.engine.books),
+	})
+}
+
+// WebSocket: clients subscribe via {type:"subscribe",channel:"futures.orderbook:1"}
+// and we push frames whenever broadcast(channel,...) is called.
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("upgrade:", err)
+		return
+	}
+	cli := &wsClient{conn: c, channels: map[string]struct{}{}}
+	s.registerClient(cli)
+	defer func() {
+		s.removeClient(cli)
+		c.Close()
+	}()
+
+	for {
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			return
+		}
+		var m map[string]any
+		if json.Unmarshal(msg, &m) != nil {
+			continue
+		}
+		t, _ := m["type"].(string)
+		ch, _ := m["channel"].(string)
+		if t == "subscribe" && ch != "" {
+			cli.addChannel(ch)
+		}
+		if t == "ping" {
+			cli.sendMu.Lock()
+			_ = c.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong"}`))
+			cli.sendMu.Unlock()
+		}
+	}
 }
 
 func main() {
-        port := os.Getenv("PORT")
-        if port == "" {
-                port = "8090"
-        }
-        prefix := os.Getenv("BASE_PATH")
-        if prefix == "" {
-                prefix = "/go-service/"
-        }
-        prefix = strings.TrimRight(prefix, "/")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8090"
+	}
+	prefix := os.Getenv("BASE_PATH")
+	if prefix == "" {
+		prefix = "/go-service/"
+	}
+	prefix = strings.TrimRight(prefix, "/")
 
-        mux := http.NewServeMux()
-        mux.HandleFunc("/healthz", handleHealth)
-        mux.HandleFunc("/ws", handleWS)
-        mux.HandleFunc(prefix+"/healthz", handleHealth)
-        mux.HandleFunc(prefix+"/ws", handleWS)
-        mux.HandleFunc(prefix+"/", handleHealth)
+	srv := newServer()
+	mux := http.NewServeMux()
 
-        log.Printf("cryptox-go listening on :%s", port)
-        if err := http.ListenAndServe(":"+port, mux); err != nil {
-                log.Fatal(err)
-        }
+	// Public health + WS (also under the artifact prefix for dev preview).
+	mux.HandleFunc("/healthz", srv.handleHealth)
+	mux.HandleFunc("/ws", srv.handleWS)
+	mux.HandleFunc(prefix+"/healthz", srv.handleHealth)
+	mux.HandleFunc(prefix+"/ws", srv.handleWS)
+	mux.HandleFunc(prefix+"/", srv.handleHealth)
+
+	// Internal RPC for the Node api-server (loopback only in production).
+	mux.HandleFunc("/internal/futures/place", srv.handlePlace)
+	mux.HandleFunc("/internal/futures/cancel", srv.handleCancel)
+	mux.HandleFunc("/internal/futures/seed", srv.handleSeed)
+	mux.HandleFunc("/internal/futures/snapshot", srv.handleSnapshot)
+
+	log.Printf("cryptox-go listening on :%s (futures matching engine ready)", port)
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Fatal(err)
+	}
 }

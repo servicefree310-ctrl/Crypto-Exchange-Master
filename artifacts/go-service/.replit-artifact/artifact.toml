@@ -15,10 +15,10 @@ paths = [ "/go-service/", "/go-service/healthz", "/go-service/ws", "/go-service/
 localPort = 23004
 
 [services.development]
-run = "go run main.go"
+run = "go run ."
 
 [services.production]
-build = [ "go", "build", "-o", "server", "main.go" ]
+build = [ "go", "build", "-o", "server", "." ]
 run = [ "./server" ]
 
 [services.env]
