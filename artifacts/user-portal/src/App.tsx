@@ -19,6 +19,7 @@ import Kyc from "@/pages/Kyc";
 import Banks from "@/pages/Banks";
 import Settings from "@/pages/Settings";
 import Earn from "@/pages/Earn";
+import Invite from "@/pages/Invite";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -59,6 +60,9 @@ function App() {
                 </Route>
                 <Route path="/earn">
                   {() => <Earn />}
+                </Route>
+                <Route path="/invite">
+                  {() => <RequireAuth><Invite /></RequireAuth>}
                 </Route>
 
                 <Route path="/login" component={Login} />

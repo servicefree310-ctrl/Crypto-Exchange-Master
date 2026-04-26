@@ -414,6 +414,11 @@ export function AppHeader() {
                       <Coins className="h-4 w-4 mr-2" /> Earn
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/invite" className="cursor-pointer">
+                      <Gift className="h-4 w-4 mr-2" /> Invite & Earn
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/settings" className="cursor-pointer">
