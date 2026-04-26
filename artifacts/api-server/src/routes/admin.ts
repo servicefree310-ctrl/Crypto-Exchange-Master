@@ -120,9 +120,11 @@ router.post("/admin/users/:id/disable-2fa", adminOnly, async (req, res): Promise
 router.post("/admin/users/:id/force-logout", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
-  const result = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id));
-  const revoked = (result as any).rowCount ?? 0;
-  res.json({ ok: true, revoked });
+  const deleted = await db
+    .delete(sessionsTable)
+    .where(eq(sessionsTable.userId, id))
+    .returning({ id: sessionsTable.id });
+  res.json({ ok: true, revoked: deleted.length });
 });
 
 // Users
