@@ -20,6 +20,9 @@ import {
   Sparkles,
   Layers,
   Construction,
+  Coins,
+  Users,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -41,16 +44,28 @@ import { toast } from "@/hooks/use-toast";
 
 type Mode = "exchange" | "dex";
 
-const navItems = [
-  { href: "/markets", label: "Markets", icon: BarChart3, match: (l: string) => l === "/markets" || l.startsWith("/markets/") },
-  { href: "/trade", label: "Trade", icon: TrendingUp, match: (l: string) => l.startsWith("/trade") },
-  { href: "/futures", label: "Futures", icon: Zap, match: (l: string) => l.startsWith("/futures"), badge: "100×" },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof BarChart3;
+  match: (l: string) => boolean;
+  badge?: string;
+  badgeTone?: "hot" | "new";
+  priority: number;
+};
+
+const navItems: NavItem[] = [
+  { href: "/markets", label: "Markets", icon: BarChart3, match: (l) => l === "/markets" || l.startsWith("/markets/"), priority: 1 },
+  { href: "/trade", label: "Trade", icon: TrendingUp, match: (l) => l.startsWith("/trade"), priority: 1 },
+  { href: "/futures", label: "Futures", icon: Zap, match: (l) => l.startsWith("/futures"), badge: "100×", badgeTone: "hot", priority: 1 },
+  { href: "/earn", label: "Earn", icon: Coins, match: (l) => l.startsWith("/earn"), badge: "NEW", badgeTone: "new", priority: 1 },
+  { href: "/p2p", label: "P2P", icon: Users, match: (l) => l.startsWith("/p2p"), priority: 2 },
+  { href: "/convert", label: "Convert", icon: ArrowLeftRight, match: (l) => l.startsWith("/convert"), priority: 2 },
 ];
 
-const userNavItems = [
-  { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l: string) => l === "/wallet" },
-  { href: "/orders", label: "Orders", icon: ListOrdered, match: (l: string) => l === "/orders" },
-  { href: "/portfolio", label: "Portfolio", icon: PieChart, match: (l: string) => l === "/portfolio" },
+const userNavItems: NavItem[] = [
+  { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l) => l === "/wallet", priority: 2 },
+  { href: "/portfolio", label: "Portfolio", icon: PieChart, match: (l) => l === "/portfolio", priority: 3 },
 ];
 
 export function AppHeader() {
@@ -104,7 +119,7 @@ export function AppHeader() {
           </Link>
 
           {/* Mode switcher: Exchange / DEX */}
-          <div className="hidden sm:flex items-center rounded-full bg-muted/60 border border-border p-0.5">
+          <div className="hidden md:flex items-center rounded-full bg-muted/60 border border-border p-0.5 flex-shrink-0">
             <button
               type="button"
               onClick={() => handleModeChange("exchange")}
@@ -135,30 +150,40 @@ export function AppHeader() {
             </button>
           </div>
 
-          {/* Desktop nav */}
-          <nav className="hidden lg:flex items-center gap-1 text-sm">
+          {/* Desktop nav — auto-fits via priority-based progressive disclosure */}
+          <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1 text-sm min-w-0">
             {items.map((item) => {
               const Icon = item.icon;
               const active = item.match(location);
+              const visibility =
+                item.priority === 1
+                  ? "inline-flex"
+                  : item.priority === 2
+                  ? "hidden xl:inline-flex"
+                  : "hidden 2xl:inline-flex";
+              const badgeClass =
+                item.badgeTone === "new"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                  : "bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/20";
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`relative inline-flex items-center gap-1.5 px-3 h-9 rounded-md font-medium transition-colors ${
+                  className={`relative ${visibility} items-center gap-1.5 px-2 xl:px-3 h-9 rounded-md font-medium whitespace-nowrap transition-colors ${
                     active
                       ? "text-primary bg-primary/10"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-4 w-4 flex-shrink-0" />
                   {item.label}
-                  {"badge" in item && item.badge && (
-                    <Badge className="ml-0.5 h-4 px-1.5 text-[9px] font-bold bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/20">
+                  {item.badge && (
+                    <Badge className={`ml-0.5 h-4 px-1.5 text-[9px] font-bold ${badgeClass}`}>
                       {item.badge}
                     </Badge>
                   )}
                   {active && (
-                    <span className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-primary" />
+                    <span className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
                   )}
                 </Link>
               );
@@ -168,20 +193,20 @@ export function AppHeader() {
 
         {/* ── Right: search + actions ─────────────── */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Quick search */}
+          {/* Quick search — full box only at 2xl+ (avoids cramping the 6-item nav at xl) */}
           <Link
             href="/markets"
-            className="hidden md:flex items-center gap-2 h-9 px-3 rounded-md bg-muted/50 border border-border text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-44 lg:w-56"
+            className="hidden 2xl:flex items-center gap-2 h-9 px-3 rounded-md bg-muted/50 border border-border text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-56 flex-shrink min-w-0"
           >
-            <Search className="h-3.5 w-3.5" />
-            <span className="flex-1 text-left">Search markets…</span>
-            <kbd className="hidden lg:inline-flex h-5 items-center gap-0.5 rounded border border-border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+            <Search className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="flex-1 text-left truncate">Search markets…</span>
+            <kbd className="inline-flex h-5 items-center gap-0.5 rounded border border-border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
               ⌘K
             </kbd>
           </Link>
 
-          {/* Mobile search icon */}
-          <Button asChild variant="ghost" size="icon" className="md:hidden h-9 w-9">
+          {/* Search icon — shown whenever the full box is hidden */}
+          <Button asChild variant="ghost" size="icon" className="2xl:hidden h-9 w-9 flex-shrink-0">
             <Link href="/markets" aria-label="Search markets">
               <Search className="h-4 w-4" />
             </Link>
@@ -362,8 +387,14 @@ export function AppHeader() {
                     >
                       <Icon className="h-4 w-4" />
                       <span className="flex-1">{item.label}</span>
-                      {"badge" in item && item.badge && (
-                        <Badge className="h-4 px-1.5 text-[9px] font-bold bg-rose-500/15 text-rose-400 border-rose-500/30">
+                      {item.badge && (
+                        <Badge
+                          className={`h-4 px-1.5 text-[9px] font-bold ${
+                            item.badgeTone === "new"
+                              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                              : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                          }`}
+                        >
                           {item.badge}
                         </Badge>
                       )}
