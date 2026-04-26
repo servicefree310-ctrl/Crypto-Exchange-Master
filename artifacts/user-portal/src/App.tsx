@@ -29,6 +29,12 @@ import Cookies from "@/pages/Cookies";
 import Risk from "@/pages/Risk";
 import Fees from "@/pages/Fees";
 import ApiDocs from "@/pages/ApiDocs";
+import Careers from "@/pages/Careers";
+import Blog from "@/pages/Blog";
+import Press from "@/pages/Press";
+import Contact from "@/pages/Contact";
+import Help from "@/pages/Help";
+import Status from "@/pages/Status";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -86,6 +92,12 @@ function App() {
                 <Route path="/legal/risk" component={Risk} />
                 <Route path="/fees" component={Fees} />
                 <Route path="/docs/api" component={ApiDocs} />
+                <Route path="/careers" component={Careers} />
+                <Route path="/blog" component={Blog} />
+                <Route path="/press" component={Press} />
+                <Route path="/contact" component={Contact} />
+                <Route path="/help" component={Help} />
+                <Route path="/status" component={Status} />
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />
