@@ -5,14 +5,55 @@ import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
+// Public list of active earn products with coin info — used by the user-portal
+// Earn page. Admin-only `/admin/earn-products` returns ALL products including
+// drafts/inactive; this endpoint filters to status='active' and joins coin meta.
+router.get("/earn/products", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      id: earnProductsTable.id,
+      coinId: earnProductsTable.coinId,
+      name: earnProductsTable.name,
+      description: earnProductsTable.description,
+      type: earnProductsTable.type,
+      durationDays: earnProductsTable.durationDays,
+      apy: earnProductsTable.apy,
+      minAmount: earnProductsTable.minAmount,
+      maxAmount: earnProductsTable.maxAmount,
+      totalCap: earnProductsTable.totalCap,
+      currentSubscribed: earnProductsTable.currentSubscribed,
+      payoutInterval: earnProductsTable.payoutInterval,
+      compounding: earnProductsTable.compounding,
+      earlyRedemption: earnProductsTable.earlyRedemption,
+      earlyRedemptionPenaltyPct: earnProductsTable.earlyRedemptionPenaltyPct,
+      minVipTier: earnProductsTable.minVipTier,
+      featured: earnProductsTable.featured,
+      displayOrder: earnProductsTable.displayOrder,
+      saleStartAt: earnProductsTable.saleStartAt,
+      saleEndAt: earnProductsTable.saleEndAt,
+      coinSymbol: coinsTable.symbol,
+      coinName: coinsTable.name,
+      coinIcon: coinsTable.logoUrl,
+    })
+    .from(earnProductsTable)
+    .innerJoin(coinsTable, eq(earnProductsTable.coinId, coinsTable.id))
+    .where(eq(earnProductsTable.status, "active"))
+    .orderBy(desc(earnProductsTable.featured), desc(earnProductsTable.displayOrder), desc(earnProductsTable.apy));
+  res.json(rows);
+});
+
 router.get("/earn/positions", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
   const rows = await db
     .select({
       id: earnPositionsTable.id, productId: earnPositionsTable.productId, amount: earnPositionsTable.amount,
-      totalEarned: earnPositionsTable.totalEarned, autoMaturity: earnPositionsTable.autoMaturity,
+      totalEarned: earnPositionsTable.totalEarned,
+      autoMaturity: earnPositionsTable.autoMaturity,
+      autoRenew: earnPositionsTable.autoMaturity,
       status: earnPositionsTable.status, startedAt: earnPositionsTable.startedAt,
-      maturedAt: earnPositionsTable.maturedAt, closedAt: earnPositionsTable.closedAt,
+      maturedAt: earnPositionsTable.maturedAt,
+      maturityAt: earnPositionsTable.maturedAt,
+      closedAt: earnPositionsTable.closedAt,
       coinSymbol: coinsTable.symbol, productName: earnProductsTable.name,
       apy: earnProductsTable.apy, durationDays: earnProductsTable.durationDays,
       type: earnProductsTable.type,
@@ -27,15 +68,26 @@ router.get("/earn/positions", requireAuth, async (req, res): Promise<void> => {
 
 router.post("/earn/subscribe", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
-  const { productId, amount, autoMaturity } = req.body ?? {};
+  const body = req.body ?? {};
+  const productId = body.productId;
+  const amount = body.amount;
+  // Accept both `autoRenew` (frontend canonical) and `autoMaturity` (legacy/db).
+  const autoMaturity = body.autoRenew ?? body.autoMaturity;
   const amt = Number(amount);
   if (!productId || !Number.isFinite(amt) || amt <= 0) { res.status(400).json({ error: "productId and positive amount required" }); return; }
+
+  // Server-enforced KYC gate — Earn requires at least Level 1. Locked products
+  // (durationDays > 0) further require Level 2. UI gates the same way but we
+  // must enforce here so direct API calls cannot bypass.
+  const userKycLevel = Number(req.user!.kycLevel ?? 0);
+  if (userKycLevel < 1) { res.status(403).json({ error: "KYC Level 1 required to subscribe to Earn products" }); return; }
 
   try {
     const created = await db.transaction(async (tx) => {
       const [p] = await tx.select().from(earnProductsTable).where(eq(earnProductsTable.id, Number(productId))).limit(1);
       if (!p) { const e: any = new Error("Product not found"); e.code = 404; throw e; }
       if (p.status !== "active") { const e: any = new Error("Product not active"); e.code = 400; throw e; }
+      if (p.durationDays > 0 && userKycLevel < 2) { const e: any = new Error("Locked Earn products require KYC Level 2"); e.code = 403; throw e; }
       const min = Number(p.minAmount), max = Number(p.maxAmount);
       if (min > 0 && amt < min) { const e: any = new Error(`Min amount is ${min}`); e.code = 400; throw e; }
       if (max > 0 && amt > max) { const e: any = new Error(`Max amount is ${max}`); e.code = 400; throw e; }

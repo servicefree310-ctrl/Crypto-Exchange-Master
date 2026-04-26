@@ -400,8 +400,24 @@ export function AppHeader() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href="/profile" className="cursor-pointer">
-                      <Settings className="h-4 w-4 mr-2" /> Settings
+                    <Link href="/kyc" className="cursor-pointer">
+                      <Shield className="h-4 w-4 mr-2" /> KYC Verification
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/banks" className="cursor-pointer">
+                      <Construction className="h-4 w-4 mr-2" /> Bank Accounts
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/earn" className="cursor-pointer">
+                      <Coins className="h-4 w-4 mr-2" /> Earn
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="cursor-pointer">
+                      <Settings className="h-4 w-4 mr-2" /> Settings & 2FA
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={logout} className="cursor-pointer text-rose-500 focus:text-rose-500">

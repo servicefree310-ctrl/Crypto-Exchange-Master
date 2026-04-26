@@ -15,6 +15,10 @@ import Portfolio from "@/pages/Portfolio";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Profile from "@/pages/Profile";
+import Kyc from "@/pages/Kyc";
+import Banks from "@/pages/Banks";
+import Settings from "@/pages/Settings";
+import Earn from "@/pages/Earn";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -44,7 +48,19 @@ function App() {
                 <Route path="/profile">
                   {() => <RequireAuth><Profile /></RequireAuth>}
                 </Route>
-                
+                <Route path="/kyc">
+                  {() => <RequireAuth><Kyc /></RequireAuth>}
+                </Route>
+                <Route path="/banks">
+                  {() => <RequireAuth><Banks /></RequireAuth>}
+                </Route>
+                <Route path="/settings">
+                  {() => <RequireAuth><Settings /></RequireAuth>}
+                </Route>
+                <Route path="/earn">
+                  {() => <Earn />}
+                </Route>
+
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />
                 

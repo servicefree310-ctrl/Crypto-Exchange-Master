@@ -5,7 +5,14 @@ type User = {
   id: number;
   email: string;
   fullName: string;
+  name?: string;
+  phone?: string;
   role: string;
+  kycLevel?: number;
+  vipTier?: number;
+  referralCode?: string;
+  status?: string;
+  twoFaEnabled?: boolean;
 };
 
 type AuthContextType = {
