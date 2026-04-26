@@ -25,6 +25,10 @@ import About from "@/pages/About";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
 import Aml from "@/pages/Aml";
+import Cookies from "@/pages/Cookies";
+import Risk from "@/pages/Risk";
+import Fees from "@/pages/Fees";
+import ApiDocs from "@/pages/ApiDocs";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -78,6 +82,10 @@ function App() {
                 <Route path="/legal/terms" component={Terms} />
                 <Route path="/legal/privacy" component={Privacy} />
                 <Route path="/legal/aml" component={Aml} />
+                <Route path="/legal/cookies" component={Cookies} />
+                <Route path="/legal/risk" component={Risk} />
+                <Route path="/fees" component={Fees} />
+                <Route path="/docs/api" component={ApiDocs} />
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />
