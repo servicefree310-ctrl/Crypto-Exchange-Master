@@ -410,4 +410,10 @@ class WebSocketService {
 
   @visibleForTesting
   Duration get debugUpdateDebounceDelay => _updateDebounceDelay;
+
+  /// Test-only: set the global subscription counter directly so reconnect
+  /// gates can be opened without driving _connect() (which would try to
+  /// open a real WebSocket and contaminate timer counts).
+  @visibleForTesting
+  void debugSetGlobalSubscriptionCount(int n) => _globalSubscriptionCount = n;
 }

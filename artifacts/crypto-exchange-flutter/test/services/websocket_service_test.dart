@@ -1,3 +1,4 @@
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/services/market_service.dart';
@@ -249,13 +250,94 @@ void main() {
       expect(ws.debugReconnectAttempts, equals(5));
       expect(ws.debugHasReconnectTimerScheduled, isTrue);
 
-      // Cancel the pending timer to set up a clean "no timer" baseline,
-      // then trigger one more error — the cap should refuse to schedule.
-      // (We can't directly cancel from outside; instead we observe that
-      // the attempt counter does not move past 5 on the next error.)
+      // The 6th error must hit the cap and refuse to schedule. Observe
+      // that the attempt counter does not move past 5.
       ws.debugTriggerError('err overflow');
       expect(ws.debugReconnectAttempts, equals(5),
           reason: 'attempt counter must not advance past max');
+    });
+  });
+
+  group(
+      'WebSocketService reconnect-timer cancellation semantics (fake_async)',
+      () {
+    // These tests inspect the *actual pending Timer count* under FakeAsync
+    // so they will catch a regression where `_reconnectTimer?.cancel()` is
+    // removed from `_scheduleReconnect`. Without that cancel(), three rapid
+    // errors would leave THREE pending Timers in the zone instead of one.
+    //
+    // We bypass `subscribeToTickerUpdates()` (which calls `_connect()` and
+    // would start a heartbeat Timer.periodic, polluting the count) by
+    // setting the global subscription counter directly via the test seam.
+
+    test(
+        'rapid errors leave EXACTLY one pending reconnect Timer in the zone '
+        '(old timers were cancelled, not just overwritten)', () {
+      fakeAsync((async) {
+        final marketService = MarketService();
+        final ws = WebSocketService(marketService);
+        try {
+          // Open the subscription-count gate without driving _connect().
+          ws.debugSetGlobalSubscriptionCount(1);
+
+          // Sanity: no timers in the zone yet.
+          expect(async.pendingTimers, isEmpty,
+              reason: 'no Timers should exist before any error');
+
+          ws.debugTriggerError('e1');
+          ws.debugTriggerError('e2');
+          ws.debugTriggerError('e3');
+
+          // The KEY assertion: only ONE Timer is pending in the zone.
+          // If `_reconnectTimer?.cancel()` were removed from
+          // `_scheduleReconnect`, this would be 3.
+          expect(async.pendingTimers.length, equals(1),
+              reason: 'old reconnect Timers must be cancelled; only the '
+                  'newest pending Timer should remain in the zone. A '
+                  'count of 3 would indicate timer pile-up — the exact '
+                  'regression class this test pins.');
+
+          // And the attempt counter advanced exactly 3 times.
+          expect(ws.debugReconnectAttempts, equals(3));
+
+          // Drain: close the gate and let the surviving timer no-op when
+          // it eventually fires (its body checks `_globalSubscriptionCount`).
+          ws.debugSetGlobalSubscriptionCount(0);
+          async.elapse(const Duration(seconds: 60));
+        } finally {
+          // dispose() awaits internally; in fake_async we don't await,
+          // we just call it for cleanup.
+          ws.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    test(
+        'manual disconnect cancels any pending reconnect Timer '
+        '(fake_async pendingTimers becomes empty)', () {
+      fakeAsync((async) {
+        final marketService = MarketService();
+        final ws = WebSocketService(marketService);
+        try {
+          ws.debugSetGlobalSubscriptionCount(1);
+          ws.debugTriggerError('triggers a scheduled reconnect');
+          expect(async.pendingTimers.length, equals(1));
+
+          // disconnect() sets _manuallyDisconnected and cancels the
+          // reconnect timer. After this, the zone must have no pending
+          // reconnect Timer.
+          ws.disconnect();
+          async.flushMicrotasks();
+
+          expect(async.pendingTimers, isEmpty,
+              reason: 'disconnect() must cancel the pending reconnect Timer; '
+                  'a leaked Timer would silently re-open a connection later.');
+        } finally {
+          ws.dispose();
+          async.flushMicrotasks();
+        }
+      });
     });
   });
 }
