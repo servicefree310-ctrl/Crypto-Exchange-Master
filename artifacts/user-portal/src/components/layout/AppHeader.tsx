@@ -104,9 +104,9 @@ export function AppHeader() {
           : "border-b border-border/50 bg-card/60 backdrop-blur-md"
       }`}
     >
-      <div className="container mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
+      <div className="container mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-3 sm:gap-4 lg:gap-6 xl:gap-8">
         {/* ── Left: logo + mode switcher + nav ─────────────── */}
-        <div className="flex items-center gap-3 sm:gap-5 min-w-0">
+        <div className="flex items-center gap-3 sm:gap-5 min-w-0 flex-shrink">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 font-bold text-xl flex-shrink-0">
             <span className="relative h-8 w-8 rounded-lg bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 text-black font-extrabold text-sm flex items-center justify-center shadow-lg shadow-amber-500/30">
