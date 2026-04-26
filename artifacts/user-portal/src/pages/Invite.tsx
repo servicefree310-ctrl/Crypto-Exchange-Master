@@ -90,83 +90,103 @@ export default function Invite() {
   return (
     <div className="min-h-screen pb-12">
       <div className="max-w-6xl mx-auto px-4 md:px-6 pt-6">
-        {/* ──────── Hero ──────── */}
-        <Card className="relative overflow-hidden border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-zinc-950">
-          <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-amber-500/10 blur-3xl" />
-          <div className="absolute -left-12 bottom-0 w-56 h-56 rounded-full bg-orange-500/10 blur-3xl" />
-          <div className="relative p-6 md:p-8 grid md:grid-cols-2 gap-6 items-center">
-            <div>
-              <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 mb-3" data-testid="badge-program">
-                <Sparkles className="h-3 w-3 mr-1" /> Affiliate Program
-              </Badge>
-              <h1 className="text-3xl md:text-4xl font-bold leading-tight">
-                Earn <span className="bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">{COMMISSION_PCT}% commission</span><br />
-                on every friend's trade
-              </h1>
-              <p className="mt-3 text-sm md:text-base text-muted-foreground max-w-lg">
-                Invite friends to Zebvix Exchange and earn lifetime commission on the trading fees they pay. The more they trade, the more you earn — paid out instantly to your wallet.
-              </p>
-              <div className="flex flex-wrap gap-2 mt-4 text-xs">
-                <Badge variant="outline" className="border-emerald-500/30 text-emerald-300"><Check className="h-3 w-3 mr-1" /> Lifetime payouts</Badge>
-                <Badge variant="outline" className="border-sky-500/30 text-sky-300"><Check className="h-3 w-3 mr-1" /> Instant settlement</Badge>
-                <Badge variant="outline" className="border-amber-500/30 text-amber-300"><Check className="h-3 w-3 mr-1" /> No invite cap</Badge>
+        {/* ──────── Hero Banner (full-bleed image) ──────── */}
+        <Card className="relative overflow-hidden border-amber-500/30 rounded-2xl" data-testid="hero-banner">
+          {/* Background image */}
+          <div className="relative w-full aspect-[16/9] md:aspect-[21/7] min-h-[260px] md:min-h-[320px]">
+            <img
+              src={`${import.meta.env.BASE_URL}invite-banner.png`}
+              alt="Zebvix Affiliate Program — earn lifetime commission on every friend's trade"
+              className="absolute inset-0 w-full h-full object-cover object-center"
+              data-testid="img-banner"
+            />
+            {/* Left-side gradient overlay so text always reads */}
+            <div className="absolute inset-0 bg-gradient-to-r from-black via-black/75 to-black/10" />
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent" />
+
+            {/* Headline overlay */}
+            <div className="absolute inset-0 flex items-center">
+              <div className="px-5 md:px-10 max-w-2xl">
+                <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 mb-3 backdrop-blur-sm" data-testid="badge-program">
+                  <Sparkles className="h-3 w-3 mr-1" /> Affiliate Program
+                </Badge>
+                <h1 className="text-3xl md:text-5xl font-bold leading-tight tracking-tight text-white drop-shadow-2xl">
+                  Earn <span className="bg-gradient-to-r from-amber-300 via-amber-400 to-orange-400 bg-clip-text text-transparent">{COMMISSION_PCT}% commission</span><br />
+                  on every friend's trade
+                </h1>
+                <p className="mt-3 text-sm md:text-base text-zinc-200/90 max-w-lg drop-shadow-md">
+                  Invite friends to Zebvix Exchange and earn <b className="text-amber-300">lifetime</b> commission on the trading fees they pay. Paid out instantly to your wallet.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-4 text-xs">
+                  <Badge variant="outline" className="bg-black/40 backdrop-blur-sm border-emerald-400/40 text-emerald-300"><Check className="h-3 w-3 mr-1" /> Lifetime payouts</Badge>
+                  <Badge variant="outline" className="bg-black/40 backdrop-blur-sm border-sky-400/40 text-sky-300"><Check className="h-3 w-3 mr-1" /> Instant settlement</Badge>
+                  <Badge variant="outline" className="bg-black/40 backdrop-blur-sm border-amber-400/40 text-amber-300"><Check className="h-3 w-3 mr-1" /> No invite cap</Badge>
+                </div>
               </div>
             </div>
+          </div>
+        </Card>
 
-            {/* Code/Link card */}
-            <Card className="bg-zinc-950/70 border-zinc-800 p-5">
+        {/* ──────── Code / Link / Share card (full-width, below banner) ──────── */}
+        <Card className="bg-gradient-to-br from-zinc-950 to-zinc-900 border-amber-500/30 p-5 md:p-6 mt-4 -translate-y-2 md:-translate-y-6 shadow-2xl shadow-amber-500/5 relative z-10">
+          <div className="grid lg:grid-cols-2 gap-5">
+            <div>
               <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1.5">Your referral code</div>
               <div className="flex items-stretch gap-2">
-                <div className="flex-1 flex items-center justify-center px-3 py-3 rounded-lg bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/30 font-mono text-2xl font-bold tracking-widest" data-testid="text-referral-code">
+                <div className="flex-1 flex items-center justify-center px-3 py-4 rounded-lg bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/30 font-mono text-2xl md:text-3xl font-bold tracking-[0.3em]" data-testid="text-referral-code">
                   {code}
                 </div>
                 <Button
                   size="lg"
-                  className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold"
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold px-5"
                   onClick={() => copy(code, "code")}
                   data-testid="button-copy-code"
                 >
-                  {copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copiedCode ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
                 </Button>
               </div>
-
               <div className="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-1.5">Invite link</div>
               <div className="flex items-stretch gap-2">
-                <Input readOnly value={inviteUrl} className="font-mono text-xs bg-zinc-900 border-zinc-800" data-testid="input-invite-link" />
-                <Button variant="outline" size="icon" onClick={() => copy(inviteUrl, "link")} data-testid="button-copy-link">
+                <Input readOnly value={inviteUrl} className="font-mono text-xs bg-zinc-900 border-zinc-800 h-11" data-testid="input-invite-link" />
+                <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => copy(inviteUrl, "link")} data-testid="button-copy-link">
                   {copiedLink ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}
                 </Button>
-                <Button variant="outline" size="icon" onClick={() => setQrOpen(true)} data-testid="button-show-qr" title="Show QR code">
+                <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => setQrOpen(true)} data-testid="button-show-qr" title="Show QR code">
                   <QrCode className="h-4 w-4" />
                 </Button>
               </div>
+            </div>
 
-              <Separator className="my-4" />
-
-              {/* Quick share row */}
-              <div className="grid grid-cols-5 gap-1.5">
+            {/* Share row */}
+            <div className="lg:border-l lg:border-zinc-800 lg:pl-5">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Share with friends</div>
+              <div className="grid grid-cols-5 gap-2">
                 <ShareBtn href={shareLinks.whatsapp} label="WhatsApp" color="emerald" testId="share-whatsapp">
-                  <MessageCircle className="h-4 w-4" />
+                  <MessageCircle className="h-5 w-5" />
                 </ShareBtn>
                 <ShareBtn href={shareLinks.telegram} label="Telegram" color="sky" testId="share-telegram">
-                  <Send className="h-4 w-4" />
+                  <Send className="h-5 w-5" />
                 </ShareBtn>
                 <ShareBtn href={shareLinks.twitter} label="X / Twitter" color="zinc" testId="share-twitter">
-                  <Twitter className="h-4 w-4" />
+                  <Twitter className="h-5 w-5" />
                 </ShareBtn>
                 <ShareBtn href={shareLinks.email} label="Email" color="rose" testId="share-email">
-                  <Mail className="h-4 w-4" />
+                  <Mail className="h-5 w-5" />
                 </ShareBtn>
                 <button
                   onClick={shareNative}
-                  className="flex flex-col items-center gap-1 px-2 py-2 rounded-lg border border-zinc-800 hover:bg-amber-500/10 hover:border-amber-500/30 text-amber-400 transition-colors"
+                  className="flex flex-col items-center justify-center gap-1 px-2 py-3 rounded-lg border border-zinc-800 hover:bg-amber-500/10 hover:border-amber-500/30 text-amber-400 transition-colors"
                   data-testid="share-more"
                 >
-                  <Share2 className="h-4 w-4" />
+                  <Share2 className="h-5 w-5" />
                   <span className="text-[9px] font-medium">More</span>
                 </button>
               </div>
-            </Card>
+              <div className="mt-3 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <Info className="h-3 w-3 text-amber-400" />
+                Friends who sign up with your link earn you commission for life.
+              </div>
+            </div>
           </div>
         </Card>
 
