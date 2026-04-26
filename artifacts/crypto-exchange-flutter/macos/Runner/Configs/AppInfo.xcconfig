@@ -5,7 +5,9 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = CryptoX Exchange
+// Kept as a machine-friendly identifier so the on-disk artifact is `cryptox_exchange.app`.
+// The user-visible name is set via CFBundleDisplayName in Runner/Info.plist.
+PRODUCT_NAME = cryptox_exchange
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.cryptox.exchange
