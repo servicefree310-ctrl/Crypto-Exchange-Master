@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
 /// App configuration loaded from assets/config/app_config.json
@@ -134,5 +135,46 @@ class AppConfig {
   static void reset() {
     _instance = null;
     _initialized = false;
+  }
+
+  /// Initialize with explicit values for testing only.
+  /// Bypasses asset bundle loading so unit tests don't need to mount Flutter
+  /// asset infrastructure. Idempotent — repeated calls reset and re-init.
+  ///
+  /// **DO NOT call from app runtime code.** Production code must use
+  /// [initialize] which loads `assets/config/app_config.json`. This helper
+  /// is annotated with [visibleForTesting] so the analyzer flags any
+  /// non-test caller.
+  @visibleForTesting
+  static void initializeForTesting({
+    String baseUrl = 'http://localhost:0',
+    String wsBaseUrl = 'ws://localhost:0',
+    String appName = 'CryptoX Exchange',
+    String appVersion = '0.0.0-test',
+    String defaultTradingPair = 'BTC/USDT',
+  }) {
+    _instance = AppConfig._();
+    _instance!.baseUrl = baseUrl;
+    _instance!.wsBaseUrl = wsBaseUrl;
+    _instance!.appName = appName;
+    _instance!.appVersion = appVersion;
+    _instance!.stripePublishableKey = '';
+    _instance!.googleServerClientId = '';
+    _instance!.recaptchaSiteKey = '';
+    _instance!.googleAuthEnabled = false;
+    _instance!.walletAuthEnabled = false;
+    _instance!.walletConnectProjectId = '';
+    _instance!.recaptchaEnabled = false;
+    _instance!.twoFactorEnabled = false;
+    _instance!.twoFactorSmsEnabled = false;
+    _instance!.twoFactorEmailEnabled = false;
+    _instance!.twoFactorAppEnabled = false;
+    _instance!.emailVerificationEnabled = false;
+    _instance!.defaultExchangeProvider = 'bin';
+    _instance!.defaultTradingPair = defaultTradingPair;
+    _instance!.defaultShowComingSoon = false;
+    _instance!.settingsCacheDuration = 3600;
+    _instance!.backgroundUpdateInterval = 60;
+    _initialized = true;
   }
 }
