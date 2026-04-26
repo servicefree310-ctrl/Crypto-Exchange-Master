@@ -88,7 +88,6 @@ const navItems: NavItem[] = [
 
 const userNavItems: NavItem[] = [
   { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l) => l === "/wallet", priority: 2 },
-  { href: "/portfolio", label: "Portfolio", icon: PieChart, match: (l) => l === "/portfolio", priority: 3 },
 ];
 
 export function AppHeader() {
