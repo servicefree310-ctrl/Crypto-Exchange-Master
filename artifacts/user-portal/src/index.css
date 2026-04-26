@@ -135,3 +135,157 @@
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
+
+/* ─── Premium home-page animations ──────────────────────────── */
+
+/* Fade-in + slide-up entrance */
+@keyframes fade-in-up {
+  0%   { opacity: 0; transform: translateY(24px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up {
+  animation: fade-in-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Fade-in only */
+@keyframes fade-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+.fade-in { animation: fade-in 0.6s ease-out both; }
+
+/* Scale-in entrance */
+@keyframes scale-in {
+  0%   { opacity: 0; transform: scale(0.92); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.scale-in { animation: scale-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Stagger delay utilities */
+.delay-75   { animation-delay: 75ms; }
+.delay-150  { animation-delay: 150ms; }
+.delay-225  { animation-delay: 225ms; }
+.delay-300  { animation-delay: 300ms; }
+.delay-450  { animation-delay: 450ms; }
+.delay-600  { animation-delay: 600ms; }
+
+/* Scroll-reveal: starts hidden, IntersectionObserver toggles .is-visible */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Floating orbs */
+@keyframes float-slow {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(20px, -30px) scale(1.05); }
+}
+@keyframes float-slow-rev {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-25px, 20px) scale(1.08); }
+}
+.float-slow     { animation: float-slow 14s ease-in-out infinite; }
+.float-slow-rev { animation: float-slow-rev 18s ease-in-out infinite; }
+
+/* Shimmer sheen for the gold Blockchain text */
+@keyframes shimmer-pan {
+  0%   { background-position: -150% 0; }
+  100% { background-position: 250% 0; }
+}
+.shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    #fcd34d 0%,
+    #facc15 25%,
+    #fff7c2 45%,
+    #ffffff 50%,
+    #fff7c2 55%,
+    #f59e0b 75%,
+    #fb923c 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shimmer-pan 6s linear infinite;
+}
+
+/* Pulse-glow for chain identity card border */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px hsl(270 80% 60% / 0.25),
+      0 0 35px -8px hsl(280 80% 55% / 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px hsl(290 90% 65% / 0.45),
+      0 0 55px -4px hsl(290 90% 65% / 0.55);
+  }
+}
+.pulse-glow { animation: pulse-glow 4.5s ease-in-out infinite; }
+
+/* Sheen sweep over CTA buttons */
+@keyframes sheen {
+  0%   { transform: translateX(-120%) skewX(-20deg); }
+  100% { transform: translateX(220%)  skewX(-20deg); }
+}
+.sheen-btn { position: relative; overflow: hidden; }
+.sheen-btn::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.28) 50%,
+    transparent 100%
+  );
+  animation: sheen 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Live status dot pulse (stronger ring) */
+@keyframes ring-pulse {
+  0%   { transform: scale(0.8); opacity: 0.7; }
+  80%  { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.ring-pulse { animation: ring-pulse 2.4s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+/* Roadmap connector line draw */
+@keyframes draw-line {
+  0%   { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+.draw-line {
+  transform-origin: left center;
+  animation: draw-line 1.4s ease-out 0.2s both;
+}
+
+/* Subtle background grid drift */
+@keyframes grid-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 48px 48px; }
+}
+.grid-drift { animation: grid-drift 20s linear infinite; }
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-up, .fade-in, .scale-in, .float-slow, .float-slow-rev,
+  .shimmer-text, .pulse-glow, .sheen-btn::after, .ring-pulse,
+  .draw-line, .grid-drift,
+  .animate-pulse, [class*="animate-["] {
+    animation: none !important;
+  }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}

@@ -303,6 +303,55 @@ function MarketRow({ t }: { t: NormalizedTicker }) {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Scroll reveal hook (IntersectionObserver) — adds .is-visible once
+// ──────────────────────────────────────────────────────────────────
+function useReveal<T extends HTMLElement = HTMLDivElement>() {
+  const ref = useRef<T | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      el.classList.add("is-visible");
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            (e.target as HTMLElement).classList.add("is-visible");
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -60px 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return ref;
+}
+
+function Reveal({
+  children,
+  className = "",
+  delay,
+  as: Tag = "div",
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+  as?: "div" | "section";
+}) {
+  const ref = useReveal<HTMLDivElement>();
+  const style = delay ? { transitionDelay: `${delay}ms` } : undefined;
+  return (
+    <Tag ref={ref as any} className={`reveal ${className}`} style={style}>
+      {children}
+    </Tag>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Page
 // ──────────────────────────────────────────────────────────────────
 export default function Home() {
@@ -342,42 +391,42 @@ export default function Home() {
       <section className="relative w-full overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-amber-950/20" />
         <div
-          className="absolute inset-0 opacity-[0.07]"
+          className="absolute inset-0 opacity-[0.07] grid-drift"
           style={{
             backgroundImage:
               "linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)",
             backgroundSize: "48px 48px",
           }}
         />
-        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-amber-500/15 blur-3xl" />
-        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-orange-500/10 blur-3xl" />
+        {/* Floating orbs */}
+        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-amber-500/15 blur-3xl float-slow" />
+        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-orange-500/10 blur-3xl float-slow-rev" />
+        <div className="absolute top-1/3 left-1/2 h-72 w-72 rounded-full bg-fuchsia-500/[0.06] blur-3xl float-slow" />
 
         <div className="relative container mx-auto px-4 py-16 lg:py-24 grid lg:grid-cols-2 gap-10 items-center">
           <div className="space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-success/30 bg-success/5">
+            <div className="fade-in-up inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-success/30 bg-success/5">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="absolute inline-flex h-full w-full rounded-full bg-success ring-pulse" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
               </span>
               <span className="text-xs font-medium text-success">Live on Zebvix Blockchain · Chain {ZBX_CHAIN.id}</span>
             </div>
 
-            <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
+            <h1 className="fade-in-up delay-75 text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
               The exchange built on{" "}
-              <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-500 bg-clip-text text-transparent">
-                its own Blockchain
-              </span>
+              <span className="shimmer-text">its own Blockchain</span>
             </h1>
-            <p className="text-lg text-muted-foreground max-w-xl">
+            <p className="fade-in-up delay-150 text-lg text-muted-foreground max-w-xl">
               Trade spot &amp; perpetual futures, mint and trade <span className="text-foreground font-semibold">ZBX-20</span> tokens, and
               bridge across chains — all powered by the <span className="text-foreground font-semibold">Zebvix Blockchain</span>, our
               high-throughput, EVM-compatible Layer-1.
             </p>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="fade-in-up delay-225 flex flex-wrap gap-3">
               {!user ? (
                 <>
-                  <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7" asChild>
+                  <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7" asChild>
                     <Link href="/signup">
                       Create account <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
@@ -388,7 +437,7 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7" asChild>
+                  <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7" asChild>
                     <Link href="/trade">
                       Open trade terminal <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
@@ -418,7 +467,7 @@ export default function Home() {
 
           {/* KPI tiles */}
           <div className="grid grid-cols-2 gap-4">
-            <Card className="p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-colors">
+            <Card className="scale-in delay-150 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
                 <Activity className="h-3.5 w-3.5" /> 24h volume
               </div>
@@ -427,7 +476,7 @@ export default function Home() {
               </div>
               <div className="text-xs text-success mt-1">Live across all markets</div>
             </Card>
-            <Card className="p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-colors">
+            <Card className="scale-in delay-225 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
                 <Globe2 className="h-3.5 w-3.5" /> Markets
               </div>
@@ -436,14 +485,14 @@ export default function Home() {
               </div>
               <div className="text-xs text-muted-foreground mt-1">Spot &amp; perpetuals</div>
             </Card>
-            <Card className="p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-colors">
+            <Card className="scale-in delay-300 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
                 <CircleDollarSign className="h-3.5 w-3.5" /> Native token
               </div>
               <div className="text-3xl font-bold mt-2 text-primary">{ZBX_CHAIN.symbol}</div>
               <div className="text-xs text-muted-foreground mt-1">Gas &amp; staking on L1</div>
             </Card>
-            <Card className="p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-colors">
+            <Card className="scale-in delay-450 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
                 <Zap className="h-3.5 w-3.5" /> Latency
               </div>
@@ -459,7 +508,7 @@ export default function Home() {
       {/* ─── MARKETS ─────────────────────────────────────────── */}
       <section className="w-full py-14 bg-background">
         <div className="container mx-auto px-4">
-          <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
+          <Reveal className="flex items-end justify-between flex-wrap gap-4 mb-6">
             <div>
               <h2 className="text-3xl font-bold tracking-tight">Live markets</h2>
               <p className="text-muted-foreground text-sm mt-1">Real-time prices straight from the exchange.</p>
@@ -469,7 +518,7 @@ export default function Home() {
                 View all <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
-          </div>
+          </Reveal>
 
           <Tabs defaultValue="hot" className="w-full">
             <TabsList className="bg-card border border-border h-auto p-1">
@@ -521,7 +570,7 @@ export default function Home() {
       {/* ─── ECOSYSTEM ─────────────────────────────────────────── */}
       <section className="w-full py-16 bg-card/30 border-y border-border">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-10">
+          <Reveal className="text-center mb-10">
             <Badge variant="outline" className="border-primary/40 text-primary mb-3">
               Ecosystem
             </Badge>
@@ -529,7 +578,7 @@ export default function Home() {
             <p className="text-muted-foreground text-sm mt-2">
               From CEX-grade trading to native blockchain smart contracts — Zebvix gives you the full stack.
             </p>
-          </div>
+          </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <ProductCard
               icon={<BarChart3 className="h-6 w-6" />}
@@ -588,10 +637,10 @@ export default function Home() {
       {/* ─── WHY US ─────────────────────────────────────────── */}
       <section className="w-full py-16">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-10">
+          <Reveal className="text-center mb-10">
             <h2 className="text-3xl font-bold tracking-tight">Why traders choose Zebvix</h2>
             <p className="text-muted-foreground text-sm mt-2">A serious exchange, on a serious chain — built for the Indian market.</p>
-          </div>
+          </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Feature icon={<Shield className="h-5 w-5" />} title="Bank-grade security" desc="2FA, KYC, withdrawal allow-lists and 95% of assets in cold storage." />
             <Feature icon={<Cpu className="h-5 w-5" />} title="In-house L1 + matcher" desc="Zebvix L1 + Go matching engine clears trades in under 5ms." />
@@ -616,10 +665,10 @@ export default function Home() {
       {/* ─── FAQ ─────────────────────────────────────────── */}
       <section className="w-full py-16 bg-background">
         <div className="container mx-auto px-4 max-w-3xl">
-          <div className="text-center mb-8">
+          <Reveal className="text-center mb-8">
             <h2 className="text-3xl font-bold tracking-tight">Frequently asked</h2>
             <p className="text-muted-foreground text-sm mt-2">Everything you wanted to know about Zebvix Exchange &amp; the Zebvix Blockchain.</p>
-          </div>
+          </Reveal>
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="q1" className="border-border">
               <AccordionTrigger className="text-left">What is the Zebvix Blockchain?</AccordionTrigger>
@@ -726,7 +775,7 @@ function ZebvixChainSection() {
 
       <div className="relative container mx-auto px-4 grid lg:grid-cols-2 gap-10 items-center">
         {/* Left: Story */}
-        <div className="space-y-5">
+        <Reveal className="space-y-5">
           <Badge variant="outline" className="border-violet-400/40 text-violet-300 bg-violet-500/10">
             <Layers className="h-3 w-3 mr-1.5" />
             Powered by Zebvix Blockchain
@@ -760,7 +809,7 @@ function ZebvixChainSection() {
           </ul>
 
           <div className="flex flex-wrap gap-3 pt-2">
-            <Button size="lg" className="bg-violet-600 hover:bg-violet-700 text-white" asChild>
+            <Button size="lg" className="sheen-btn bg-violet-600 hover:bg-violet-700 text-white" asChild>
               <a href="#" target="_blank" rel="noreferrer noopener">
                 Open block explorer <ArrowRight className="ml-2 h-4 w-4" />
               </a>
@@ -771,10 +820,11 @@ function ZebvixChainSection() {
               </a>
             </Button>
           </div>
-        </div>
+        </Reveal>
 
         {/* Right: Chain identity card */}
-        <Card className="relative overflow-hidden p-6 border-violet-400/20 bg-gradient-to-br from-violet-950/40 to-card/80 backdrop-blur">
+        <Reveal delay={120}>
+        <Card className="relative overflow-hidden p-6 border-violet-400/20 bg-gradient-to-br from-violet-950/40 to-card/80 backdrop-blur pulse-glow">
           <div className="absolute -top-20 -right-20 h-48 w-48 rounded-full bg-violet-500/20 blur-3xl pointer-events-none" />
           <div className="relative">
             <div className="flex items-center justify-between">
@@ -835,6 +885,7 @@ function ZebvixChainSection() {
             </div>
           </div>
         </Card>
+        </Reveal>
       </div>
     </section>
   );
@@ -881,7 +932,7 @@ function MobileCalloutSection() {
   return (
     <section className="w-full py-14 bg-card/40 border-y border-border">
       <div className="container mx-auto px-4 grid lg:grid-cols-2 gap-10 items-center">
-        <div className="space-y-4">
+        <Reveal className="space-y-4">
           <Badge variant="outline" className="border-primary/40 text-primary">
             <Smartphone className="h-3 w-3 mr-1.5" />
             Mobile wallet
@@ -909,11 +960,11 @@ function MobileCalloutSection() {
             <span className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 text-success" /> Biometric sign</span>
             <span className="flex items-center gap-1.5"><Network className="h-3.5 w-3.5 text-success" /> dApp QR connect</span>
           </div>
-        </div>
+        </Reveal>
 
         {/* Phone mockup */}
-        <div className="flex justify-center lg:justify-end">
-          <div className="relative">
+        <Reveal className="flex justify-center lg:justify-end">
+          <div className="relative float-slow">
             <div className="absolute -inset-6 bg-gradient-to-br from-amber-500/20 to-orange-500/10 rounded-[3rem] blur-2xl" />
             <div className="relative w-72 h-[34rem] rounded-[2.5rem] border border-border bg-gradient-to-b from-card to-background shadow-2xl overflow-hidden">
               {/* notch */}
@@ -967,7 +1018,7 @@ function MobileCalloutSection() {
               </div>
             </div>
           </div>
-        </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -1181,7 +1232,7 @@ function EarnSection() {
   return (
     <section className="w-full py-16 bg-background">
       <div className="container mx-auto px-4">
-        <div className="text-center mb-10">
+        <Reveal className="text-center mb-10">
           <Badge variant="outline" className="border-primary/40 text-primary mb-3">
             <Sparkles className="h-3 w-3 mr-1.5" />
             Earn
@@ -1190,7 +1241,7 @@ function EarnSection() {
           <p className="text-muted-foreground text-sm mt-2">
             Earn passive income on idle balances — fully on-chain on Zebvix L1, withdraw whenever.
           </p>
-        </div>
+        </Reveal>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {products.map((p) => (
             <Link key={p.title} href="/wallet" className="group block">
@@ -1251,7 +1302,7 @@ console.log(result); // "${ZBX_CHAIN.hexId}" → ${ZBX_CHAIN.id} (${ZBX_CHAIN.na
         }}
       />
       <div className="relative container mx-auto px-4 grid lg:grid-cols-2 gap-10 items-center">
-        <div className="space-y-5">
+        <Reveal className="space-y-5">
           <Badge variant="outline" className="border-sky-400/40 text-sky-300 bg-sky-500/10">
             <Terminal className="h-3 w-3 mr-1.5" />
             For developers
@@ -1283,9 +1334,10 @@ console.log(result); // "${ZBX_CHAIN.hexId}" → ${ZBX_CHAIN.id} (${ZBX_CHAIN.na
               </a>
             </Button>
           </div>
-        </div>
+        </Reveal>
 
         {/* Code card */}
+        <Reveal delay={120}>
         <Card className="relative overflow-hidden border-border/60 bg-[#0a0d14] shadow-2xl">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-card/50">
             <div className="flex items-center gap-2">
@@ -1344,6 +1396,7 @@ console.log(result); // "${ZBX_CHAIN.hexId}" → ${ZBX_CHAIN.id} (${ZBX_CHAIN.na
             </code>
           </pre>
         </Card>
+        </Reveal>
       </div>
     </section>
   );
@@ -1396,7 +1449,7 @@ function RoadmapSection() {
   return (
     <section className="w-full py-16 bg-card/30 border-y border-border">
       <div className="container mx-auto px-4">
-        <div className="text-center mb-10">
+        <Reveal className="text-center mb-10">
           <Badge variant="outline" className="border-primary/40 text-primary mb-3">
             <CalendarDays className="h-3 w-3 mr-1.5" />
             Roadmap
@@ -1405,13 +1458,13 @@ function RoadmapSection() {
           <p className="text-muted-foreground text-sm mt-2">
             A focused, public roadmap for Zebvix Exchange and the Zebvix Blockchain.
           </p>
-        </div>
+        </Reveal>
 
         <div className="relative">
           {/* horizontal connector line (desktop) */}
-          <div className="hidden lg:block absolute left-0 right-0 top-[3.25rem] h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+          <div className="hidden lg:block absolute left-0 right-0 top-[3.25rem] h-px bg-gradient-to-r from-transparent via-border to-transparent draw-line" />
           <div className="grid lg:grid-cols-4 gap-5">
-            {milestones.map((m) => {
+            {milestones.map((m, i) => {
               const Icon =
                 m.status === "shipped" ? CircleCheck : m.status === "current" ? CircleDot : Circle;
               const iconColor =
@@ -1429,7 +1482,7 @@ function RoadmapSection() {
                   ? "bg-primary/15 text-primary border-primary/30"
                   : "bg-muted text-muted-foreground border-border";
               return (
-                <div key={m.quarter} className="relative">
+                <Reveal key={m.quarter} className="relative" delay={i * 120}>
                   <div className="flex flex-col items-center lg:items-start">
                     {/* node */}
                     <div className={`relative z-10 h-10 w-10 rounded-full border-2 flex items-center justify-center bg-background ${iconColor}`}>
@@ -1455,7 +1508,7 @@ function RoadmapSection() {
                       </Card>
                     </div>
                   </div>
-                </div>
+                </Reveal>
               );
             })}
           </div>
