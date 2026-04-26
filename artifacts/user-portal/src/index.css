@@ -129,3 +129,9 @@
 .flash-bg-down { animation: flash-down 0.8s ease-out; }
 .flash-text-up { animation: flash-text-up 0.8s ease-out; }
 .flash-text-down { animation: flash-text-down 0.8s ease-out; }
+
+/* Marquee scroll for ticker tape */
+@keyframes scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
