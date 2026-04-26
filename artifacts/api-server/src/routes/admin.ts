@@ -27,6 +27,9 @@ import {
   marketBotsTable,
   tradesTable,
   transfersTable,
+  futuresPositionsTable,
+  futuresTradesTable,
+  sessionsTable,
 } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
@@ -67,6 +70,23 @@ router.get("/admin/stats", supportPlus, async (_req, res): Promise<void> => {
     .select({ c: sql<number>`count(*)::int` })
     .from(ordersTable)
     .where(eq(ordersTable.status, "open"));
+  const [pendingCryptoDeposits] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(cryptoDepositsTable)
+    .where(eq(cryptoDepositsTable.status, "pending"));
+  const [pendingCryptoWithdrawals] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(cryptoWithdrawalsTable)
+    .where(eq(cryptoWithdrawalsTable.status, "pending"));
+  const [openFutures] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(futuresPositionsTable)
+    .where(eq(futuresPositionsTable.status, "open"));
+  const since = new Date(Date.now() - 24 * 3600 * 1000);
+  const [futVol] = await db
+    .select({ v: sql<string>`coalesce(sum(${futuresTradesTable.price}::numeric * ${futuresTradesTable.qty}::numeric), 0)::text` })
+    .from(futuresTradesTable)
+    .where(sql`${futuresTradesTable.createdAt} >= ${since}`);
 
   res.json({
     users: users?.c ?? 0,
@@ -77,7 +97,32 @@ router.get("/admin/stats", supportPlus, async (_req, res): Promise<void> => {
     pendingWithdrawals: pendingWithdrawals?.c ?? 0,
     pendingBanks: pendingBanks?.c ?? 0,
     openOrders: openOrders?.c ?? 0,
+    pendingCryptoDeposits: pendingCryptoDeposits?.c ?? 0,
+    pendingCryptoWithdrawals: pendingCryptoWithdrawals?.c ?? 0,
+    openFuturesPositions: openFutures?.c ?? 0,
+    futures24hVolume: Number(futVol?.v ?? 0),
   });
+});
+
+// ─── Admin: user security actions (reset 2FA / force logout) ─────────────────
+router.post("/admin/users/:id/disable-2fa", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  const [u] = await db
+    .update(usersTable)
+    .set({ twoFaEnabled: false, updatedAt: new Date() })
+    .where(eq(usersTable.id, id))
+    .returning();
+  if (!u) { res.status(404).json({ error: "User not found" }); return; }
+  res.json({ ok: true, twoFaEnabled: false });
+});
+
+router.post("/admin/users/:id/force-logout", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  const result = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id));
+  const revoked = (result as any).rowCount ?? 0;
+  res.json({ ok: true, revoked });
 });
 
 // Users

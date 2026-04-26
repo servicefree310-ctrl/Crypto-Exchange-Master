@@ -4,6 +4,7 @@ import {
   db, coinsTable, pairsTable, fundingRatesTable, adminApiKeysTable,
   usersTable, kycRecordsTable, walletsTable, sessionsTable,
   inrDepositsTable, cryptoDepositsTable, inrWithdrawalsTable, cryptoWithdrawalsTable,
+  futuresPositionsTable,
 } from "@workspace/db";
 void sql;
 import { requireAuth } from "../middlewares/auth";
@@ -48,7 +49,7 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const { passwordHash, ...safe } = user;
-  const [kyc, wallets, sessions, inrDeps, cryDeps, inrWds, cryWds] = await Promise.all([
+  const [kyc, wallets, sessions, inrDeps, cryDeps, inrWds, cryWds, futPos] = await Promise.all([
     db.select().from(kycRecordsTable).where(eq(kycRecordsTable.userId, id)).orderBy(desc(kycRecordsTable.createdAt)),
     db.select().from(walletsTable).where(eq(walletsTable.userId, id)),
     db.select({ id: sessionsTable.id, createdAt: sessionsTable.createdAt, expiresAt: sessionsTable.expiresAt, ip: sessionsTable.ip, userAgent: sessionsTable.userAgent }).from(sessionsTable).where(eq(sessionsTable.userId, id)).orderBy(desc(sessionsTable.createdAt)).limit(20),
@@ -56,6 +57,19 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
     db.select().from(cryptoDepositsTable).where(eq(cryptoDepositsTable.userId, id)).orderBy(desc(cryptoDepositsTable.createdAt)).limit(50),
     db.select().from(inrWithdrawalsTable).where(eq(inrWithdrawalsTable.userId, id)).orderBy(desc(inrWithdrawalsTable.createdAt)).limit(50),
     db.select().from(cryptoWithdrawalsTable).where(eq(cryptoWithdrawalsTable.userId, id)).orderBy(desc(cryptoWithdrawalsTable.createdAt)).limit(50),
+    db.select({
+      id: futuresPositionsTable.id, pairId: futuresPositionsTable.pairId, symbol: pairsTable.symbol,
+      side: futuresPositionsTable.side, leverage: futuresPositionsTable.leverage,
+      qty: futuresPositionsTable.qty, entryPrice: futuresPositionsTable.entryPrice,
+      markPrice: futuresPositionsTable.markPrice, marginAmount: futuresPositionsTable.marginAmount,
+      unrealizedPnl: futuresPositionsTable.unrealizedPnl, liquidationPrice: futuresPositionsTable.liquidationPrice,
+      status: futuresPositionsTable.status, openedAt: futuresPositionsTable.openedAt,
+    })
+      .from(futuresPositionsTable)
+      .leftJoin(pairsTable, eq(futuresPositionsTable.pairId, pairsTable.id))
+      .where(and(eq(futuresPositionsTable.userId, id), eq(futuresPositionsTable.status, "open")))
+      .orderBy(desc(futuresPositionsTable.openedAt))
+      .limit(50),
   ]);
   res.json({
     user: safe,
@@ -65,6 +79,7 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
       lastSessionAt: sessions[0]?.createdAt ?? null,
     },
     kyc, wallets, sessions, inrDeposits: inrDeps, cryptoDeposits: cryDeps, inrWithdrawals: inrWds, cryptoWithdrawals: cryWds,
+    futuresPositions: futPos,
   });
 });
 

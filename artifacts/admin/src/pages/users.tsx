@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useAuth } from "@/lib/auth";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
-import { Search, ShieldCheck, ShieldAlert, Eye, Wallet } from "lucide-react";
+import { Search, ShieldCheck, ShieldAlert, Eye, Wallet, ShieldOff, LogOut, TrendingUp, TrendingDown } from "lucide-react";
 
 type Coin = { id: number; symbol: string; name: string; type: string; status: string };
 
@@ -19,11 +19,18 @@ type User = {
   uid: string; referralCode: string; createdAt: string; twoFaEnabled: boolean;
 };
 
+type FuturesPos = {
+  id: number; pairId: number; symbol: string | null; side: string; leverage: number;
+  qty: string; entryPrice: string; markPrice: string; marginAmount: string;
+  unrealizedPnl: string; liquidationPrice: string; status: string; openedAt: string;
+};
+
 type Dossier = {
   user: User;
   security: { twoFaEnabled: boolean; activeSessions: number; lastSessionAt: string | null };
   kyc: any[]; wallets: any[]; sessions: any[];
   inrDeposits: any[]; cryptoDeposits: any[]; inrWithdrawals: any[]; cryptoWithdrawals: any[];
+  futuresPositions: FuturesPos[];
 };
 
 const ROLES = ["user", "support", "admin", "superadmin"];
@@ -51,6 +58,21 @@ export default function UsersPage() {
     queryKey: ["/admin/users", view, "full"],
     queryFn: () => get<Dossier>(`/admin/users/${view}/full`),
     enabled: view !== null,
+  });
+
+  const disable2fa = useMutation({
+    mutationFn: (id: number) => post<{ ok: boolean }>(`/admin/users/${id}/disable-2fa`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/admin/users", view, "full"] });
+      qc.invalidateQueries({ queryKey: ["/admin/users-search"] });
+    },
+  });
+  const forceLogout = useMutation({
+    mutationFn: (id: number) => post<{ ok: boolean; revoked: number }>(`/admin/users/${id}/force-logout`, {}),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["/admin/users", view, "full"] });
+      alert(`Revoked ${r.revoked} session(s)`);
+    },
   });
 
   return (
@@ -148,18 +170,75 @@ export default function UsersPage() {
           {dossier.isLoading && <div className="text-center text-muted-foreground py-6">Loading…</div>}
           {dossier.data && (
             <div className="space-y-4 text-sm">
-              <Card className="p-3 grid grid-cols-2 gap-x-6 gap-y-2">
-                <div><span className="text-muted-foreground">UID:</span> <span className="font-mono">{dossier.data.user.uid}</span></div>
-                <div><span className="text-muted-foreground">Email:</span> {dossier.data.user.email}</div>
-                <div><span className="text-muted-foreground">Phone:</span> {dossier.data.user.phone || "—"}</div>
-                <div><span className="text-muted-foreground">Name:</span> {dossier.data.user.name || "—"}</div>
-                <div><span className="text-muted-foreground">Role:</span> {dossier.data.user.role}</div>
-                <div><span className="text-muted-foreground">Status:</span> {dossier.data.user.status}</div>
-                <div><span className="text-muted-foreground">KYC:</span> L{dossier.data.user.kycLevel}</div>
-                <div><span className="text-muted-foreground">VIP:</span> V{dossier.data.user.vipTier}</div>
-                <div><span className="text-muted-foreground">2FA:</span> {dossier.data.security.twoFaEnabled ? <Badge variant="default">Enabled</Badge> : <Badge variant="secondary">Off</Badge>}</div>
-                <div><span className="text-muted-foreground">Active sessions:</span> {dossier.data.security.activeSessions}</div>
+              <Card className="p-3 space-y-3">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                  <div><span className="text-muted-foreground">UID:</span> <span className="font-mono">{dossier.data.user.uid}</span></div>
+                  <div><span className="text-muted-foreground">Email:</span> {dossier.data.user.email}</div>
+                  <div><span className="text-muted-foreground">Phone:</span> {dossier.data.user.phone || "—"}</div>
+                  <div><span className="text-muted-foreground">Name:</span> {dossier.data.user.name || "—"}</div>
+                  <div><span className="text-muted-foreground">Role:</span> {dossier.data.user.role}</div>
+                  <div><span className="text-muted-foreground">Status:</span> {dossier.data.user.status}</div>
+                  <div><span className="text-muted-foreground">KYC:</span> L{dossier.data.user.kycLevel}</div>
+                  <div><span className="text-muted-foreground">VIP:</span> V{dossier.data.user.vipTier}</div>
+                  <div><span className="text-muted-foreground">2FA:</span> {dossier.data.security.twoFaEnabled ? <Badge variant="default">Enabled</Badge> : <Badge variant="secondary">Off</Badge>}</div>
+                  <div><span className="text-muted-foreground">Active sessions:</span> {dossier.data.security.activeSessions}</div>
+                </div>
+                {isAdmin && (
+                  <div className="flex flex-wrap gap-2 pt-2 border-t">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!dossier.data.security.twoFaEnabled || disable2fa.isPending}
+                      onClick={() => {
+                        if (confirm(`Disable 2FA for ${dossier.data!.user.email}?`)) disable2fa.mutate(dossier.data!.user.id);
+                      }}
+                      data-testid="button-disable-2fa"
+                    >
+                      <ShieldOff className="w-3 h-3 mr-1" />
+                      {disable2fa.isPending ? "Disabling…" : "Reset 2FA"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={dossier.data.security.activeSessions === 0 || forceLogout.isPending}
+                      onClick={() => {
+                        if (confirm(`Revoke all ${dossier.data!.security.activeSessions} session(s) for ${dossier.data!.user.email}?`)) forceLogout.mutate(dossier.data!.user.id);
+                      }}
+                      data-testid="button-force-logout"
+                    >
+                      <LogOut className="w-3 h-3 mr-1" />
+                      {forceLogout.isPending ? "Revoking…" : "Force Logout"}
+                    </Button>
+                  </div>
+                )}
               </Card>
+
+              <Section title={`Open Futures Positions (${dossier.data.futuresPositions?.length ?? 0})`}>
+                {!dossier.data.futuresPositions || dossier.data.futuresPositions.length === 0 ? <Empty /> : (
+                  <div className="space-y-1">
+                    {dossier.data.futuresPositions.map((p) => {
+                      const pnl = Number(p.unrealizedPnl);
+                      return (
+                        <div key={p.id} className="border-b last:border-0 py-1.5 grid grid-cols-7 gap-2 text-xs items-center">
+                          <span className="font-bold">{p.symbol ?? `#${p.pairId}`}</span>
+                          <span>
+                            {p.side === "long"
+                              ? <Badge className="bg-green-500/20 text-green-500"><TrendingUp className="w-3 h-3 mr-1" />long</Badge>
+                              : <Badge className="bg-red-500/20 text-red-500"><TrendingDown className="w-3 h-3 mr-1" />short</Badge>}
+                          </span>
+                          <span>{p.leverage}x</span>
+                          <span className="tabular-nums">qty {Number(p.qty).toLocaleString("en-IN", { maximumFractionDigits: 6 })}</span>
+                          <span className="tabular-nums">@ {Number(p.entryPrice).toLocaleString("en-IN", { maximumFractionDigits: 4 })}</span>
+                          <span className="tabular-nums text-muted-foreground">mk {Number(p.markPrice).toLocaleString("en-IN", { maximumFractionDigits: 4 })}</span>
+                          <span className={`tabular-nums font-semibold ${pnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                            {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Section>
 
               <Section title={`KYC Records (${dossier.data.kyc.length})`}>
                 {dossier.data.kyc.length === 0 ? <Empty /> : dossier.data.kyc.map((k: any) => (
