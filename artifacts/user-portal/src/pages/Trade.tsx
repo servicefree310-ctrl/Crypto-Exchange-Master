@@ -449,11 +449,45 @@ export default function Trade() {
   const spread = bestAsk && bestBid ? bestAsk - bestBid : 0;
   const spreadPct = bestBid > 0 ? (spread / bestBid) * 100 : 0;
 
+  // Bottom Open Orders / History panel — used on desktop inside the chart
+  // column and on mobile as a standalone section at the bottom.
+  const bottomOrdersJsx = !isSimple && (
+    <Tabs value={bottomTab} onValueChange={(v) => setBottomTab(v as "open" | "history")} className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-3 border-b border-border">
+        <TabsList className="bg-transparent h-9 p-0 gap-1">
+          <TabsTrigger value="open" className="text-xs h-9 px-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground rounded-none">
+            Open Orders <span className="ml-1.5 text-[10px] text-muted-foreground">({orderRows.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="history" className="text-xs h-9 px-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground rounded-none">
+            Order History
+          </TabsTrigger>
+        </TabsList>
+        {bottomTab === "open" && orderRows.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={() => cancelAllMutation.mutate()}
+            disabled={cancelAllMutation.isPending}
+          >
+            Cancel all
+          </Button>
+        )}
+      </div>
+      <TabsContent value="open" className="flex-1 m-0 overflow-auto">
+        <OrdersTable rows={orderRows} loading={!user} mode="open" onCancel={(id) => cancelMutation.mutate(id)} cancelingId={cancelMutation.variables as any} />
+      </TabsContent>
+      <TabsContent value="history" className="flex-1 m-0 overflow-auto">
+        <OrdersTable rows={historyRows} loading={!user} mode="history" />
+      </TabsContent>
+    </Tabs>
+  );
+
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-56px)] bg-background">
+    <div className="flex-1 flex flex-col min-h-[calc(100vh-56px)] lg:h-[calc(100vh-56px)] bg-background">
       {/* ── Header strip ───────────────────────────────── */}
       <div className="border-b border-border bg-card/60 backdrop-blur shrink-0">
-        <div className="flex items-center px-3 sm:px-4 gap-3 sm:gap-5 h-16 overflow-x-auto">
+        <div className="flex items-center px-2 sm:px-4 gap-2 sm:gap-5 h-16 overflow-x-auto">
           <button
             type="button"
             onClick={() => toggleFav(symbol)}
@@ -519,54 +553,27 @@ export default function Trade() {
       </div>
 
       {/* ── Body ───────────────────────────────── */}
-      <div className="flex-1 flex flex-row overflow-hidden min-h-0">
-        {/* Chart + bottom orders */}
-        <div className="flex-1 border-r border-border flex flex-col min-w-0">
-          <div className={`flex-1 min-h-0 min-w-0 ${isSimple ? "max-h-[68vh]" : ""}`}>
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 lg:overflow-hidden">
+        {/* Chart + bottom orders (desktop). On mobile this column only holds the chart. */}
+        <div className="flex flex-col min-w-0 lg:order-1 lg:flex-1 lg:border-r lg:border-border">
+          <div className={`h-[42vh] sm:h-[48vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:min-w-0 ${isSimple ? "lg:max-h-[68vh]" : ""}`}>
             <PriceChart symbol={symbol} />
           </div>
 
-          {/* Bottom panel: open orders / history (hidden in Simple) */}
+          {/* Bottom panel — desktop only (mobile renders it as a separate section below) */}
           {!isSimple && (
-          <div className={`border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex flex-col shrink-0`}>
-            <Tabs value={bottomTab} onValueChange={(v) => setBottomTab(v as "open" | "history")} className="flex flex-col h-full">
-              <div className="flex items-center justify-between px-3 border-b border-border">
-                <TabsList className="bg-transparent h-9 p-0 gap-1">
-                  <TabsTrigger value="open" className="text-xs h-9 px-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground rounded-none">
-                    Open Orders <span className="ml-1.5 text-[10px] text-muted-foreground">({orderRows.length})</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="history" className="text-xs h-9 px-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground rounded-none">
-                    Order History
-                  </TabsTrigger>
-                </TabsList>
-                {bottomTab === "open" && orderRows.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => cancelAllMutation.mutate()}
-                    disabled={cancelAllMutation.isPending}
-                  >
-                    Cancel all
-                  </Button>
-                )}
-              </div>
-              <TabsContent value="open" className="flex-1 m-0 overflow-auto">
-                <OrdersTable rows={orderRows} loading={!user} mode="open" onCancel={(id) => cancelMutation.mutate(id)} cancelingId={cancelMutation.variables as any} />
-              </TabsContent>
-              <TabsContent value="history" className="flex-1 m-0 overflow-auto">
-                <OrdersTable rows={historyRows} loading={!user} mode="history" />
-              </TabsContent>
-            </Tabs>
-          </div>
+            <div className={`hidden lg:flex border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex-col shrink-0`}>
+              {bottomOrdersJsx}
+            </div>
           )}
         </div>
 
-        {/* Orderbook + Recent trades (hidden in Simple) */}
+        {/* Orderbook + Recent trades. Side-by-side on mobile, stacked column on desktop. */}
         {!isSimple && (
-        <div className={`${isPro ? "w-80" : "w-72"} border-r border-border flex flex-col bg-card/40 shrink-0`}>
+        <div className={`order-3 lg:order-2 w-full ${isPro ? "lg:w-80" : "lg:w-72"} flex flex-col bg-card/40 shrink-0 border-t lg:border-t-0 lg:border-r border-border h-[44vh] lg:h-auto`}>
+          <div className="flex flex-row lg:flex-col h-full min-h-0">
           {/* Orderbook */}
-          <div className="h-1/2 flex flex-col border-b border-border min-h-0">
+          <div className="w-1/2 lg:w-full lg:h-1/2 flex flex-col border-r lg:border-r-0 lg:border-b border-border min-h-0">
             <div className="px-3 py-2 flex items-center justify-between border-b border-border">
               <span className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">Order Book</span>
               <Popover>
@@ -645,7 +652,7 @@ export default function Trade() {
             </div>
           </div>
           {/* Recent trades */}
-          <div className="h-1/2 flex flex-col min-h-0">
+          <div className="w-1/2 lg:w-full lg:h-1/2 flex flex-col min-h-0">
             <div className="px-3 py-2 flex items-center justify-between border-b border-border">
               <span className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">Recent Trades</span>
               <span className="text-[10px] text-muted-foreground">{trades.length} prints</span>
@@ -666,11 +673,12 @@ export default function Trade() {
               {trades.length === 0 && <div className="py-6 text-center text-muted-foreground text-xs">No trades yet</div>}
             </div>
           </div>
+          </div>
         </div>
         )}
 
-        {/* Order Entry */}
-        <div className={`${isSimple ? "w-full max-w-sm" : isPro ? "w-80" : "w-80"} bg-card/40 flex flex-col shrink-0 overflow-y-auto`}>
+        {/* Order Entry — full-width on mobile, fixed column on desktop */}
+        <div className={`order-2 lg:order-3 w-full ${isSimple ? "lg:max-w-sm lg:mx-auto" : "lg:w-80"} bg-card/40 flex flex-col shrink-0 lg:overflow-y-auto border-t lg:border-t-0 border-border`}>
           <div className="p-3 sm:p-4 space-y-3">
             {/* Buy/Sell pill */}
             <div className="grid grid-cols-2 gap-1 p-1 bg-muted/40 rounded-lg">
@@ -869,6 +877,14 @@ export default function Trade() {
             </div>
           </div>
         </div>
+
+        {/* Mobile-only bottom orders panel (Advanced/Pro). On desktop the same
+            content lives inside the chart column, above. */}
+        {!isSimple && (
+          <div className="lg:hidden order-4 border-t border-border bg-card/60 h-[55vh] flex flex-col shrink-0">
+            {bottomOrdersJsx}
+          </div>
+        )}
       </div>
     </div>
   );
