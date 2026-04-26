@@ -30,7 +30,13 @@ import {
   ArrowUpDown,
   Wallet as WalletIcon,
   Info,
+  LayoutGrid,
+  LayoutPanelLeft,
+  Sparkles,
 } from "lucide-react";
+
+const LAYOUT_KEY = "zebvix:trade:layout";
+type LayoutMode = "simple" | "advanced" | "pro";
 
 // ──────────────────────────────────────────────────────────────────
 // Helpers (inlined; mirrors Markets.tsx)
@@ -269,6 +275,20 @@ export default function Trade() {
   const [reduceOnly, setReduceOnly] = useState(false);
   const [bookAggregation, setBookAggregation] = useState<"0.01" | "0.1" | "1" | "10">("0.1");
   const [bottomTab, setBottomTab] = useState<"open" | "history">("open");
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
+    try {
+      const v = window.localStorage.getItem(LAYOUT_KEY);
+      if (v === "simple" || v === "advanced" || v === "pro") return v;
+    } catch { /* ignore */ }
+    return "advanced";
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(LAYOUT_KEY, layoutMode); } catch { /* ignore */ }
+    if (layoutMode === "simple" && type === "stop") setType("limit");
+  }, [layoutMode, type]);
+  const isSimple = layoutMode === "simple";
+  const isPro = layoutMode === "pro";
+  const bookRows = isPro ? 16 : 12;
 
   const lastPx = ticker?.lastPrice || 0;
   const pct = ticker?.priceChangePercent || 0;
@@ -464,6 +484,37 @@ export default function Trade() {
           <Stat label="24h Low">{fmtPrice(low, quote)}</Stat>
           <Stat label={`24h Vol (${base})`}>{fmtCompact(vol)}</Stat>
           <Stat label={`24h Vol (${quote})`}>{fmtCompact(quoteVol, quote === "INR" ? "₹" : "$")}</Stat>
+
+          {/* Layout switcher (right) */}
+          <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+            <span className="text-[10px] uppercase text-muted-foreground tracking-wider hidden xl:inline">View</span>
+            <div className="inline-flex items-center bg-muted/30 rounded-md p-0.5 border border-border">
+              {([
+                { id: "simple" as const, label: "Simple", icon: LayoutPanelLeft },
+                { id: "advanced" as const, label: "Advanced", icon: LayoutGrid },
+                { id: "pro" as const, label: "Pro", icon: Sparkles },
+              ]).map((m) => {
+                const Icon = m.icon;
+                const active = layoutMode === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setLayoutMode(m.id)}
+                    title={`${m.label} layout`}
+                    className={`px-2 sm:px-2.5 py-1 text-[11px] font-semibold rounded inline-flex items-center gap-1 transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" />
+                    <span className="hidden sm:inline">{m.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -471,12 +522,13 @@ export default function Trade() {
       <div className="flex-1 flex flex-row overflow-hidden min-h-0">
         {/* Chart + bottom orders */}
         <div className="flex-1 border-r border-border flex flex-col min-w-0">
-          <div className="flex-1 min-h-0 min-w-0">
+          <div className={`flex-1 min-h-0 min-w-0 ${isSimple ? "max-h-[68vh]" : ""}`}>
             <PriceChart symbol={symbol} />
           </div>
 
-          {/* Bottom panel: open orders / history */}
-          <div className="border-t border-border bg-card/60 h-48 flex flex-col shrink-0">
+          {/* Bottom panel: open orders / history (hidden in Simple) */}
+          {!isSimple && (
+          <div className={`border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex flex-col shrink-0`}>
             <Tabs value={bottomTab} onValueChange={(v) => setBottomTab(v as "open" | "history")} className="flex flex-col h-full">
               <div className="flex items-center justify-between px-3 border-b border-border">
                 <TabsList className="bg-transparent h-9 p-0 gap-1">
@@ -507,10 +559,12 @@ export default function Trade() {
               </TabsContent>
             </Tabs>
           </div>
+          )}
         </div>
 
-        {/* Orderbook + Recent trades */}
-        <div className="w-72 border-r border-border flex flex-col bg-card/40 shrink-0">
+        {/* Orderbook + Recent trades (hidden in Simple) */}
+        {!isSimple && (
+        <div className={`${isPro ? "w-80" : "w-72"} border-r border-border flex flex-col bg-card/40 shrink-0`}>
           {/* Orderbook */}
           <div className="h-1/2 flex flex-col border-b border-border min-h-0">
             <div className="px-3 py-2 flex items-center justify-between border-b border-border">
@@ -542,8 +596,8 @@ export default function Trade() {
                 <span className="text-right">Total</span>
               </div>
               {/* Asks reversed (lowest near spread) */}
-              {orderbook.asks.slice(0, 12).reverse().map(([px, qty], i) => {
-                const cumulative = orderbook.asks.slice(0, 12 - i).reduce((s, [, q]) => s + q, 0);
+              {orderbook.asks.slice(0, bookRows).reverse().map(([px, qty], i) => {
+                const cumulative = orderbook.asks.slice(0, bookRows - i).reduce((s, [, q]) => s + q, 0);
                 return (
                   <button
                     key={`ask-${i}`}
@@ -569,7 +623,7 @@ export default function Trade() {
                 </span>
               </div>
               {/* Bids */}
-              {orderbook.bids.slice(0, 12).map(([px, qty], i) => {
+              {orderbook.bids.slice(0, bookRows).map(([px, qty], i) => {
                 const cumulative = orderbook.bids.slice(0, i + 1).reduce((s, [, q]) => s + q, 0);
                 return (
                   <button
@@ -613,9 +667,10 @@ export default function Trade() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Order Entry */}
-        <div className="w-80 bg-card/40 flex flex-col shrink-0 overflow-y-auto">
+        <div className={`${isSimple ? "w-full max-w-sm" : isPro ? "w-80" : "w-80"} bg-card/40 flex flex-col shrink-0 overflow-y-auto`}>
           <div className="p-3 sm:p-4 space-y-3">
             {/* Buy/Sell pill */}
             <div className="grid grid-cols-2 gap-1 p-1 bg-muted/40 rounded-lg">
@@ -647,7 +702,7 @@ export default function Trade() {
 
             {/* Order type */}
             <div className="flex gap-1 border-b border-border">
-              {(["limit", "market", "stop"] as OrderType[]).map((t) => (
+              {((isSimple ? ["limit", "market"] : ["limit", "market", "stop"]) as OrderType[]).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -733,8 +788,8 @@ export default function Trade() {
               </div>
             </FieldRow>
 
-            {/* Switches */}
-            {type !== "market" && (
+            {/* Switches (Advanced/Pro only) */}
+            {!isSimple && type !== "market" && (
               <div className="flex flex-col gap-2 py-1">
                 {type === "limit" && (
                   <ToggleRow label="Post-only" hint="Maker-only fills (cancel if would take)" checked={postOnly} onCheckedChange={setPostOnly} />
@@ -755,12 +810,27 @@ export default function Trade() {
                   </Link>
                 )}
               </SummaryRow>
-              <SummaryRow label={`Est. Fee · ${postOnly && type === "limit" ? "Maker 0.08%" : "Taker 0.10%"}`}>
-                <span className="tabular-nums font-mono text-foreground">{fmtNum(fee, 2)} {quote}</span>
-              </SummaryRow>
+              {!isSimple && (
+                <SummaryRow label={`Est. Fee · ${postOnly && type === "limit" ? "Maker 0.08%" : "Taker 0.10%"}`}>
+                  <span className="tabular-nums font-mono text-foreground">{fmtNum(fee, 2)} {quote}</span>
+                </SummaryRow>
+              )}
               <SummaryRow label={side === "buy" ? "Total + Fee" : "You receive"}>
                 <span className="tabular-nums font-mono text-foreground font-semibold">{fmtNum(totalWithFee, 2)} {quote}</span>
               </SummaryRow>
+              {isPro && spread > 0 && (
+                <>
+                  <SummaryRow label="Best Bid">
+                    <span className="tabular-nums font-mono text-success">{fmtPrice(bestBid, quote)}</span>
+                  </SummaryRow>
+                  <SummaryRow label="Best Ask">
+                    <span className="tabular-nums font-mono text-destructive">{fmtPrice(bestAsk, quote)}</span>
+                  </SummaryRow>
+                  <SummaryRow label="Spread">
+                    <span className="tabular-nums font-mono text-foreground">{fmtNum(spread, quote === "INR" ? 2 : 4)} ({spreadPct.toFixed(3)}%)</span>
+                  </SummaryRow>
+                </>
+              )}
             </div>
 
             {/* CTA */}
