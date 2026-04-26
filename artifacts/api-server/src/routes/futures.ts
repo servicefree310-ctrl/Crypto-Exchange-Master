@@ -25,11 +25,13 @@ import {
   futuresTradesTable,
 } from "@workspace/db";
 import { verifyJwt } from "../lib/jwt";
+import { readSessionCookie, getUserBySession } from "../lib/auth";
 import { logger } from "../lib/logger";
 
 const r: IRouter = Router();
 
-// ── Auth (Bicrypto-style: Bearer or accessToken cookie) ──────────────────
+// ── Auth (Bicrypto-style: Bearer/JWT for Flutter, cx_session cookie for the
+// React user-portal). Accept either so both clients share one auth flow.
 function readBearer(req: Request): string | undefined {
   const h = req.headers.authorization;
   if (h && h.startsWith("Bearer ")) return h.slice(7);
@@ -38,16 +40,29 @@ function readBearer(req: Request): string | undefined {
 }
 async function bicryptoAuth(req: Request, res: Response, next: NextFunction) {
   const tok = readBearer(req);
-  if (!tok) { res.status(401).json({ message: "Unauthorized" }); return; }
-  const decoded = verifyJwt(tok);
-  if (!decoded?.sub?.id) { res.status(401).json({ message: "Invalid token" }); return; }
-  const id = Number(decoded.sub.id);
-  if (!Number.isFinite(id)) { res.status(401).json({ message: "Invalid token" }); return; }
-  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
-  if (!u) { res.status(401).json({ message: "User not found" }); return; }
-  if (u.status !== "active") { res.status(403).json({ message: "Account suspended" }); return; }
-  (req as any).bcUser = u;
-  next();
+  if (tok) {
+    const decoded = verifyJwt(tok);
+    const id = Number(decoded?.sub?.id);
+    if (Number.isFinite(id)) {
+      const [u] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+      if (!u) { res.status(401).json({ message: "User not found" }); return; }
+      if (u.status !== "active") { res.status(403).json({ message: "Account suspended" }); return; }
+      (req as any).bcUser = u;
+      next();
+      return;
+    }
+  }
+  const sessionTok = readSessionCookie(req);
+  if (sessionTok) {
+    const u = await getUserBySession(sessionTok);
+    if (u) {
+      if (u.status !== "active") { res.status(403).json({ message: "Account suspended" }); return; }
+      (req as any).bcUser = u;
+      next();
+      return;
+    }
+  }
+  res.status(401).json({ message: "Unauthorized" });
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

@@ -169,7 +169,9 @@ wss.on("connection", (ws) => {
       for (const sym of subs.tradesSymbols) {
         try {
           const trades = await me.getRecentTrades(sym, 50);
-          safeSend({ stream: "trades", data: trades });
+          // Symbol-scoped stream key so multiple subscriptions don't bleed into
+          // one another. Clients should match on `trades:<symbol>`.
+          safeSend({ stream: `trades:${sym}`, data: trades, symbol: sym });
         } catch {}
       }
     } catch {}

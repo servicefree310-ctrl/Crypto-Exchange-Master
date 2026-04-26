@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import {
   hashPassword, verifyPassword, generateReferralCode, generateUid,
+  readSessionCookie, getUserBySession,
 } from "../lib/auth";
 import { signJwt, verifyJwt, newCsrfToken, newSessionId, powHash } from "../lib/jwt";
 import { getCache } from "../lib/price-service";
@@ -58,17 +59,34 @@ function readBearer(req: Request): string | undefined {
 }
 
 async function bicryptoAuth(req: Request, res: Response, next: NextFunction) {
+  // Bicrypto/Flutter clients send a JWT (Bearer or accessToken cookie). The
+  // React user-portal logs in via /auth/login which sets the cx_session cookie
+  // backed by the `sessions` table. Accept either so both clients can hit
+  // these endpoints with one auth flow.
   const tok = readBearer(req);
-  if (!tok) { res.status(401).json({ message: "Unauthorized" }); return; }
-  const decoded = verifyJwt(tok);
-  if (!decoded?.sub?.id) { res.status(401).json({ message: "Invalid token" }); return; }
-  const id = Number(decoded.sub.id);
-  if (!Number.isFinite(id)) { res.status(401).json({ message: "Invalid token" }); return; }
-  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
-  if (!u) { res.status(401).json({ message: "User not found" }); return; }
-  if (u.status !== "active") { res.status(403).json({ message: "Account suspended" }); return; }
-  (req as any).bcUser = u;
-  next();
+  if (tok) {
+    const decoded = verifyJwt(tok);
+    const id = Number(decoded?.sub?.id);
+    if (Number.isFinite(id)) {
+      const [u] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+      if (!u) { res.status(401).json({ message: "User not found" }); return; }
+      if (u.status !== "active") { res.status(403).json({ message: "Account suspended" }); return; }
+      (req as any).bcUser = u;
+      next();
+      return;
+    }
+  }
+  const sessionTok = readSessionCookie(req);
+  if (sessionTok) {
+    const u = await getUserBySession(sessionTok);
+    if (u) {
+      if (u.status !== "active") { res.status(403).json({ message: "Account suspended" }); return; }
+      (req as any).bcUser = u;
+      next();
+      return;
+    }
+  }
+  res.status(401).json({ message: "Unauthorized" });
 }
 
 const optionalAuth = async (req: Request, _res: Response, next: NextFunction) => {
