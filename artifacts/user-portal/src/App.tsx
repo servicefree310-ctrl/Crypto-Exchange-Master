@@ -21,6 +21,10 @@ import Settings from "@/pages/Settings";
 import Earn from "@/pages/Earn";
 import Invite from "@/pages/Invite";
 import Support from "@/pages/Support";
+import About from "@/pages/About";
+import Terms from "@/pages/Terms";
+import Privacy from "@/pages/Privacy";
+import Aml from "@/pages/Aml";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -69,6 +73,11 @@ function App() {
                 <Route path="/support">
                   {() => <RequireAuth><Support /></RequireAuth>}
                 </Route>
+
+                <Route path="/about" component={About} />
+                <Route path="/legal/terms" component={Terms} />
+                <Route path="/legal/privacy" component={Privacy} />
+                <Route path="/legal/aml" component={Aml} />
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />
