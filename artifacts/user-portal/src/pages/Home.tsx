@@ -42,6 +42,17 @@ import {
   CircleDot,
   Circle,
   Megaphone,
+  Eye,
+  Bell,
+  Wifi,
+  BatteryFull,
+  SignalHigh,
+  Home as HomeIcon,
+  User as UserIcon,
+  Plus,
+  Minus,
+  Repeat,
+  Star,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
@@ -403,8 +414,8 @@ export default function Home() {
         <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-orange-500/10 blur-3xl float-slow-rev" />
         <div className="absolute top-1/3 left-1/2 h-72 w-72 rounded-full bg-fuchsia-500/[0.06] blur-3xl float-slow" />
 
-        <div className="relative container mx-auto px-4 py-16 lg:py-24 grid lg:grid-cols-2 gap-10 items-center">
-          <div className="space-y-6">
+        <div className="relative container mx-auto px-4 py-10 sm:py-14 lg:py-24 grid lg:grid-cols-2 gap-10 items-center">
+          <div className="space-y-5 sm:space-y-6">
             <div className="fade-in-up inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-success/30 bg-success/5">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-success ring-pulse" />
@@ -413,11 +424,11 @@ export default function Home() {
               <span className="text-xs font-medium text-success">Live on Zebvix Blockchain · Chain {ZBX_CHAIN.id}</span>
             </div>
 
-            <h1 className="fade-in-up delay-75 text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
+            <h1 className="fade-in-up delay-75 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
               The exchange built on{" "}
               <span className="shimmer-text">its own Blockchain</span>
             </h1>
-            <p className="fade-in-up delay-150 text-lg text-muted-foreground max-w-xl">
+            <p className="fade-in-up delay-150 text-base sm:text-lg text-muted-foreground max-w-xl">
               Trade spot &amp; perpetual futures, mint and trade <span className="text-foreground font-semibold">ZBX-20</span> tokens, and
               bridge across chains — all powered by the <span className="text-foreground font-semibold">Zebvix Blockchain</span>, our
               high-throughput, EVM-compatible Layer-1.
@@ -962,65 +973,242 @@ function MobileCalloutSection() {
           </div>
         </Reveal>
 
-        {/* Phone mockup */}
+        {/* Phone mockup - premium exchange app */}
         <Reveal className="flex justify-center lg:justify-end">
-          <div className="relative float-slow">
-            <div className="absolute -inset-6 bg-gradient-to-br from-amber-500/20 to-orange-500/10 rounded-[3rem] blur-2xl" />
-            <div className="relative w-72 h-[34rem] rounded-[2.5rem] border border-border bg-gradient-to-b from-card to-background shadow-2xl overflow-hidden">
-              {/* notch */}
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-background rounded-b-2xl border-b border-x border-border" />
-              <div className="p-5 pt-10 h-full flex flex-col">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>9:41</span>
-                  <span className="flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-                    Live
-                  </span>
-                </div>
-                <div className="mt-6 text-center">
-                  <div className="text-xs text-muted-foreground">Total balance</div>
-                  <div className="text-3xl font-extrabold mt-1">9.988059 <span className="text-primary">ZBX</span></div>
-                  <div className="text-xs text-muted-foreground mt-1 font-mono truncate">0x5cd8…8a1a</div>
-                </div>
-                <div className="mt-6 grid grid-cols-3 gap-2">
-                  {[
-                    { label: "Send", icon: <ArrowRight className="h-4 w-4 rotate-[-45deg]" /> },
-                    { label: "Receive", icon: <ArrowRight className="h-4 w-4 rotate-[135deg]" /> },
-                    { label: "Swap", icon: <ArrowLeftRight className="h-4 w-4" /> },
-                  ].map((b) => (
-                    <div key={b.label} className="rounded-xl border border-border bg-card/60 p-3 flex flex-col items-center gap-1">
-                      <div className="h-8 w-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center">{b.icon}</div>
-                      <span className="text-[11px] text-muted-foreground">{b.label}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-5 space-y-2">
-                  {[
-                    { sym: "ZBX", name: "Zebvix", bal: "9.9881", change: "+2.4%", pos: true },
-                    { sym: "USDT", name: "Tether USD", bal: "1,420.00", change: "+0.0%", pos: true },
-                    { sym: "BTC", name: "Bitcoin", bal: "0.0142", change: "+0.5%", pos: true },
-                  ].map((a) => (
-                    <div key={a.sym} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 p-2.5">
-                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white text-xs font-bold flex items-center justify-center">
-                        {a.sym[0]}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-bold">{a.sym}</div>
-                        <div className="text-[10px] text-muted-foreground">{a.name}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-mono">{a.bal}</div>
-                        <div className={`text-[10px] ${a.pos ? "text-success" : "text-destructive"}`}>{a.change}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          <PremiumPhoneMockup />
         </Reveal>
       </div>
     </section>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Premium phone mockup — looks like a real top-tier exchange app
+// ──────────────────────────────────────────────────────────────────
+function PremiumPhoneMockup() {
+  // Mini sparkline polyline points (normalized 0-100 width × 0-30 height)
+  const sparkBig = "0,22 8,18 16,20 24,15 32,17 40,12 48,14 56,9 64,11 72,7 80,5 88,8 96,4 100,3";
+  const sparkUp = "0,18 14,15 28,17 42,12 56,14 70,9 84,11 100,6";
+  const sparkDown = "0,8 14,11 28,9 42,14 56,12 70,16 84,13 100,18";
+  const sparkUp2 = "0,16 14,14 28,15 42,11 56,12 70,8 84,10 100,5";
+
+  const watchlist = [
+    { sym: "BTC", name: "Bitcoin", price: "94,210.50", change: "+1.24%", pos: true, spark: sparkUp, color: "from-amber-500 to-orange-500" },
+    { sym: "ETH", name: "Ethereum", price: "3,421.18", change: "−0.42%", pos: false, spark: sparkDown, color: "from-indigo-500 to-violet-500" },
+    { sym: "SOL", name: "Solana", price: "182.07", change: "+2.18%", pos: true, spark: sparkUp2, color: "from-fuchsia-500 to-rose-500" },
+  ];
+
+  return (
+    <div className="relative float-slow">
+      {/* Soft gold glow behind the phone */}
+      <div className="absolute -inset-8 bg-gradient-to-br from-amber-500/25 via-orange-500/10 to-fuchsia-500/15 rounded-[3.5rem] blur-3xl pointer-events-none" />
+
+      {/* Phone frame */}
+      <div className="relative w-[19rem] h-[39rem] rounded-[2.75rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-black p-[5px] shadow-[0_30px_70px_-15px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.05)]">
+        {/* Inner bezel */}
+        <div className="relative w-full h-full rounded-[2.5rem] bg-[#0b0d12] overflow-hidden">
+          {/* Dynamic island / notch */}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-28 h-7 bg-black rounded-full" />
+
+          {/* Status bar */}
+          <div className="absolute top-0 left-0 right-0 z-20 px-6 pt-3 flex items-center justify-between text-[11px] text-white/90 font-semibold">
+            <span>9:41</span>
+            <div className="flex items-center gap-1">
+              <SignalHigh className="h-3 w-3" />
+              <Wifi className="h-3 w-3" />
+              <BatteryFull className="h-3.5 w-3.5" />
+            </div>
+          </div>
+
+          {/* App content */}
+          <div className="absolute inset-0 pt-12 pb-16 px-4 overflow-hidden">
+            {/* Header: avatar + greeting + notification */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-sm font-extrabold ring-2 ring-amber-500/30">
+                  R
+                </div>
+                <div className="leading-tight">
+                  <div className="text-[10px] text-white/50">Welcome back</div>
+                  <div className="text-xs font-bold text-white">Rohan Sharma</div>
+                </div>
+              </div>
+              <div className="relative h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                <Bell className="h-3.5 w-3.5 text-white/80" />
+                <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-rose-500 text-[8px] font-bold text-white flex items-center justify-center ring-2 ring-[#0b0d12]">3</span>
+              </div>
+            </div>
+
+            {/* Balance hero card */}
+            <div className="relative mt-3 rounded-2xl p-3.5 overflow-hidden bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 shadow-[0_8px_24px_-6px_rgba(245,158,11,0.5)]">
+              <div className="absolute -top-10 -right-10 h-32 w-32 rounded-full bg-white/15 blur-2xl pointer-events-none" />
+              <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.6) 1px, transparent 0)", backgroundSize: "12px 12px" }} />
+              <div className="relative">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-white/80">Total balance</span>
+                  <Eye className="h-3.5 w-3.5 text-white/80" />
+                </div>
+                <div className="mt-1 text-2xl font-extrabold text-white tracking-tight">₹4,28,560<span className="text-base text-white/80">.21</span></div>
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-white">
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-white/20">
+                    <TrendingUp className="h-2.5 w-2.5" /> +0.57%
+                  </span>
+                  <span className="text-white/85">+₹2,418.50 today</span>
+                </div>
+                {/* mini equity sparkline */}
+                <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="absolute right-0 bottom-0 w-24 h-9 opacity-80">
+                  <polyline points={sparkBig} fill="none" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              {[
+                { label: "Buy", icon: <Plus className="h-3.5 w-3.5" />, color: "text-emerald-400" },
+                { label: "Sell", icon: <Minus className="h-3.5 w-3.5" />, color: "text-rose-400" },
+                { label: "Swap", icon: <Repeat className="h-3.5 w-3.5" />, color: "text-sky-400" },
+                { label: "Earn", icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-amber-400" },
+              ].map((a) => (
+                <div key={a.label} className="flex flex-col items-center gap-1 rounded-xl bg-white/[0.04] border border-white/5 py-2">
+                  <div className={`h-7 w-7 rounded-lg bg-white/5 flex items-center justify-center ${a.color}`}>{a.icon}</div>
+                  <span className="text-[10px] font-medium text-white/80">{a.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Featured market: ZBX/USDT */}
+            <div className="mt-3 rounded-2xl bg-white/[0.04] border border-white/10 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white text-[11px] font-extrabold flex items-center justify-center">Z</div>
+                  <div className="leading-tight">
+                    <div className="text-xs font-bold text-white flex items-center gap-1">
+                      ZBX/USDT <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
+                    </div>
+                    <div className="text-[9px] text-white/50">Zebvix · Featured</div>
+                  </div>
+                </div>
+                <div className="text-right leading-tight">
+                  <div className="text-sm font-bold text-white font-mono">$1.348</div>
+                  <div className="text-[10px] font-bold text-emerald-400 flex items-center justify-end gap-0.5">
+                    <TrendingUp className="h-2.5 w-2.5" /> +4.82%
+                  </div>
+                </div>
+              </div>
+              {/* Bigger sparkline area chart */}
+              <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 w-full h-12">
+                <defs>
+                  <linearGradient id="zbxGrad" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="rgb(16 185 129)" stopOpacity="0.45" />
+                    <stop offset="100%" stopColor="rgb(16 185 129)" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <polyline
+                  points={`0,30 ${sparkBig} 100,30`}
+                  fill="url(#zbxGrad)"
+                  stroke="none"
+                />
+                <polyline
+                  points={sparkBig}
+                  fill="none"
+                  stroke="rgb(16 185 129)"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+
+            {/* Watchlist */}
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/50">Watchlist</span>
+                <span className="text-[10px] text-amber-400 font-semibold">See all</span>
+              </div>
+              <div className="space-y-1.5">
+                {watchlist.map((w) => (
+                  <div key={w.sym} className="flex items-center gap-2 rounded-xl bg-white/[0.03] border border-white/5 py-1.5 px-2">
+                    <div className={`h-7 w-7 rounded-full bg-gradient-to-br ${w.color} text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0`}>
+                      {w.sym[0]}
+                    </div>
+                    <div className="flex-1 min-w-0 leading-tight">
+                      <div className="text-[11px] font-bold text-white">{w.sym}</div>
+                      <div className="text-[9px] text-white/50 truncate">{w.name}</div>
+                    </div>
+                    <svg viewBox="0 0 100 22" preserveAspectRatio="none" className="w-12 h-5 flex-shrink-0">
+                      <polyline
+                        points={w.spark}
+                        fill="none"
+                        stroke={w.pos ? "rgb(16 185 129)" : "rgb(244 63 94)"}
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <div className="text-right leading-tight min-w-[3.75rem]">
+                      <div className="text-[11px] font-bold text-white font-mono">${w.price}</div>
+                      <div className={`text-[9px] font-semibold ${w.pos ? "text-emerald-400" : "text-rose-400"}`}>{w.change}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom nav bar */}
+          <div className="absolute bottom-0 left-0 right-0 h-14 bg-[#0b0d12]/95 backdrop-blur border-t border-white/5 px-3 flex items-center justify-around">
+            {[
+              { icon: <HomeIcon className="h-4 w-4" />, label: "Home", active: true },
+              { icon: <BarChart3 className="h-4 w-4" />, label: "Markets" },
+              { icon: <ArrowLeftRight className="h-4 w-4" />, label: "Trade", center: true },
+              { icon: <WalletIcon className="h-4 w-4" />, label: "Wallet" },
+              { icon: <UserIcon className="h-4 w-4" />, label: "Me" },
+            ].map((n) => {
+              if (n.center) {
+                return (
+                  <div key={n.label} className="-mt-6 flex flex-col items-center gap-0.5">
+                    <div className="h-11 w-11 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/40 ring-4 ring-[#0b0d12]">
+                      {n.icon}
+                    </div>
+                    <span className="text-[8px] font-semibold text-amber-400">{n.label}</span>
+                  </div>
+                );
+              }
+              return (
+                <div key={n.label} className="flex flex-col items-center gap-0.5">
+                  <div className={n.active ? "text-amber-400" : "text-white/40"}>{n.icon}</div>
+                  <span className={`text-[9px] font-medium ${n.active ? "text-amber-400" : "text-white/50"}`}>{n.label}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Home indicator */}
+          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-1 w-24 rounded-full bg-white/30" />
+        </div>
+      </div>
+
+      {/* Floating "Live price" tag */}
+      <div className="hidden sm:flex absolute -left-6 top-24 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 backdrop-blur px-3 py-2 shadow-xl">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 animate-ping opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        <div className="leading-tight">
+          <div className="text-[9px] text-emerald-300/80 uppercase tracking-wider font-bold">Live price</div>
+          <div className="text-xs font-extrabold text-white">ZBX $1.348</div>
+        </div>
+      </div>
+
+      {/* Floating "P/L today" tag */}
+      <div className="hidden sm:flex absolute -right-4 bottom-32 flex-col gap-0.5 rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 to-orange-500/10 backdrop-blur px-3 py-2 shadow-xl">
+        <div className="text-[9px] text-amber-300/90 uppercase tracking-wider font-bold">P/L 24h</div>
+        <div className="text-sm font-extrabold text-emerald-400 flex items-center gap-1">
+          <TrendingUp className="h-3 w-3" /> +₹2,418
+        </div>
+      </div>
+    </div>
   );
 }
 
