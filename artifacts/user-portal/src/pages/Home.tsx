@@ -28,7 +28,23 @@ import {
   Network,
   Copy,
   Check,
+  X,
+  Search,
+  PiggyBank,
+  Coins,
+  Rocket,
+  Gem,
+  Terminal,
+  BookOpen,
+  Database,
+  CalendarDays,
+  CircleCheck,
+  CircleDot,
+  Circle,
+  Megaphone,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -319,6 +335,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col w-full">
+      <AnnouncementBar />
       <TickerTape tickers={tape} />
 
       {/* ─── HERO ─────────────────────────────────────────────── */}
@@ -382,7 +399,10 @@ export default function Home() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-4 text-xs text-muted-foreground">
+            {/* Hero search */}
+            <HeroSearch tickers={all} />
+
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <Shield className="h-3.5 w-3.5 text-success" /> 95% cold storage
               </span>
@@ -580,8 +600,17 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ─── EARN / STAKING ─────────────────────────────── */}
+      <EarnSection />
+
       {/* ─── MOBILE CALLOUT ─────────────────────────────── */}
       <MobileCalloutSection />
+
+      {/* ─── DEVELOPER / API ─────────────────────────────── */}
+      <DeveloperSection />
+
+      {/* ─── ROADMAP ─────────────────────────────────────── */}
+      <RoadmapSection />
 
       {/* ─── FAQ ─────────────────────────────────────────── */}
       <section className="w-full py-16 bg-background">
@@ -988,5 +1017,445 @@ function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; 
       <h3 className="font-bold mt-3">{title}</h3>
       <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{desc}</p>
     </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Announcement bar (dismissable, persisted in sessionStorage)
+// ──────────────────────────────────────────────────────────────────
+function AnnouncementBar() {
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("zbx_announce_dismiss") === "1") setOpen(false);
+    } catch {}
+  }, []);
+  if (!open) return null;
+  const dismiss = () => {
+    setOpen(false);
+    try {
+      sessionStorage.setItem("zbx_announce_dismiss", "1");
+    } catch {}
+  };
+  return (
+    <div className="relative w-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 text-white">
+      <div className="container mx-auto px-4 py-2 flex items-center justify-center gap-3 text-sm">
+        <Megaphone className="h-4 w-4 flex-shrink-0" />
+        <span className="text-center">
+          <strong>ZBX-20 token factory is live</strong> — mint your own token on Zebvix L1 in under 60 seconds.
+        </span>
+        <Link href="/markets" className="hidden sm:inline-flex items-center gap-1 underline-offset-2 hover:underline font-semibold">
+          Learn more <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+        <button
+          onClick={dismiss}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-white/15"
+          aria-label="Dismiss announcement"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Hero search — type a symbol and jump to /trade/SYMBOL
+// ──────────────────────────────────────────────────────────────────
+function HeroSearch({ tickers }: { tickers: NormalizedTicker[] }) {
+  const [q, setQ] = useState("");
+  const [, setLocation] = useLocation();
+  const [focused, setFocused] = useState(false);
+
+  const matches = useMemo(() => {
+    const trimmed = q.trim().toUpperCase();
+    if (!trimmed) return [];
+    return tickers
+      .filter((t) => {
+        const s = t.symbol.toUpperCase();
+        const b = baseAsset(s);
+        return s.includes(trimmed) || b.startsWith(trimmed);
+      })
+      .slice(0, 6);
+  }, [q, tickers]);
+
+  const go = (sym: string) => {
+    setQ("");
+    setFocused(false);
+    setLocation(`/trade/${encodeSymbol(sym)}`);
+  };
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (matches.length > 0) go(matches[0].symbol);
+    else if (q.trim()) setLocation(`/markets`);
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="relative max-w-md" autoComplete="off">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          placeholder="Search markets — try BTC, SOL, ZBX…"
+          className="pl-10 pr-20 h-12 bg-card/70 backdrop-blur border-border/60 focus:border-primary/60"
+          aria-label="Search markets"
+        />
+        <kbd className="hidden sm:inline-flex absolute right-3 top-1/2 -translate-y-1/2 items-center gap-1 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+          ↵ Enter
+        </kbd>
+      </div>
+      {focused && matches.length > 0 && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-30 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
+          {matches.map((t) => {
+            const positive = t.priceChangePercent >= 0;
+            return (
+              <button
+                key={t.symbol}
+                type="button"
+                onMouseDown={() => go(t.symbol)}
+                className="w-full px-3 py-2 flex items-center gap-3 hover:bg-muted/40 transition-colors text-left"
+              >
+                <AssetIcon symbol={t.symbol} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold">{t.symbol}</div>
+                  <div className="text-[11px] text-muted-foreground">{baseAsset(t.symbol)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-mono">{fmtPrice(t.lastPrice, t.symbol)}</div>
+                  <div className={`text-[11px] ${positive ? "text-success" : "text-destructive"}`}>
+                    {positive ? "+" : ""}
+                    {t.priceChangePercent.toFixed(2)}%
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </form>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Earn / Staking section
+// ──────────────────────────────────────────────────────────────────
+function EarnSection() {
+  const products = [
+    {
+      icon: <Coins className="h-6 w-6" />,
+      title: "ZBX staking",
+      desc: "Delegate to a Zebvix L1 validator and earn block rewards in ZBX with weekly compounding.",
+      tag: "Validator",
+      grad: "from-amber-500/20 to-orange-500/5",
+    },
+    {
+      icon: <PiggyBank className="h-6 w-6" />,
+      title: "Flexible savings",
+      desc: "Deposit USDT, BTC or ZBX — withdraw anytime. Interest accrues every block.",
+      tag: "Daily",
+      grad: "from-emerald-500/20 to-teal-500/5",
+    },
+    {
+      icon: <Rocket className="h-6 w-6" />,
+      title: "Launchpool",
+      desc: "Stake ZBX during launchpool windows and farm newly listed ZBX-20 tokens for free.",
+      tag: "Hot",
+      grad: "from-fuchsia-500/20 to-pink-500/5",
+    },
+    {
+      icon: <Gem className="h-6 w-6" />,
+      title: "Yield vaults",
+      desc: "Curated structured products combining lending, AMM LP and futures basis trades.",
+      tag: "Pro",
+      grad: "from-violet-500/20 to-indigo-500/5",
+    },
+  ];
+  return (
+    <section className="w-full py-16 bg-background">
+      <div className="container mx-auto px-4">
+        <div className="text-center mb-10">
+          <Badge variant="outline" className="border-primary/40 text-primary mb-3">
+            <Sparkles className="h-3 w-3 mr-1.5" />
+            Earn
+          </Badge>
+          <h2 className="text-3xl font-bold tracking-tight">Put your assets to work</h2>
+          <p className="text-muted-foreground text-sm mt-2">
+            Earn passive income on idle balances — fully on-chain on Zebvix L1, withdraw whenever.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {products.map((p) => (
+            <Link key={p.title} href="/wallet" className="group block">
+              <Card className="relative overflow-hidden p-6 h-full border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
+                <div className={`absolute inset-0 bg-gradient-to-br ${p.grad} opacity-60 pointer-events-none`} />
+                <div className="relative">
+                  <div className="flex items-start justify-between">
+                    <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center">{p.icon}</div>
+                    <Badge className="bg-success/15 text-success border-success/30">{p.tag}</Badge>
+                  </div>
+                  <h3 className="text-lg font-bold mt-4">{p.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{p.desc}</p>
+                  <div className="mt-5 inline-flex items-center text-sm font-medium text-primary group-hover:gap-2 gap-1 transition-all">
+                    Start earning
+                    <ArrowRight className="h-4 w-4" />
+                  </div>
+                </div>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Developer / API section
+// ──────────────────────────────────────────────────────────────────
+function DeveloperSection() {
+  const [copied, setCopied] = useState(false);
+  const snippet = `// JavaScript — get the chain ID from Zebvix L1
+const res = await fetch("https://rpc.zebvix.io", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    jsonrpc: "2.0", id: 1, method: "eth_chainId", params: []
+  }),
+});
+const { result } = await res.json();
+console.log(result); // "${ZBX_CHAIN.hexId}" → ${ZBX_CHAIN.id} (${ZBX_CHAIN.name})`;
+
+  const copy = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(snippet).catch(() => {});
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+
+  return (
+    <section className="relative w-full py-16 overflow-hidden bg-background">
+      <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+        style={{
+          backgroundImage:
+            "linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+        }}
+      />
+      <div className="relative container mx-auto px-4 grid lg:grid-cols-2 gap-10 items-center">
+        <div className="space-y-5">
+          <Badge variant="outline" className="border-sky-400/40 text-sky-300 bg-sky-500/10">
+            <Terminal className="h-3 w-3 mr-1.5" />
+            For developers
+          </Badge>
+          <h2 className="text-3xl lg:text-4xl font-bold tracking-tight leading-tight">
+            Build on{" "}
+            <span className="bg-gradient-to-r from-sky-300 to-cyan-400 bg-clip-text text-transparent">Zebvix L1</span>
+          </h2>
+          <p className="text-muted-foreground leading-relaxed">
+            Zebvix speaks JSON-RPC and the standard EVM ABI — your existing tooling (ethers, viem, web3.js, hardhat,
+            foundry) works out of the box. Connect your wallet, deploy a contract, and you&apos;re live on chain {ZBX_CHAIN.id}.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3 pt-1">
+            <DevFeature icon={<Database className="h-4 w-4" />} title="JSON-RPC + WebSocket" desc="Mainnet endpoints with archive node access." />
+            <DevFeature icon={<Code2 className="h-4 w-4" />} title="EVM-compatible" desc="Solidity, Vyper and full ZBX-20 support." />
+            <DevFeature icon={<BookOpen className="h-4 w-4" />} title="REST &amp; WS exchange API" desc="Same API the web &amp; mobile apps use." />
+            <DevFeature icon={<Shield className="h-4 w-4" />} title="Testnet + faucet" desc="Free test ZBX for development." />
+          </div>
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Button size="lg" className="bg-sky-600 hover:bg-sky-700 text-white" asChild>
+              <a href="#" target="_blank" rel="noreferrer noopener">
+                Open API docs <ArrowRight className="ml-2 h-4 w-4" />
+              </a>
+            </Button>
+            <Button size="lg" variant="outline" asChild>
+              <a href="#" target="_blank" rel="noreferrer noopener">
+                Get RPC keys
+              </a>
+            </Button>
+          </div>
+        </div>
+
+        {/* Code card */}
+        <Card className="relative overflow-hidden border-border/60 bg-[#0a0d14] shadow-2xl">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-card/50">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500/70" />
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500/70" />
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/70" />
+              <span className="ml-3 text-xs text-muted-foreground font-mono">chain-id.js</span>
+            </div>
+            <button
+              onClick={copy}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-success" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" /> Copy
+                </>
+              )}
+            </button>
+          </div>
+          <pre className="p-5 overflow-x-auto text-xs leading-relaxed">
+            <code className="font-mono text-slate-200">
+              {snippet.split("\n").map((line, i) => {
+                const m = line.match(/^(\s*)(\/\/.*)$/);
+                if (m) {
+                  return (
+                    <div key={i}>
+                      {m[1]}
+                      <span className="text-slate-500">{m[2]}</span>
+                    </div>
+                  );
+                }
+                const colored = line
+                  .replace(/(".*?")/g, '\u0001$1\u0002')
+                  .split(/\u0001|\u0002/)
+                  .map((part, j) => {
+                    if (part.startsWith('"')) return <span key={j} className="text-emerald-300">{part}</span>;
+                    return (
+                      <span key={j}>
+                        {part.split(/(\bconst\b|\bawait\b|\bfetch\b|\bmethod\b|\basync\b|\.log)/g).map((sub, k) => {
+                          if (["const", "await", "async"].includes(sub))
+                            return <span key={k} className="text-violet-300">{sub}</span>;
+                          if (["fetch", "method"].includes(sub))
+                            return <span key={k} className="text-sky-300">{sub}</span>;
+                          if (sub === ".log") return <span key={k} className="text-amber-300">{sub}</span>;
+                          return <span key={k}>{sub}</span>;
+                        })}
+                      </span>
+                    );
+                  });
+                return <div key={i}>{colored}</div>;
+              })}
+            </code>
+          </pre>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function DevFeature({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-3">
+      <div className="h-8 w-8 rounded-md bg-sky-500/15 text-sky-300 flex items-center justify-center flex-shrink-0">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">{desc}</div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Roadmap timeline
+// ──────────────────────────────────────────────────────────────────
+function RoadmapSection() {
+  const milestones = [
+    {
+      quarter: "Q1 2026",
+      status: "shipped" as const,
+      title: "Mainnet launch",
+      items: ["Zebvix L1 mainnet live", "ZBX-20 token factory", "Spot exchange v1"],
+    },
+    {
+      quarter: "Q2 2026",
+      status: "current" as const,
+      title: "Liquidity expansion",
+      items: ["Cross-chain bridge to BSC/EVM", "Pay-ID v2", "Perpetual futures (100×)"],
+    },
+    {
+      quarter: "Q3 2026",
+      status: "planned" as const,
+      title: "DeFi & mobile",
+      items: ["Native AMM v3 + concentrated LP", "Mobile wallet 2.0", "Staking dashboard"],
+    },
+    {
+      quarter: "Q4 2026",
+      status: "planned" as const,
+      title: "Decentralization",
+      items: ["Public validator set", "On-chain governance", "Grants programme"],
+    },
+  ];
+  return (
+    <section className="w-full py-16 bg-card/30 border-y border-border">
+      <div className="container mx-auto px-4">
+        <div className="text-center mb-10">
+          <Badge variant="outline" className="border-primary/40 text-primary mb-3">
+            <CalendarDays className="h-3 w-3 mr-1.5" />
+            Roadmap
+          </Badge>
+          <h2 className="text-3xl font-bold tracking-tight">Where we&apos;re headed</h2>
+          <p className="text-muted-foreground text-sm mt-2">
+            A focused, public roadmap for Zebvix Exchange and the Zebvix L1 chain.
+          </p>
+        </div>
+
+        <div className="relative">
+          {/* horizontal connector line (desktop) */}
+          <div className="hidden lg:block absolute left-0 right-0 top-[3.25rem] h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+          <div className="grid lg:grid-cols-4 gap-5">
+            {milestones.map((m) => {
+              const Icon =
+                m.status === "shipped" ? CircleCheck : m.status === "current" ? CircleDot : Circle;
+              const iconColor =
+                m.status === "shipped"
+                  ? "text-success bg-success/15 border-success/40"
+                  : m.status === "current"
+                  ? "text-primary bg-primary/15 border-primary/40 animate-pulse"
+                  : "text-muted-foreground bg-muted/40 border-border";
+              const badgeText =
+                m.status === "shipped" ? "Shipped" : m.status === "current" ? "In progress" : "Planned";
+              const badgeStyle =
+                m.status === "shipped"
+                  ? "bg-success/15 text-success border-success/30"
+                  : m.status === "current"
+                  ? "bg-primary/15 text-primary border-primary/30"
+                  : "bg-muted text-muted-foreground border-border";
+              return (
+                <div key={m.quarter} className="relative">
+                  <div className="flex flex-col items-center lg:items-start">
+                    {/* node */}
+                    <div className={`relative z-10 h-10 w-10 rounded-full border-2 flex items-center justify-center bg-background ${iconColor}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="mt-4 w-full">
+                      <Card className="p-5 border-border/60 hover:border-primary/40 transition-colors h-full">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                            {m.quarter}
+                          </span>
+                          <Badge className={`${badgeStyle} text-[10px] px-2 py-0`}>{badgeText}</Badge>
+                        </div>
+                        <h3 className="font-bold mt-2">{m.title}</h3>
+                        <ul className="mt-3 space-y-1.5">
+                          {m.items.map((it) => (
+                            <li key={it} className="flex items-start gap-2 text-xs text-muted-foreground">
+                              <span className={`mt-1 h-1 w-1 rounded-full flex-shrink-0 ${m.status === "planned" ? "bg-muted-foreground/40" : "bg-primary"}`} />
+                              <span>{it}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </Card>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
