@@ -96,13 +96,18 @@ void main() {
 
     test(
         'debugInjectMarketMessage after dispose does not crash on any of the '
-        'six closed controllers (post-close add() guards)', () async {
+        'six closed controllers (post-close add() guards), even if the '
+        'constructor auto-connect timer has already fired', () async {
       final svc = TradingWebSocketService();
       svc.dispose();
 
-      // Wait past the constructor's 500ms auto-connect timer so any late
-      // private side effects are also accounted for.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // The constructor schedules `Timer(500ms, _connectInternal(...))`. Wait
+      // safely past that window so the auto-connect callback fires (and any
+      // resulting private side effects are accounted for) before we inject
+      // post-dispose frames. This protects against a regression where the
+      // late auto-connect would race with dispose and reach an `add()` on a
+      // now-closed controller.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
 
       // Drive the real private message handler with valid frames for each
       // stream type. Without the per-controller `isClosed` guards added in
