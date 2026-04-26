@@ -11,7 +11,6 @@ import {
   Bell,
   Menu,
   X,
-  ChevronDown,
   User as UserIcon,
   LogOut,
   Settings,
@@ -23,6 +22,8 @@ import {
   Coins,
   Users,
   ArrowLeftRight,
+  Globe,
+  Check,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,28 @@ import {
 import { toast } from "@/hooks/use-toast";
 
 type Mode = "exchange" | "dex";
+
+type Language = {
+  code: string;
+  label: string;
+  native: string;
+  flag: string;
+};
+
+const LANGUAGES: Language[] = [
+  { code: "en", label: "English", native: "English", flag: "🇬🇧" },
+  { code: "hi", label: "Hindi", native: "हिन्दी", flag: "🇮🇳" },
+  { code: "bn", label: "Bengali", native: "বাংলা", flag: "🇮🇳" },
+  { code: "ta", label: "Tamil", native: "தமிழ்", flag: "🇮🇳" },
+  { code: "te", label: "Telugu", native: "తెలుగు", flag: "🇮🇳" },
+  { code: "mr", label: "Marathi", native: "मराठी", flag: "🇮🇳" },
+  { code: "gu", label: "Gujarati", native: "ગુજરાતી", flag: "🇮🇳" },
+  { code: "es", label: "Spanish", native: "Español", flag: "🇪🇸" },
+  { code: "zh", label: "Chinese", native: "中文", flag: "🇨🇳" },
+  { code: "ar", label: "Arabic", native: "العربية", flag: "🇸🇦" },
+];
+
+const LANG_STORAGE_KEY = "zebvix:lang";
 
 type NavItem = {
   href: string;
@@ -74,6 +97,7 @@ export function AppHeader() {
   const [mode, setMode] = useState<Mode>("exchange");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [langCode, setLangCode] = useState<string>("en");
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -81,6 +105,39 @@ export function AppHeader() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LANG_STORAGE_KEY);
+      if (saved && LANGUAGES.some((l) => l.code === saved)) setLangCode(saved);
+    } catch {
+      /* ignore storage errors */
+    }
+  }, []);
+
+  const currentLang = LANGUAGES.find((l) => l.code === langCode) ?? LANGUAGES[0];
+
+  const handleLanguageChange = (code: string) => {
+    const next = LANGUAGES.find((l) => l.code === code);
+    if (!next) return;
+    setLangCode(code);
+    try {
+      window.localStorage.setItem(LANG_STORAGE_KEY, code);
+    } catch {
+      /* ignore storage errors */
+    }
+    if (code === "en") {
+      toast({
+        title: `Display language set to ${next.label}`,
+        description: "Your preference has been saved.",
+      });
+    } else {
+      toast({
+        title: `${next.flag} ${next.native} selected`,
+        description: "Full localization is coming soon — your preference is saved.",
+      });
+    }
+  };
 
   const handleModeChange = (next: Mode) => {
     if (next === "dex") {
@@ -212,6 +269,51 @@ export function AppHeader() {
             </Link>
           </Button>
 
+          {/* Language switcher (always visible from sm+) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden sm:inline-flex relative h-9 w-9 flex-shrink-0"
+                aria-label={`Language: ${currentLang.label}`}
+              >
+                <Globe className="h-4 w-4" />
+                <span className="absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center h-3.5 min-w-[1.05rem] px-1 rounded-full bg-primary text-[8px] font-bold text-primary-foreground uppercase tracking-tight ring-2 ring-card">
+                  {currentLang.code}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <span>Language</span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <div className="max-h-72 overflow-y-auto">
+                {LANGUAGES.map((lang) => {
+                  const active = lang.code === langCode;
+                  return (
+                    <DropdownMenuItem
+                      key={lang.code}
+                      onClick={() => handleLanguageChange(lang.code)}
+                      className="cursor-pointer flex items-center gap-2"
+                    >
+                      <span className="text-base leading-none">{lang.flag}</span>
+                      <span className="flex-1 flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{lang.native}</span>
+                        {lang.native !== lang.label && (
+                          <span className="text-[10px] text-muted-foreground">({lang.label})</span>
+                        )}
+                      </span>
+                      {active && <Check className="h-4 w-4 text-primary" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {user ? (
             <>
               {/* Notifications */}
@@ -255,15 +357,18 @@ export function AppHeader() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* User menu */}
+              {/* User menu — icon-only avatar */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="h-9 px-2 gap-2 hidden sm:inline-flex">
-                    <span className="h-7 w-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white text-xs font-extrabold flex items-center justify-center">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hidden sm:inline-flex h-9 w-9 p-0 rounded-full overflow-hidden ring-2 ring-transparent hover:ring-primary/30 focus-visible:ring-primary/40 transition flex-shrink-0"
+                    aria-label={`Account: ${user.fullName || user.email}`}
+                  >
+                    <span className="h-9 w-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white text-sm font-extrabold flex items-center justify-center">
                       {(user.fullName || user.email || "U").charAt(0).toUpperCase()}
                     </span>
-                    <span className="text-sm font-medium max-w-[7rem] truncate">{user.fullName || user.email}</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-60">
