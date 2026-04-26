@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
@@ -382,4 +383,31 @@ class WebSocketService {
     _globalSubscriptionCount = 0;
     dev.log('🔌 TICKER_WS: Service disposed');
   }
+
+  // ---------------------------------------------------------------------------
+  // Test-only seams. Do NOT call from production code.
+  // These exist solely to let regression tests exercise the private message /
+  // error / disconnection paths deterministically (without standing up a real
+  // WebSocket), so the `isClosed` guards and reconnect-storm prevention can be
+  // pinned. They are marked @visibleForTesting and stripped from analysis in
+  // production callers.
+  // ---------------------------------------------------------------------------
+
+  @visibleForTesting
+  void debugInjectMessage(dynamic message) => _handleMessage(message);
+
+  @visibleForTesting
+  void debugTriggerError(Object error) => _handleError(error);
+
+  @visibleForTesting
+  void debugTriggerDisconnection() => _handleDisconnection();
+
+  @visibleForTesting
+  int get debugReconnectAttempts => _reconnectAttempts;
+
+  @visibleForTesting
+  bool get debugHasReconnectTimerScheduled => _reconnectTimer?.isActive == true;
+
+  @visibleForTesting
+  Duration get debugUpdateDebounceDelay => _updateDebounceDelay;
 }

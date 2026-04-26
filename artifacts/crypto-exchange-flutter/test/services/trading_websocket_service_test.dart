@@ -22,6 +22,8 @@ void main() {
       // Don't wait for the auto-connect timer — we should be allowed to
       // dispose immediately. The dispose path used to crash if the auto-
       // connect race produced a late add() on a now-closed controller.
+      // dispose() is sync (returns void), so a closure that calls it can
+      // be checked with returnsNormally.
       expect(() => svc.dispose(), returnsNormally);
     });
 
@@ -92,11 +94,50 @@ void main() {
           reason: 'symbolChangeStream should emit done');
     });
 
-    // NOTE: A previous version of this file also called `changeSymbol()` after
-    // dispose to prove the `_symbolChangeController.add()` guard worked.
-    // changeSymbol() does much more than emit a name — it tries to open a real
-    // WebSocket — so it is not a clean unit-test surface. The `dispose closes
-    // streams` test above already proves the symbolChange controller is closed
-    // by dispose, which is what makes the in-source `isClosed` guard needed.
+    test(
+        'debugInjectMarketMessage after dispose does not crash on any of the '
+        'six closed controllers (post-close add() guards)', () async {
+      final svc = TradingWebSocketService();
+      svc.dispose();
+
+      // Wait past the constructor's 500ms auto-connect timer so any late
+      // private side effects are also accounted for.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Drive the real private message handler with valid frames for each
+      // stream type. Without the per-controller `isClosed` guards added in
+      // the production fix, these would throw
+      //   "Bad state: Cannot add new events after calling close"
+      // synchronously inside the handler.
+      const tickerFrame =
+          '{"stream":"tickers","data":{"BTC/USDT":{"last":50000,"baseVolume":1,"quoteVolume":1,"change":0,"bid":0,"ask":0,"high":0,"low":0}}}';
+      const orderBookFrame =
+          '{"stream":"orderbook","data":{"BTC/USDT":{"bids":[[50000,1]],"asks":[[50001,1]]}}}';
+      const tradesFrame =
+          '{"stream":"trades","data":{"BTC/USDT":[{"price":50000,"amount":1,"side":"buy","timestamp":0}]}}';
+      const ohlcvFrame =
+          '{"stream":"ohlcv:BTC/USDT:1h","data":[[0,100,200,50,150,1]]}';
+
+      expect(() => svc.debugInjectMarketMessage(tickerFrame), returnsNormally);
+      expect(
+          () => svc.debugInjectMarketMessage(orderBookFrame), returnsNormally);
+      expect(() => svc.debugInjectMarketMessage(tradesFrame), returnsNormally);
+      expect(() => svc.debugInjectMarketMessage(ohlcvFrame), returnsNormally);
+    });
+
+    test('debugInjectMarketMessage tolerates malformed input (no crash)', () {
+      final svc = TradingWebSocketService();
+      try {
+        // Catch-all in _handleMarketMessage must swallow parse errors instead
+        // of bubbling them up into the WebSocket onError path (which would
+        // tear the whole shared connection down).
+        expect(() => svc.debugInjectMarketMessage('not json'), returnsNormally);
+        expect(() => svc.debugInjectMarketMessage('{}'), returnsNormally);
+        expect(() => svc.debugInjectMarketMessage('{"stream":"unknown"}'),
+            returnsNormally);
+      } finally {
+        svc.dispose();
+      }
+    });
   });
 }

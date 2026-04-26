@@ -74,5 +74,39 @@ void main() {
         svc.dispose();
       }
     });
+
+    test(
+        'debugInjectMessage after dispose does not crash on closed ticker / '
+        'orderbook / trades controllers', () {
+      final svc = FuturesWebSocketService();
+      svc.dispose();
+
+      // Drive the real private message handler with valid frames AFTER
+      // dispose. Without `if (!ctrl.isClosed)` guards inside _parseTicker /
+      // _parseOrderBook / _parseTrades, these would throw
+      //   "Bad state: Cannot add new events after calling close"
+      // synchronously inside the handler.
+      const ticker =
+          '{"stream":"ticker","data":{"symbol":"BTC/USDT","last":50000,"baseVolume":1,"quoteVolume":1,"percentage":0,"bid":0,"ask":0,"high":0,"low":0}}';
+      const orderbook =
+          '{"stream":"orderbook","data":{"bids":[[50000,1]],"asks":[[50001,1]]}}';
+      const trades = '{"stream":"trades","data":[]}';
+
+      expect(() => svc.debugInjectMessage(ticker), returnsNormally);
+      expect(() => svc.debugInjectMessage(orderbook), returnsNormally);
+      expect(() => svc.debugInjectMessage(trades), returnsNormally);
+    });
+
+    test('debugInjectMessage tolerates malformed input (no crash)', () {
+      final svc = FuturesWebSocketService();
+      try {
+        expect(() => svc.debugInjectMessage('not json'), returnsNormally);
+        expect(() => svc.debugInjectMessage('{}'), returnsNormally);
+        expect(() => svc.debugInjectMessage('{"stream":"unknown"}'),
+            returnsNormally);
+      } finally {
+        svc.dispose();
+      }
+    });
   });
 }

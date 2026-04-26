@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 
+import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
@@ -871,4 +872,14 @@ class TradingWebSocketService {
     _chartTickerController.close();
     _symbolChangeController.close();
   }
+
+  // ---------------------------------------------------------------------------
+  // Test-only seam. Do NOT call from production code.
+  // Lets regression tests drive the private message-parsing path directly so
+  // the per-controller `isClosed` guards (added for the closed-controller crash
+  // fix) can be exercised without standing up a real WebSocket.
+  // ---------------------------------------------------------------------------
+
+  @visibleForTesting
+  void debugInjectMarketMessage(dynamic raw) => _handleMarketMessage(raw);
 }

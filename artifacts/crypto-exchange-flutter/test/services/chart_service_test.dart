@@ -4,9 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/services/chart_service.dart';
 import 'package:mobile/core/services/market_service.dart';
 import 'package:mobile/features/market/domain/entities/chart_data_entity.dart';
-import 'package:mobile/features/market/domain/entities/market_entity.dart';
-import 'package:mobile/features/market/domain/entities/market_data_entity.dart';
-import 'package:mobile/features/market/domain/entities/ticker_entity.dart';
 
 /// Regression tests for the ChartService dispose lifecycle.
 ///
@@ -140,14 +137,6 @@ void main() {
       );
 
       await sub.cancel();
-    });
-  });
-
-  // Touch unused entity types so the import isn't dropped by analyzer.
-  group('test wiring', () {
-    test('imports compile', () {
-      expect(MarketEntity, isNotNull);
-      expect(TickerEntity, isNotNull);
     });
   });
 }
