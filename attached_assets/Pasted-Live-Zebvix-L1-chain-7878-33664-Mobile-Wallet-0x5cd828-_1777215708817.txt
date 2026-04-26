@@ -1,0 +1,107 @@
+Live
+Zebvix L1
+·
+chain 7878
+·
+#33664
+Mobile Wallet
+
+0x5cd828…8a1a
+9.988059 ZBX
+Documentation
+LIVE
+Hub
+Zebvix Developer Docs
+Everything you need to operate, integrate, and extend the Zebvix L1 chain — from spinning up a validator to wiring the mobile wallet into your dApp.
+
+Live Network Data
+Real-time status fetched directly from the RPC
+Mainnet 7878 active and running
+Interactive examples across all doc pages
+Categories
+9
+Sections
+Topics
+38
+Articles
+Network
+Mainnet
+Live data
+Chain ID
+7878
+0x1ec6
+Getting Started
+Spin up a node, configure genesis, and join the live chain.
+Quick Start Script
+Environment Setup
+Genesis Config
+Validator Setup
+Network Config
+Wallet & Identity
+ZBX wallet, Pay-ID, address import, and balances.
+ZBX Wallet (Send / MetaMask)
+Import Address (Key / Mnemonic)
+Register Pay-ID
+Pay-ID Resolver
+Balance Lookup
+Smart Contracts
+ZVM contracts, sources, and transparent code review.
+Smart Contracts (ZVM)
+ZVM Explorer
+Chain Source Code
+What Changed
+DEX, Swap & Liquidity
+AMM pools, swaps, and token lifecycle tools.
+Swap (Buy / Sell)
+DEX / Swap Aggregator
+Pool / AMM
+Create Your Token
+Token Trade (AMM)
+Token Liquidity
+Bridge
+Cross-chain lock & send between Zebvix L1 and BSC/EVM.
+Cross-Chain Bridge
+Bridge — Lock & Send (Live)
+Mobile Wallet
+Flutter wallet, deep-linked dApp connect, and QR sign.
+Open Mobile Wallet (Web Build)
+Connect Mobile Wallet (QR)
+API & RPC
+REST + JSON-RPC endpoints, status, and downloads.
+RPC Playground
+Live Chain Status
+Block Explorer
+Downloads
+Security
+Hardening, multisig, and governance controls.
+Multisig Explorer
+Governance
+Chain Features & Hardening
+Tokenomics & Economy
+Supply, emission, and economic design tools.
+Tokenomics
+ZBX Tokenomics Design
+Economic Designer
+Staking Dashboard
+Can't find what you need?
+Use the sidebar — every page in the dashboard is also a doc. Live state (heights, balances, prices) is fetched directly from the VPS RPC, so what you see here is what's running on the chain.
+Zebvix
+Zebvix L1 — high-throughput, EVM-compatible Layer-1 with built-in DEX, bridge, and pay-id native primitives.
+
+Chain ID 7878
+Build v1.0.0
+Network
+Live Chain Status
+Block Explorer
+RPC Playground
+Production Chain
+Resources
+Documentation
+Downloads
+Mobile Wallet
+What Changed
+Operations
+Customization
+Launch Checklist
+Security & Features
+© 2026 Zebvix Technologies Pvt Ltd. All rights reserved.

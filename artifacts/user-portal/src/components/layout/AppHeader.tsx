@@ -10,8 +10,13 @@ export function AppHeader() {
     <header className="border-b border-border bg-card">
       <div className="container mx-auto px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link href="/" className="font-bold text-xl text-primary">
-            CryptoX
+          <Link href="/" className="flex items-center gap-2 font-bold text-xl">
+            <span className="h-7 w-7 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 text-black font-extrabold text-sm flex items-center justify-center shadow-md">
+              Z
+            </span>
+            <span className="tracking-tight">
+              Zebvix<span className="text-primary">.</span>
+            </span>
           </Link>
           <nav className="hidden md:flex items-center gap-4 text-sm">
             <Link href="/markets" className={location === "/markets" ? "text-primary" : "text-muted-foreground hover:text-foreground"}>Markets</Link>

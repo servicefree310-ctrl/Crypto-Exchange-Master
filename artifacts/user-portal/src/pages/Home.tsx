@@ -17,14 +17,42 @@ import {
   ChevronRight,
   Globe2,
   Activity,
+  Boxes,
+  Link2,
+  Code2,
+  ArrowLeftRight,
+  Smartphone,
+  CircleDollarSign,
+  Cpu,
+  Layers,
+  Network,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 import { useTickers, encodeSymbol, type NormalizedTicker } from "@/lib/marketSocket";
 import { useAuth } from "@/lib/auth";
 import { get } from "@/lib/api";
+
+// ──────────────────────────────────────────────────────────────────
+// Constants — real Zebvix L1 chain identity
+// ──────────────────────────────────────────────────────────────────
+const ZBX_CHAIN = {
+  name: "Zebvix L1",
+  id: 7878,
+  hexId: "0x1ec6",
+  symbol: "ZBX",
+  tokenStandard: "ZBX-20",
+};
 
 // ──────────────────────────────────────────────────────────────────
 // Helpers
@@ -115,7 +143,6 @@ function Sparkline({ symbol, positive }: { symbol: string; positive: boolean }) 
 function AssetIcon({ symbol }: { symbol: string }) {
   const b = baseAsset(symbol);
   const c = b.slice(0, 1);
-  // Stable color per asset
   const palette = [
     "from-amber-500 to-orange-600",
     "from-sky-500 to-blue-600",
@@ -143,7 +170,6 @@ function AssetIcon({ symbol }: { symbol: string }) {
 // ──────────────────────────────────────────────────────────────────
 function TickerTape({ tickers }: { tickers: NormalizedTicker[] }) {
   if (tickers.length === 0) return null;
-  // duplicate for seamless scroll
   const items = [...tickers, ...tickers];
   return (
     <div className="w-full overflow-hidden border-y border-border bg-card/50 backdrop-blur">
@@ -268,7 +294,6 @@ export default function Home() {
   const { user } = useAuth();
   const all = useMemo(() => Object.values(tickersMap).filter((t) => t.lastPrice > 0), [tickersMap]);
 
-  // KPIs derived from live tickers
   const stats = useMemo(() => {
     const totalVol = all.reduce((s, t) => s + (t.quoteVolume || 0), 0);
     const gainers = all.filter((t) => t.priceChangePercent > 0).length;
@@ -276,13 +301,11 @@ export default function Home() {
     return { totalVol, gainers, markets };
   }, [all]);
 
-  // Top 10 by volume for ticker tape
   const tape = useMemo(
     () => [...all].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 12),
     [all]
   );
 
-  // Tab data sets
   const hot = useMemo(
     () =>
       [...all]
@@ -296,12 +319,10 @@ export default function Home() {
 
   return (
     <div className="flex flex-col w-full">
-      {/* Live ticker tape */}
       <TickerTape tickers={tape} />
 
       {/* ─── HERO ─────────────────────────────────────────────── */}
       <section className="relative w-full overflow-hidden">
-        {/* Background gradient + grid */}
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-amber-950/20" />
         <div
           className="absolute inset-0 opacity-[0.07]"
@@ -316,20 +337,25 @@ export default function Home() {
 
         <div className="relative container mx-auto px-4 py-16 lg:py-24 grid lg:grid-cols-2 gap-10 items-center">
           <div className="space-y-6">
-            <Badge variant="outline" className="border-primary/40 text-primary px-3 py-1">
-              <Sparkles className="h-3 w-3 mr-1.5" />
-              India's most advanced crypto terminal
-            </Badge>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-success/30 bg-success/5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              </span>
+              <span className="text-xs font-medium text-success">Live on Zebvix L1 · Chain {ZBX_CHAIN.id}</span>
+            </div>
+
             <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
-              Trade smarter on{" "}
+              The exchange built on{" "}
               <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-500 bg-clip-text text-transparent">
-                CryptoX
+                its own L1
               </span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-xl">
-              Spot &amp; perpetual futures with deep liquidity, sub-second matching, INR rails and a pro-grade desktop terminal —
-              all in one place.
+              Trade spot &amp; perpetual futures, mint and trade <span className="text-foreground font-semibold">ZBX-20</span> tokens, and
+              bridge across chains — all powered by the high-throughput, EVM-compatible Zebvix L1.
             </p>
+
             <div className="flex flex-wrap gap-3">
               {!user ? (
                 <>
@@ -356,7 +382,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* Trust strip */}
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <Shield className="h-3.5 w-3.5 text-success" /> 95% cold storage
@@ -392,12 +417,10 @@ export default function Home() {
             </Card>
             <Card className="p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-colors">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-                <TrendingUp className="h-3.5 w-3.5" /> Gainers
+                <CircleDollarSign className="h-3.5 w-3.5" /> Native token
               </div>
-              <div className="text-3xl font-bold mt-2 text-success">
-                <AnimatedNumber value={stats.gainers} />
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">In the last 24h</div>
+              <div className="text-3xl font-bold mt-2 text-primary">{ZBX_CHAIN.symbol}</div>
+              <div className="text-xs text-muted-foreground mt-1">Gas &amp; staking on L1</div>
             </Card>
             <Card className="p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-colors">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
@@ -451,7 +474,6 @@ export default function Home() {
             ].map(({ key, data }) => (
               <TabsContent key={key} value={key} className="mt-4">
                 <Card className="overflow-hidden border-border/60">
-                  {/* Header */}
                   <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40 border-b border-border">
                     <div className="col-span-3">Pair</div>
                     <div className="col-span-2 text-right">Price</div>
@@ -472,18 +494,26 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─── PRODUCTS ─────────────────────────────────────────── */}
+      {/* ─── ZEBVIX L1 CHAIN ─────────────────────────────────── */}
+      <ZebvixChainSection />
+
+      {/* ─── ECOSYSTEM ─────────────────────────────────────────── */}
       <section className="w-full py-16 bg-card/30 border-y border-border">
         <div className="container mx-auto px-4">
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold tracking-tight">Trade your way</h2>
-            <p className="text-muted-foreground text-sm mt-2">From simple swaps to leveraged perpetuals — built for every kind of trader.</p>
+            <Badge variant="outline" className="border-primary/40 text-primary mb-3">
+              Ecosystem
+            </Badge>
+            <h2 className="text-3xl font-bold tracking-tight">One brand. Six powerful products.</h2>
+            <p className="text-muted-foreground text-sm mt-2">
+              From CEX-grade trading to native L1 smart contracts — Zebvix gives you the full stack.
+            </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <ProductCard
               icon={<BarChart3 className="h-6 w-6" />}
               title="Spot trading"
-              desc="Buy and sell crypto on real-time order books with instant settlement and best-in-class fees."
+              desc="Real-time order books for major crypto pairs — INR &amp; USDT quoted."
               href="/trade"
               cta="Open spot terminal"
               accent="from-amber-500/20 to-orange-500/5"
@@ -491,19 +521,44 @@ export default function Home() {
             <ProductCard
               icon={<Zap className="h-6 w-6" />}
               title="Perpetual futures"
-              desc="Long or short top assets with up to 100× leverage, isolated or cross margin, and live PnL."
+              desc="Long or short with up to 100× leverage, isolated/cross margin, live PnL."
               href="/futures"
               cta="Open futures"
               accent="from-violet-500/20 to-fuchsia-500/5"
               badge="100×"
             />
             <ProductCard
-              icon={<WalletIcon className="h-6 w-6" />}
-              title="Wallet &amp; INR rails"
-              desc="Deposit and withdraw INR via UPI/NEFT, manage spot &amp; futures balances from one dashboard."
+              icon={<Code2 className="h-6 w-6" />}
+              title="ZBX-20 smart contracts"
+              desc="Deploy EVM-compatible contracts on Zebvix L1. Mint tokens, NFTs and dApps."
+              href="/markets"
+              cta="View tokens"
+              accent="from-sky-500/20 to-blue-500/5"
+              badge="EVM"
+            />
+            <ProductCard
+              icon={<ArrowLeftRight className="h-6 w-6" />}
+              title="Native DEX &amp; AMM"
+              desc="On-chain swaps and liquidity pools for every ZBX-20 token, native to L1."
+              href="/markets"
+              cta="Explore pools"
+              accent="from-emerald-500/20 to-teal-500/5"
+            />
+            <ProductCard
+              icon={<Link2 className="h-6 w-6" />}
+              title="Cross-chain bridge"
+              desc="Lock &amp; send between Zebvix L1 and BSC/EVM chains, with 24/7 attestation."
+              href="/markets"
+              cta="Open bridge"
+              accent="from-fuchsia-500/20 to-pink-500/5"
+            />
+            <ProductCard
+              icon={<Smartphone className="h-6 w-6" />}
+              title="Mobile wallet (Flutter)"
+              desc="Self-custody ZBX wallet with Pay-ID, dApp QR connect and biometric login."
               href={user ? "/wallet" : "/signup"}
               cta={user ? "Open wallet" : "Get started"}
-              accent="from-emerald-500/20 to-teal-500/5"
+              accent="from-indigo-500/20 to-violet-500/5"
             />
           </div>
         </div>
@@ -513,15 +568,73 @@ export default function Home() {
       <section className="w-full py-16">
         <div className="container mx-auto px-4">
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold tracking-tight">Why traders choose CryptoX</h2>
-            <p className="text-muted-foreground text-sm mt-2">A serious exchange, built for the Indian market.</p>
+            <h2 className="text-3xl font-bold tracking-tight">Why traders choose Zebvix</h2>
+            <p className="text-muted-foreground text-sm mt-2">A serious exchange, on a serious chain — built for the Indian market.</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Feature icon={<Shield className="h-5 w-5" />} title="Bank-grade security" desc="2FA, KYC, withdrawal allow-lists and 95% of assets in cold storage." />
-            <Feature icon={<Zap className="h-5 w-5" />} title="Lightning matching" desc="In-house Go matching engine clears trades in under 5ms." />
+            <Feature icon={<Cpu className="h-5 w-5" />} title="In-house L1 + matcher" desc="Zebvix L1 + Go matching engine clears trades in under 5ms." />
             <Feature icon={<Banknote className="h-5 w-5" />} title="INR friendly" desc="Direct INR deposits, withdrawals and pricing — no double conversion fees." />
             <Feature icon={<Headphones className="h-5 w-5" />} title="24/7 support" desc="Real humans, real fast — every day of the year." />
           </div>
+        </div>
+      </section>
+
+      {/* ─── MOBILE CALLOUT ─────────────────────────────── */}
+      <MobileCalloutSection />
+
+      {/* ─── FAQ ─────────────────────────────────────────── */}
+      <section className="w-full py-16 bg-background">
+        <div className="container mx-auto px-4 max-w-3xl">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold tracking-tight">Frequently asked</h2>
+            <p className="text-muted-foreground text-sm mt-2">Everything you wanted to know about Zebvix Exchange &amp; Zebvix L1.</p>
+          </div>
+          <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="q1" className="border-border">
+              <AccordionTrigger className="text-left">What is Zebvix L1?</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">
+                Zebvix L1 is our own high-throughput, EVM-compatible Layer-1 blockchain (chain ID {ZBX_CHAIN.id}). It comes
+                with built-in DEX, bridge and Pay-ID primitives, and powers the Zebvix Exchange end-to-end. ZBX is the
+                native gas &amp; staking token.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="q2" className="border-border">
+              <AccordionTrigger className="text-left">What is a ZBX-20 token?</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">
+                ZBX-20 is the standard for fungible tokens on Zebvix L1 — fully EVM-compatible, similar to ERC-20 / BEP-20.
+                You can mint your own ZBX-20 token, list it on the native AMM, and bridge it to other chains.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="q3" className="border-border">
+              <AccordionTrigger className="text-left">How do I deposit INR?</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">
+                After completing KYC, head to <span className="text-primary">Wallet → Deposit</span> and choose UPI or
+                NEFT/IMPS. Most deposits are credited within minutes, 24/7.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="q4" className="border-border">
+              <AccordionTrigger className="text-left">Is futures trading available in India?</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">
+                Yes — Zebvix offers USDT-margined perpetual futures with up to 100× leverage. You can switch between
+                isolated and cross margin per pair.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="q5" className="border-border">
+              <AccordionTrigger className="text-left">Can I bridge tokens to BSC / Ethereum?</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">
+                Yes. The native cross-chain bridge supports lock-and-mint between Zebvix L1 and EVM chains like BSC, with
+                24/7 attestation and on-chain proofs.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="q6" className="border-border">
+              <AccordionTrigger className="text-left">What are the trading fees?</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">
+                Spot fees start at 0.10% maker / 0.10% taker and drop with VIP volume tiers. Futures fees start at 0.02% /
+                0.05%. See the <Link href="/fees" className="text-primary hover:underline">full fee schedule</Link>.
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
       </section>
 
@@ -529,9 +642,11 @@ export default function Home() {
       <section className="w-full py-16 bg-gradient-to-r from-amber-950/30 via-background to-orange-950/30 border-y border-border">
         <div className="container mx-auto px-4 text-center max-w-2xl">
           <h2 className="text-3xl lg:text-4xl font-bold tracking-tight">
-            Ready to take your trading <span className="text-primary">to the next level?</span>
+            Ready to trade on a <span className="text-primary">real Layer-1?</span>
           </h2>
-          <p className="text-muted-foreground mt-3">Sign up in under 60 seconds and get started with as little as ₹100.</p>
+          <p className="text-muted-foreground mt-3">
+            Sign up in under 60 seconds and get started with as little as ₹100 — KYC, INR rails &amp; ZBX wallet included.
+          </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             {!user ? (
               <>
@@ -555,6 +670,273 @@ export default function Home() {
         </div>
       </section>
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Zebvix L1 chain section
+// ──────────────────────────────────────────────────────────────────
+function ZebvixChainSection() {
+  const [copied, setCopied] = useState<"id" | "hex" | null>(null);
+  const copy = (key: "id" | "hex", value: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(value).catch(() => {});
+    }
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1400);
+  };
+
+  return (
+    <section className="relative w-full py-16 overflow-hidden">
+      {/* violet/fuchsia accent for chain identity */}
+      <div className="absolute inset-0 bg-gradient-to-br from-violet-950/30 via-background to-fuchsia-950/20 pointer-events-none" />
+      <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-72 w-[40rem] rounded-full bg-violet-500/10 blur-3xl pointer-events-none" />
+
+      <div className="relative container mx-auto px-4 grid lg:grid-cols-2 gap-10 items-center">
+        {/* Left: Story */}
+        <div className="space-y-5">
+          <Badge variant="outline" className="border-violet-400/40 text-violet-300 bg-violet-500/10">
+            <Layers className="h-3 w-3 mr-1.5" />
+            Powered by Zebvix L1
+          </Badge>
+          <h2 className="text-3xl lg:text-4xl font-bold tracking-tight leading-tight">
+            Not just an exchange.{" "}
+            <span className="bg-gradient-to-r from-violet-300 to-fuchsia-400 bg-clip-text text-transparent">
+              An entire chain.
+            </span>
+          </h2>
+          <p className="text-muted-foreground leading-relaxed">
+            Zebvix L1 is our high-throughput, EVM-compatible Layer-1 blockchain. It comes with native DEX, cross-chain
+            bridge and Pay-ID primitives — so the exchange, your wallet and every dApp on the chain speak the same
+            language.
+          </p>
+
+          {/* Capability bullets */}
+          <ul className="space-y-2.5">
+            <Bullet>
+              <strong className="text-foreground">EVM-compatible ZVM</strong> — deploy any Solidity contract as ZBX-20.
+            </Bullet>
+            <Bullet>
+              <strong className="text-foreground">Native DEX &amp; AMM</strong> — on-chain liquidity for every token launched on L1.
+            </Bullet>
+            <Bullet>
+              <strong className="text-foreground">Cross-chain bridge</strong> — lock &amp; send between Zebvix L1 and BSC / EVM.
+            </Bullet>
+            <Bullet>
+              <strong className="text-foreground">Pay-ID identity</strong> — human-readable addresses out of the box.
+            </Bullet>
+          </ul>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Button size="lg" className="bg-violet-600 hover:bg-violet-700 text-white" asChild>
+              <a href="#" target="_blank" rel="noreferrer noopener">
+                Open block explorer <ArrowRight className="ml-2 h-4 w-4" />
+              </a>
+            </Button>
+            <Button size="lg" variant="outline" asChild>
+              <a href="#" target="_blank" rel="noreferrer noopener">
+                Read developer docs
+              </a>
+            </Button>
+          </div>
+        </div>
+
+        {/* Right: Chain identity card */}
+        <Card className="relative overflow-hidden p-6 border-violet-400/20 bg-gradient-to-br from-violet-950/40 to-card/80 backdrop-blur">
+          <div className="absolute -top-20 -right-20 h-48 w-48 rounded-full bg-violet-500/20 blur-3xl pointer-events-none" />
+          <div className="relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-white font-extrabold shadow-lg">
+                  Z
+                </div>
+                <div>
+                  <div className="font-bold text-lg">{ZBX_CHAIN.name}</div>
+                  <div className="text-xs text-muted-foreground">Mainnet · production</div>
+                </div>
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-success/40 bg-success/10 text-xs text-success font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                LIVE
+              </span>
+            </div>
+
+            {/* Stats grid */}
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <ChainStat
+                label="Chain ID"
+                value={String(ZBX_CHAIN.id)}
+                action={
+                  <button
+                    onClick={() => copy("id", String(ZBX_CHAIN.id))}
+                    className="text-muted-foreground hover:text-primary"
+                    aria-label="Copy chain ID"
+                  >
+                    {copied === "id" ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                }
+              />
+              <ChainStat
+                label="Hex"
+                value={ZBX_CHAIN.hexId}
+                action={
+                  <button
+                    onClick={() => copy("hex", ZBX_CHAIN.hexId)}
+                    className="text-muted-foreground hover:text-primary"
+                    aria-label="Copy hex chain ID"
+                  >
+                    {copied === "hex" ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                }
+              />
+              <ChainStat label="Native token" value={ZBX_CHAIN.symbol} icon={<CircleDollarSign className="h-3.5 w-3.5" />} />
+              <ChainStat label="Token standard" value={ZBX_CHAIN.tokenStandard} icon={<Boxes className="h-3.5 w-3.5" />} />
+              <ChainStat label="Virtual machine" value="ZVM (EVM-compat)" icon={<Cpu className="h-3.5 w-3.5" />} />
+              <ChainStat label="Network" value="Mainnet" icon={<Network className="h-3.5 w-3.5" />} />
+            </div>
+
+            <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+              <span>Add to MetaMask &amp; EVM wallets</span>
+              <Link href="/markets" className="text-primary hover:underline inline-flex items-center gap-1">
+                ZBX-20 tokens <ChevronRight className="h-3 w-3" />
+              </Link>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function Bullet({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-3 text-sm text-muted-foreground">
+      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0" />
+      <span>{children}</span>
+    </li>
+  );
+}
+
+function ChainStat({
+  label,
+  value,
+  icon,
+  action,
+}: {
+  label: string;
+  value: string;
+  icon?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+          {icon}
+          {label}
+        </span>
+        {action}
+      </div>
+      <div className="font-mono text-sm font-semibold mt-1.5 truncate">{value}</div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Mobile callout
+// ──────────────────────────────────────────────────────────────────
+function MobileCalloutSection() {
+  return (
+    <section className="w-full py-14 bg-card/40 border-y border-border">
+      <div className="container mx-auto px-4 grid lg:grid-cols-2 gap-10 items-center">
+        <div className="space-y-4">
+          <Badge variant="outline" className="border-primary/40 text-primary">
+            <Smartphone className="h-3 w-3 mr-1.5" />
+            Mobile wallet
+          </Badge>
+          <h2 className="text-3xl font-bold tracking-tight leading-tight">
+            Your chain, in your pocket.
+          </h2>
+          <p className="text-muted-foreground leading-relaxed max-w-lg">
+            The Zebvix mobile wallet (built with Flutter) gives you self-custody of your ZBX, ZBX-20 tokens and Pay-ID
+            identity. Connect to dApps via QR, sign transactions with biometrics, and trade on the go.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90" asChild>
+              <a href="/wallet/" target="_blank" rel="noreferrer noopener">
+                Open mobile wallet (web build) <ArrowRight className="ml-2 h-4 w-4" />
+              </a>
+            </Button>
+            <Button size="lg" variant="outline" asChild>
+              <Link href="/profile">Connect via QR</Link>
+            </Button>
+          </div>
+          <div className="flex items-center gap-4 pt-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5"><Shield className="h-3.5 w-3.5 text-success" /> Self-custody</span>
+            <span className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 text-success" /> Biometric sign</span>
+            <span className="flex items-center gap-1.5"><Network className="h-3.5 w-3.5 text-success" /> dApp QR connect</span>
+          </div>
+        </div>
+
+        {/* Phone mockup */}
+        <div className="flex justify-center lg:justify-end">
+          <div className="relative">
+            <div className="absolute -inset-6 bg-gradient-to-br from-amber-500/20 to-orange-500/10 rounded-[3rem] blur-2xl" />
+            <div className="relative w-72 h-[34rem] rounded-[2.5rem] border border-border bg-gradient-to-b from-card to-background shadow-2xl overflow-hidden">
+              {/* notch */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-background rounded-b-2xl border-b border-x border-border" />
+              <div className="p-5 pt-10 h-full flex flex-col">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>9:41</span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                    Live
+                  </span>
+                </div>
+                <div className="mt-6 text-center">
+                  <div className="text-xs text-muted-foreground">Total balance</div>
+                  <div className="text-3xl font-extrabold mt-1">9.988059 <span className="text-primary">ZBX</span></div>
+                  <div className="text-xs text-muted-foreground mt-1 font-mono truncate">0x5cd8…8a1a</div>
+                </div>
+                <div className="mt-6 grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Send", icon: <ArrowRight className="h-4 w-4 rotate-[-45deg]" /> },
+                    { label: "Receive", icon: <ArrowRight className="h-4 w-4 rotate-[135deg]" /> },
+                    { label: "Swap", icon: <ArrowLeftRight className="h-4 w-4" /> },
+                  ].map((b) => (
+                    <div key={b.label} className="rounded-xl border border-border bg-card/60 p-3 flex flex-col items-center gap-1">
+                      <div className="h-8 w-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center">{b.icon}</div>
+                      <span className="text-[11px] text-muted-foreground">{b.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-2">
+                  {[
+                    { sym: "ZBX", name: "Zebvix", bal: "9.9881", change: "+2.4%", pos: true },
+                    { sym: "USDT", name: "Tether USD", bal: "1,420.00", change: "+0.0%", pos: true },
+                    { sym: "BTC", name: "Bitcoin", bal: "0.0142", change: "+0.5%", pos: true },
+                  ].map((a) => (
+                    <div key={a.sym} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 p-2.5">
+                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white text-xs font-bold flex items-center justify-center">
+                        {a.sym[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-bold">{a.sym}</div>
+                        <div className="text-[10px] text-muted-foreground">{a.name}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-mono">{a.bal}</div>
+                        <div className={`text-[10px] ${a.pos ? "text-success" : "text-destructive"}`}>{a.change}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

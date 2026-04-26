@@ -30,7 +30,7 @@ const COLUMNS: { title: string; links: LinkItem[] }[] = [
   {
     title: "Company",
     links: [
-      { label: "About CryptoX", href: "/about" },
+      { label: "About Zebvix", href: "/about" },
       { label: "Careers", href: "/careers" },
       { label: "Blog", href: "/blog" },
       { label: "Press", href: "/press" },
@@ -105,15 +105,16 @@ export function AppFooter() {
         <div className="md:col-span-4 lg:col-span-4 space-y-4">
           <Link href="/" className="inline-flex items-center gap-2">
             <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 text-black font-extrabold text-lg flex items-center justify-center shadow-lg">
-              X
+              Z
             </span>
             <span className="text-xl font-extrabold tracking-tight">
-              Crypto<span className="text-primary">X</span>
+              Zebvix<span className="text-primary">.</span>
             </span>
           </Link>
           <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-            India's pro-grade crypto exchange. Spot &amp; perpetual futures, deep liquidity, INR rails
-            and bank-grade security — all in one place.
+            India's pro-grade crypto exchange — built on its own L1 chain. Spot &amp; perpetual futures,
+            ZBX-20 smart contracts, native DEX &amp; bridge, all powered by Zebvix L1
+            <span className="text-foreground/80"> (chain 7878)</span>.
           </p>
 
           {/* Trust badges */}
@@ -171,14 +172,14 @@ export function AppFooter() {
           high market risk and price volatility. The value of your investment can go down as well as up,
           and you may not get back the amount you invested. Trading derivatives such as perpetual futures
           carries additional risk and can result in the loss of all of your collateral. You are solely
-          responsible for your trading decisions and CryptoX is not liable for any losses you may incur.
+          responsible for your trading decisions and Zebvix is not liable for any losses you may incur.
         </div>
       </div>
 
       {/* ── Bottom strip ──────────────────────────────────────── */}
       <div className="border-t border-border bg-background/60">
         <div className="container mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
-          <div>© {new Date().getFullYear()} CryptoX Exchange. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} Zebvix Technologies Pvt Ltd. All rights reserved.</div>
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
