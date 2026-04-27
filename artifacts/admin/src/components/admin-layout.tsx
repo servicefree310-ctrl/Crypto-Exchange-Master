@@ -1,117 +1,361 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard, Users, Coins as CoinsIcon, Network, ArrowLeftRight, Wallet, ShieldCheck,
-  Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark, PiggyBank,
-  FileText, Settings as SettingsIcon, Activity, MessageSquare, KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Megaphone, Trophy, Database, Server
+  LayoutDashboard, Users, Coins as CoinsIcon, Network, ArrowLeftRight, Wallet,
+  ShieldCheck, Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark,
+  PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
+  KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp,
+  Megaphone, Trophy, Database, Server, Search, Command as CommandIcon,
+  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useState } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import zebvixMark from "@/assets/zebvix-mark.png";
 
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["support", "admin", "superadmin"] },
-  { href: "/users", label: "Users", icon: Users, roles: ["support", "admin", "superadmin"] },
-  { href: "/kyc", label: "KYC Reviews", icon: ShieldCheck, roles: ["support", "admin", "superadmin"] },
-  { href: "/banks", label: "Bank Approvals", icon: Landmark, roles: ["support", "admin", "superadmin"] },
-  { href: "/coins", label: "Coins", icon: CoinsIcon, roles: ["support", "admin", "superadmin"] },
-  { href: "/networks", label: "Networks", icon: Network, roles: ["support", "admin", "superadmin"] },
-  { href: "/pairs", label: "Trading Pairs", icon: ArrowLeftRight, roles: ["support", "admin", "superadmin"] },
-  { href: "/funding-rates", label: "Funding & Risk", icon: Percent, roles: ["support", "admin", "superadmin"] },
-  { href: "/futures-positions", label: "Futures Positions", icon: TrendingUp, roles: ["support", "admin", "superadmin"] },
-  { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
-  { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
-  { href: "/api-keys", label: "API Keys", icon: KeyRound, roles: ["admin", "superadmin"] },
-  { href: "/gateways", label: "Payment Gateways", icon: Wallet, roles: ["support", "admin", "superadmin"] },
-  { href: "/inr-deposits", label: "INR Deposits", icon: ArrowDownToLine, roles: ["support", "admin", "superadmin"] },
-  { href: "/inr-withdrawals", label: "INR Withdrawals", icon: ArrowUpFromLine, roles: ["support", "admin", "superadmin"] },
-  { href: "/crypto-deposits", label: "Crypto Deposits", icon: Bitcoin, roles: ["support", "admin", "superadmin"] },
-  { href: "/user-addresses", label: "User Addresses", icon: Wallet2, roles: ["support", "admin", "superadmin"] },
-  { href: "/crypto-withdrawals", label: "Crypto Withdrawals", icon: Banknote, roles: ["support", "admin", "superadmin"] },
-  { href: "/earn", label: "Earn Products", icon: PiggyBank, roles: ["support", "admin", "superadmin"] },
-  { href: "/banners", label: "Home Banners", icon: Megaphone, roles: ["admin", "superadmin"] },
-  { href: "/promotions", label: "Promotions", icon: Trophy, roles: ["admin", "superadmin"] },
-  { href: "/redis", label: "Redis Cache", icon: Database, roles: ["admin", "superadmin"] },
-  { href: "/legal", label: "Legal CMS", icon: FileText, roles: ["support", "admin", "superadmin"] },
-  { href: "/chat", label: "Live Chat", icon: MessageSquare, roles: ["support", "admin", "superadmin"] },
-  { href: "/login-logs", label: "Login Logs", icon: Activity, roles: ["support", "admin", "superadmin"] },
-  { href: "/otp-providers", label: "OTP Providers", icon: KeyRound, roles: ["admin", "superadmin"] },
-  { href: "/settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "superadmin"] },
-  { href: "/backend-status", label: "Backend Status", icon: Server, roles: ["support", "admin", "superadmin"] },
+type Role = "support" | "admin" | "superadmin";
+type NavItem = { href: string; label: string; icon: LucideIcon; roles: Role[] };
+type NavSection = { id: string; label: string; items: NavItem[] };
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["support", "admin", "superadmin"] },
+    ],
+  },
+  {
+    id: "users",
+    label: "Users & Compliance",
+    items: [
+      { href: "/users", label: "Users", icon: Users, roles: ["support", "admin", "superadmin"] },
+      { href: "/kyc", label: "KYC Reviews", icon: ShieldCheck, roles: ["support", "admin", "superadmin"] },
+      { href: "/banks", label: "Bank Approvals", icon: Landmark, roles: ["support", "admin", "superadmin"] },
+      { href: "/login-logs", label: "Login Logs", icon: Activity, roles: ["support", "admin", "superadmin"] },
+    ],
+  },
+  {
+    id: "markets",
+    label: "Markets & Trading",
+    items: [
+      { href: "/coins", label: "Coins", icon: CoinsIcon, roles: ["support", "admin", "superadmin"] },
+      { href: "/networks", label: "Networks", icon: Network, roles: ["support", "admin", "superadmin"] },
+      { href: "/pairs", label: "Trading Pairs", icon: ArrowLeftRight, roles: ["support", "admin", "superadmin"] },
+      { href: "/funding-rates", label: "Funding & Risk", icon: Percent, roles: ["support", "admin", "superadmin"] },
+      { href: "/futures-positions", label: "Futures Positions", icon: TrendingUp, roles: ["support", "admin", "superadmin"] },
+      { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
+      { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
+    ],
+  },
+  {
+    id: "treasury",
+    label: "Treasury",
+    items: [
+      { href: "/gateways", label: "Payment Gateways", icon: Wallet, roles: ["support", "admin", "superadmin"] },
+      { href: "/inr-deposits", label: "INR Deposits", icon: ArrowDownToLine, roles: ["support", "admin", "superadmin"] },
+      { href: "/inr-withdrawals", label: "INR Withdrawals", icon: ArrowUpFromLine, roles: ["support", "admin", "superadmin"] },
+      { href: "/crypto-deposits", label: "Crypto Deposits", icon: Bitcoin, roles: ["support", "admin", "superadmin"] },
+      { href: "/user-addresses", label: "User Addresses", icon: Wallet2, roles: ["support", "admin", "superadmin"] },
+      { href: "/crypto-withdrawals", label: "Crypto Withdrawals", icon: Banknote, roles: ["support", "admin", "superadmin"] },
+    ],
+  },
+  {
+    id: "growth",
+    label: "Earn & CMS",
+    items: [
+      { href: "/earn", label: "Earn Products", icon: PiggyBank, roles: ["support", "admin", "superadmin"] },
+      { href: "/banners", label: "Home Banners", icon: Megaphone, roles: ["admin", "superadmin"] },
+      { href: "/promotions", label: "Promotions", icon: Trophy, roles: ["admin", "superadmin"] },
+      { href: "/legal", label: "Legal CMS", icon: FileText, roles: ["support", "admin", "superadmin"] },
+      { href: "/chat", label: "Live Chat", icon: MessageSquare, roles: ["support", "admin", "superadmin"] },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    items: [
+      { href: "/api-keys", label: "API Keys", icon: KeyRound, roles: ["admin", "superadmin"] },
+      { href: "/redis", label: "Redis & Engines", icon: Database, roles: ["admin", "superadmin"] },
+      { href: "/otp-providers", label: "OTP Providers", icon: KeyRound, roles: ["admin", "superadmin"] },
+      { href: "/settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "superadmin"] },
+      { href: "/backend-status", label: "Backend Status", icon: Server, roles: ["support", "admin", "superadmin"] },
+    ],
+  },
 ];
 
 export function AdminLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
-  const items = NAV.filter((n) => !user || n.roles.includes(user.role));
+  const role = (user?.role as Role) || "support";
+
+  const sections = useMemo(
+    () =>
+      NAV_SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter((it) => it.roles.includes(role)),
+      })).filter((s) => s.items.length > 0),
+    [role]
+  );
+
+  const allItems = useMemo(() => sections.flatMap((s) => s.items), [sections]);
+  const current = useMemo(
+    () =>
+      allItems.find((it) => it.href === location) ??
+      (location === "/" ? allItems.find((it) => it.href === "/dashboard") : undefined),
+    [allItems, location]
+  );
+  const currentSection = useMemo(
+    () => sections.find((s) => s.items.some((it) => it.href === location)),
+    [sections, location]
+  );
+
+  // Cmd+K / Ctrl+K command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const initials = (user?.name || user?.email || "?").slice(0, 2).toUpperCase();
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
-      <aside className={cn(
-        "fixed lg:static inset-y-0 left-0 z-40 w-64 bg-sidebar border-r border-sidebar-border flex flex-col transition-transform",
-        open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-        <div className="px-5 py-4 border-b border-sidebar-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">X</span>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      <aside
+        className={cn(
+          "fixed lg:static inset-y-0 left-0 z-40 w-[260px] flex flex-col transition-transform border-r border-sidebar-border",
+          "bg-[hsl(222_22%_5%)]",
+          open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}
+      >
+        {/* Brand */}
+        <Link href="/dashboard" onClick={() => setOpen(false)}>
+          <a className="flex items-center gap-2.5 px-5 py-4 border-b border-sidebar-border hover-elevate group">
+            <div className="relative w-9 h-9 rounded-lg overflow-hidden gold-glow shrink-0">
+              <img src={zebvixMark} alt="Zebvix" className="absolute inset-0 w-full h-full object-cover" />
             </div>
-            <div>
-              <div className="font-bold text-sidebar-foreground leading-tight">CryptoX</div>
-              <div className="text-xs text-muted-foreground leading-tight">Admin Panel</div>
+            <div className="min-w-0">
+              <div className="font-bold text-base leading-tight gold-text tracking-wide">ZEBVIX</div>
+              <div className="text-[10px] text-muted-foreground leading-tight uppercase tracking-[0.18em]">
+                Admin Console
+              </div>
             </div>
-          </div>
+          </a>
+        </Link>
+
+        {/* Search trigger */}
+        <div className="px-3 pt-3">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md border border-sidebar-border bg-[hsl(222_18%_8%)] text-left text-xs text-muted-foreground hover-elevate"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span className="flex-1">Search…</span>
+            <kbd className="hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-muted/40 border border-border text-[10px] font-mono">
+              <CommandIcon className="w-2.5 h-2.5" /> K
+            </kbd>
+          </button>
         </div>
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-          {items.map((it) => {
-            const active = location === it.href;
-            const Icon = it.icon;
-            return (
-              <Link key={it.href} href={it.href} onClick={() => setOpen(false)}>
-                <a className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm hover-elevate transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground"
-                )}>
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{it.label}</span>
-                </a>
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="px-3 py-3 border-t border-sidebar-border">
-          <div className="flex items-center gap-2 mb-2">
-            <Avatar className="w-8 h-8">
-              <AvatarFallback>{(user?.name || user?.email || "?").slice(0,2).toUpperCase()}</AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate text-sidebar-foreground">{user?.name || user?.email}</div>
-              <div className="text-xs text-muted-foreground capitalize">{user?.role}</div>
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-2 px-2 scroll-fade">
+          {sections.map((section) => (
+            <div key={section.id}>
+              <div className="nav-section-label">{section.label}</div>
+              <div className="space-y-0.5">
+                {section.items.map((it) => {
+                  const active = location === it.href || (location === "/" && it.href === "/dashboard");
+                  const Icon = it.icon;
+                  return (
+                    <Link key={it.href} href={it.href} onClick={() => setOpen(false)}>
+                      <a
+                        className={cn(
+                          "relative flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] hover-elevate transition-colors",
+                          active
+                            ? "bg-[hsla(45,100%,51%,0.08)] text-amber-200 font-medium"
+                            : "text-sidebar-foreground/85"
+                        )}
+                      >
+                        {active && <span className="nav-active-bar" />}
+                        <Icon
+                          className={cn(
+                            "w-4 h-4 shrink-0",
+                            active ? "text-amber-300" : "text-muted-foreground"
+                          )}
+                        />
+                        <span className="truncate">{it.label}</span>
+                      </a>
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={logout}>
-            <LogOut className="w-4 h-4 mr-2" /> Logout
-          </Button>
+          ))}
+        </nav>
+
+        {/* User block */}
+        <div className="px-3 py-3 border-t border-sidebar-border">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md hover-elevate">
+                <Avatar className="w-8 h-8 border border-amber-500/30">
+                  <AvatarFallback className="gold-bg-soft text-amber-300 text-xs font-semibold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="text-[13px] font-medium truncate text-sidebar-foreground">
+                    {user?.name || user?.email}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground capitalize tracking-wide">
+                    {user?.role}
+                  </div>
+                </div>
+                <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                Signed in as <span className="text-foreground font-medium">{user?.email}</span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {(role === "admin" || role === "superadmin") && (
+                <DropdownMenuItem onClick={() => navigate("/settings")}>
+                  <SettingsIcon className="w-4 h-4 mr-2" /> Settings
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => navigate("/backend-status")}>
+                <Server className="w-4 h-4 mr-2" /> System Status
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={logout} className="text-red-300 focus:text-red-300">
+                <LogOut className="w-4 h-4 mr-2" /> Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b border-border flex items-center px-4 lg:px-6 gap-3 bg-card">
+        {/* Header */}
+        <header className="h-14 border-b border-border flex items-center px-4 lg:px-6 gap-3 bg-[hsl(222_18%_9%)] sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-[hsl(222_18%_9%)]/85">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(!open)}>
             <Menu className="w-5 h-5" />
           </Button>
-          <h1 className="text-base font-semibold">{items.find((i) => i.href === location)?.label || "Admin"}</h1>
+
+          {/* Breadcrumbs */}
+          <div className="flex items-center gap-1.5 text-sm min-w-0">
+            <Link href="/dashboard">
+              <a className="text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
+                Console
+              </a>
+            </Link>
+            {currentSection && (
+              <>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground hidden sm:inline" />
+                <span className="text-muted-foreground hidden md:inline">{currentSection.label}</span>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground hidden md:inline" />
+              </>
+            )}
+            <span className="font-semibold text-foreground truncate">
+              {current?.label || "Admin"}
+            </span>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Header actions */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPaletteOpen(true)}
+            className="hidden md:inline-flex gap-2 text-muted-foreground"
+          >
+            <Search className="w-4 h-4" />
+            <span className="text-xs">Quick search</span>
+            <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-muted/40 border border-border text-[10px] font-mono">
+              ⌘K
+            </kbd>
+          </Button>
+          <Button variant="ghost" size="icon" title="Notifications">
+            <Bell className="w-4 h-4" />
+          </Button>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          {children}
-        </main>
+
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
       </div>
+
+      {/* Command palette */}
+      <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
+        <CommandInput placeholder="Jump to a page…" />
+        <CommandList>
+          <CommandEmpty>No results found.</CommandEmpty>
+          {sections.map((section) => (
+            <CommandGroup key={section.id} heading={section.label}>
+              {section.items.map((it) => {
+                const Icon = it.icon;
+                return (
+                  <CommandItem
+                    key={it.href}
+                    value={`${section.label} ${it.label}`}
+                    onSelect={() => {
+                      setPaletteOpen(false);
+                      navigate(it.href);
+                    }}
+                  >
+                    <Icon className="w-4 h-4 mr-2 text-muted-foreground" />
+                    {it.label}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          ))}
+          <CommandGroup heading="Account">
+            <CommandItem
+              onSelect={() => {
+                setPaletteOpen(false);
+                logout();
+              }}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
     </div>
   );
 }
