@@ -41,6 +41,7 @@ import { broadcastWithdrawal, getHotWalletBalance, isEvmChain, BroadcastError } 
 import { walletAddressesTable } from "@workspace/db";
 import { isVaultPasswordSet, setVaultPassword, verifyVaultPassword } from "../lib/admin-vault";
 import { isMnemonicConfigured, getMnemonicForReveal } from "../lib/hd-wallet";
+import { chatComplete, isOpenAIConfigured, OpenAIError } from "../lib/openai";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -527,6 +528,93 @@ router.patch("/admin/kyc/:id", adminOnly, async (req, res): Promise<void> => {
   }
   res.json(rec);
 });
+// AI-suggested rejection reasons for a KYC submission
+router.post("/admin/kyc/:id/suggest-reasons", supportPlus, async (req, res): Promise<void> => {
+  if (!isOpenAIConfigured()) {
+    res.status(503).json({ error: "AI is not configured on this server" });
+    return;
+  }
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [rec] = await db.select().from(kycRecordsTable).where(eq(kycRecordsTable.id, id)).limit(1);
+  if (!rec) { res.status(404).json({ error: "Not found" }); return; }
+
+  let extraObj: Record<string, unknown> = {};
+  try { const v = JSON.parse(rec.extra ?? "{}"); if (v && typeof v === "object") extraObj = v as Record<string, unknown>; } catch { /* ignore */ }
+
+  const aadhaarMasked = rec.aadhaarNumber ? "XXXX-XXXX-" + rec.aadhaarNumber.slice(-4) : null;
+  const panRedacted = rec.panNumber ? rec.panNumber.slice(0, 3) + "XX" + rec.panNumber.slice(-2) : null;
+  const docs = {
+    panDocProvided: !!rec.panDocUrl,
+    aadhaarDocProvided: !!rec.aadhaarDocUrl,
+    selfieProvided: !!rec.selfieUrl,
+  };
+
+  const userHint = typeof req.body?.note === "string" ? String(req.body.note).slice(0, 300) : "";
+
+  const submission = {
+    level: rec.level,
+    fullName: rec.fullName ?? null,
+    dob: rec.dob ?? null,
+    address: rec.address ? rec.address.slice(0, 200) : null,
+    panNumber: panRedacted,
+    aadhaarNumber: aadhaarMasked,
+    documents: docs,
+    extraFields: Object.keys(extraObj),
+    submittedAt: rec.createdAt,
+  };
+
+  const sys =
+    "You are a senior KYC compliance reviewer for an Indian crypto exchange (Zebvix). " +
+    "Generate concise, polite rejection reasons that a user can act on. " +
+    "Keep each reason between 6 and 18 words. No numbering, no quotes, no markdown. " +
+    "Avoid revealing internal policy. Reply with a JSON object: " +
+    `{"reasons": ["...", "...", "..."]}. Always return 4 to 5 distinct, plausible reasons ` +
+    "that fit the data shown. Mention specific missing or invalid items when applicable.";
+
+  const usr =
+    "Submission summary (PII masked):\n" +
+    JSON.stringify(submission, null, 2) +
+    (userHint ? `\n\nReviewer note (use as context): ${userHint}` : "");
+
+  try {
+    const raw = await chatComplete(
+      [
+        { role: "system", content: sys },
+        { role: "user", content: usr },
+      ],
+      { model: "gpt-5-mini", maxTokens: 4096, timeoutMs: 25_000 },
+    );
+    let reasons: string[] = [];
+    const tryParse = (s: string) => {
+      try {
+        const v = JSON.parse(s);
+        if (v && Array.isArray(v.reasons)) return v.reasons.filter((x: unknown) => typeof x === "string" && x.trim().length > 0).map((x: string) => x.trim());
+      } catch { /* ignore */ }
+      return null;
+    };
+    reasons = tryParse(raw) ?? [];
+    if (reasons.length === 0) {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) reasons = tryParse(m[0]) ?? [];
+    }
+    if (reasons.length === 0) {
+      reasons = raw.split(/\r?\n/).map((l) => l.replace(/^[-*•\d.)\s]+/, "").trim()).filter((l) => l.length > 4 && l.length < 200).slice(0, 5);
+    }
+    if (reasons.length === 0) {
+      res.status(502).json({ error: "AI returned no usable reasons" });
+      return;
+    }
+    res.json({ reasons: reasons.slice(0, 5) });
+  } catch (err: unknown) {
+    if (err instanceof OpenAIError) {
+      res.status(err.status >= 400 && err.status < 600 ? err.status : 502).json({ error: err.message });
+      return;
+    }
+    res.status(502).json({ error: err instanceof Error ? err.message : "AI request failed" });
+  }
+});
+
 router.get("/admin/kyc-settings", supportPlus, async (_req, res): Promise<void> => {
   // Auto-seed default templates the first time admin opens the page
   const existing = await db.select().from(kycSettingsTable).orderBy(kycSettingsTable.level);

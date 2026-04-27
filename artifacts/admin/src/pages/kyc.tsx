@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { get, patch } from "@/lib/api";
+import { get, patch, post } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/premium/PageHeader";
@@ -21,6 +21,7 @@ import {
   User as UserIcon, Mail, Phone, Calendar, IdCard, MapPin, Image as ImageIcon,
   Activity, History, ExternalLink, X, Wallet, TrendingUp, TrendingDown,
   ArrowDownToLine, ArrowUpFromLine, KeyRound, Globe, AlertTriangle,
+  Sparkles, Loader2, RefreshCw, Check,
 } from "lucide-react";
 
 type KycRecord = {
@@ -294,6 +295,9 @@ function UserDossierSheet({
   });
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [reasonNote, setReasonNote] = useState("");
+  const [aiReasons, setAiReasons] = useState<string[] | null>(null);
+  const [pickedReason, setPickedReason] = useState<string | null>(null);
 
   const moderate = useMutation({
     mutationFn: ({ id, body }: { id: number; body: { status: string; rejectReason?: string } }) =>
@@ -304,10 +308,28 @@ function UserDossierSheet({
       qc.invalidateQueries({ queryKey: ["/admin/users", userId, "full"] });
       setRejectMode(false);
       setRejectReason("");
+      setReasonNote("");
+      setAiReasons(null);
+      setPickedReason(null);
     },
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : "Update failed";
       toast({ title: "Update failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  const suggest = useMutation({
+    mutationFn: (recId: number) =>
+      post<{ reasons: string[] }>(`/admin/kyc/${recId}/suggest-reasons`, { note: reasonNote.trim() || undefined }),
+    onSuccess: (r) => {
+      setAiReasons(r.reasons);
+      if (r.reasons.length === 0) {
+        toast({ title: "No suggestions", description: "AI did not return any reasons. Try adding a hint.", variant: "destructive" });
+      }
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : "AI request failed";
+      toast({ title: "Suggestion failed", description: msg, variant: "destructive" });
     },
   });
 
@@ -409,20 +431,82 @@ function UserDossierSheet({
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
                   Reason will be visible to the user.
                 </div>
+
+                <div className="rounded-md border border-amber-400/20 bg-amber-400/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-200">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      AI suggestions
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-amber-400/30 text-amber-200 hover:text-amber-100"
+                      onClick={() => suggest.mutate(current.id)}
+                      disabled={suggest.isPending}
+                      data-testid="button-ai-suggest"
+                    >
+                      {suggest.isPending
+                        ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Generating…</>
+                        : aiReasons
+                          ? <><RefreshCw className="w-3 h-3 mr-1" /> Regenerate</>
+                          : <><Sparkles className="w-3 h-3 mr-1" /> Suggest reasons</>}
+                    </Button>
+                  </div>
+                  <Input
+                    value={reasonNote}
+                    onChange={(e) => setReasonNote(e.target.value)}
+                    placeholder="Optional hint to AI (e.g. 'aadhaar photo unclear, name mismatch')"
+                    className="h-8 text-xs bg-[hsl(222_22%_4%)]"
+                  />
+                  {aiReasons && aiReasons.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {aiReasons.map((r, i) => {
+                        const active = pickedReason === r;
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => { setPickedReason(r); setRejectReason(r); }}
+                            className={
+                              "w-full text-left text-xs px-2.5 py-1.5 rounded-md border transition-colors flex items-start gap-2 " +
+                              (active
+                                ? "border-amber-400/60 bg-amber-400/15 text-amber-100"
+                                : "border-border/50 bg-[hsl(222_22%_4%)] text-foreground/85 hover:bg-amber-400/10 hover:border-amber-400/30")
+                            }
+                            data-testid={`button-ai-reason-${i}`}
+                            aria-pressed={active}
+                          >
+                            {active
+                              ? <Check className="w-3.5 h-3.5 text-amber-300 mt-0.5 shrink-0" />
+                              : <Sparkles className="w-3 h-3 text-amber-300/60 mt-0.5 shrink-0" />}
+                            <span className="leading-snug">{r}</span>
+                          </button>
+                        );
+                      })}
+                      <div className="text-[10px] text-muted-foreground pt-1">
+                        Click any suggestion to load it below — you can edit before sending.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <Textarea
                   value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="e.g. Aadhaar image is blurry, please re-upload a clear copy."
-                  rows={2}
+                  onChange={(e) => { setRejectReason(e.target.value); if (pickedReason && e.target.value !== pickedReason) setPickedReason(null); }}
+                  placeholder="Type or pick an AI suggestion above…"
+                  rows={3}
                   className="text-sm"
+                  data-testid="input-reject-reason"
                 />
                 <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" size="sm" onClick={() => { setRejectMode(false); setRejectReason(""); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setRejectMode(false); setRejectReason(""); setReasonNote(""); setAiReasons(null); setPickedReason(null); }}>
                     Cancel
                   </Button>
                   <Button
