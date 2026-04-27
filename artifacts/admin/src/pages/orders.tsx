@@ -1,22 +1,31 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "@/lib/api";
-import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/premium/PageHeader";
+import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
+import { StatusPill } from "@/components/premium/StatusPill";
+import { EmptyState } from "@/components/premium/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { ArrowDownUp, Activity, Bot as BotIcon, User as UserIcon, TrendingUp, TrendingDown, CheckCircle2, XCircle, Clock } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import {
+  ArrowDownUp, Activity, Bot as BotIcon, User as UserIcon, TrendingUp, TrendingDown,
+  CheckCircle2, XCircle, Clock, Filter, RefreshCw, BarChart3,
+} from "lucide-react";
 
 type Order = {
   id: number; userId: number; pairId: number; side: "buy" | "sell"; type: string;
   price: string; qty: string; filledQty: string; avgPrice: string;
   fee: string; tds: string; status: string; isBot: number; botId: number | null;
-  createdAt: string;
+  createdAt: string; uid?: string;
 };
-type Trade = { id: number; orderId: number; userId: number; pairId: number; side: string; price: string; qty: string; createdAt: string };
+type Trade = { id: number; orderId: number; userId: number; pairId: number; side: string; price: string; qty: string; createdAt: string; uid?: string };
 type Pair = { id: number; symbol: string };
 type Stats = {
   total: number; open_count: number; filled_count: number; cancelled_count: number;
@@ -24,28 +33,32 @@ type Stats = {
   bot_filled: number; user_filled: number; filled_value: string;
 };
 
-function StatCard({ label, value, sub, icon: Icon, tone }: { label: string; value: string | number; sub?: string; icon: any; tone?: string }) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <Icon className={`size-4 ${tone || "text-muted-foreground"}`} />
-      </div>
-      <div className="text-2xl font-bold tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
-    </Card>
-  );
+function fmt(n: string | number, dp = 4): string {
+  const v = typeof n === "string" ? Number(n) : n;
+  return Number.isFinite(v) ? v.toLocaleString("en-US", { maximumFractionDigits: dp }) : "0";
+}
+
+function relTime(s: string): string {
+  const diff = Date.now() - new Date(s).getTime();
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 export default function OrdersPage() {
-  const [side, setSide] = useState<string>("all");
-  const [status, setStatus] = useState<string>("all");
-  const [actor, setActor] = useState<string>("all");
-  const [pairId, setPairId] = useState<string>("all");
-  const [userIdFilter, setUserIdFilter] = useState<string>("");
+  const [tab, setTab] = useState("orders");
+  const [side, setSide] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [actor, setActor] = useState("all");
+  const [pairId, setPairId] = useState("all");
+  const [userIdFilter, setUserIdFilter] = useState("");
 
-  const { data: pairs = [] } = useQuery<Pair[]>({ queryKey: ["pairs"], queryFn: () => get("/admin/pairs") });
-  const { data: stats } = useQuery<Stats>({ queryKey: ["orders-stats"], queryFn: () => get("/admin/orders/stats"), refetchInterval: 5000 });
+  const { data: pairs = [] } = useQuery<Pair[]>({ queryKey: ["pairs"], queryFn: () => get<Pair[]>("/admin/pairs") });
+  const { data: stats } = useQuery<Stats>({ queryKey: ["orders-stats"], queryFn: () => get<Stats>("/admin/orders/stats"), refetchInterval: 5000 });
 
   const params = new URLSearchParams();
   if (side !== "all") params.set("side", side);
@@ -56,11 +69,11 @@ export default function OrdersPage() {
   if (userIdFilter.trim()) params.set("userId", userIdFilter.trim());
   const qs = params.toString();
 
-  const { data: orders = [] } = useQuery<Order[]>({
-    queryKey: ["admin-orders", qs], queryFn: () => get(`/admin/orders${qs ? `?${qs}` : ""}`),
+  const { data: orders = [], isLoading: ordersLoading, refetch: refetchOrders, isFetching: ordersFetching } = useQuery<Order[]>({
+    queryKey: ["admin-orders", qs], queryFn: () => get<Order[]>(`/admin/orders${qs ? `?${qs}` : ""}`),
     refetchInterval: 4000,
   });
-  const { data: trades = [] } = useQuery<Trade[]>({
+  const { data: trades = [], isLoading: tradesLoading } = useQuery<Trade[]>({
     queryKey: ["admin-trades", pairId, userIdFilter, side],
     queryFn: () => {
       const tp = new URLSearchParams();
@@ -68,46 +81,56 @@ export default function OrdersPage() {
       if (userIdFilter.trim()) tp.set("userId", userIdFilter.trim());
       if (side !== "all") tp.set("side", side);
       const t = tp.toString();
-      return get(`/admin/trades${t ? `?${t}` : ""}`);
+      return get<Trade[]>(`/admin/trades${t ? `?${t}` : ""}`);
     },
     refetchInterval: 4000,
   });
 
-  const pairById = useMemo(() => new Map(pairs.map(p => [p.id, p.symbol])), [pairs]);
-
-  const statusBadge = (s: string) => {
-    if (s === "filled") return <Badge className="bg-emerald-500"><CheckCircle2 className="size-3 mr-1" />Filled</Badge>;
-    if (s === "open") return <Badge className="bg-blue-500"><Clock className="size-3 mr-1" />Open</Badge>;
-    if (s === "cancelled") return <Badge className="bg-zinc-500"><XCircle className="size-3 mr-1" />Cancelled</Badge>;
-    return <Badge>{s}</Badge>;
-  };
-
+  const pairById = useMemo(() => new Map(pairs.map((p) => [p.id, p.symbol])), [pairs]);
   const filledValue = stats ? Number(stats.filled_value).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0";
 
+  const reset = () => { setSide("all"); setStatus("all"); setActor("all"); setPairId("all"); setUserIdFilter(""); };
+  const hasFilters = side !== "all" || status !== "all" || actor !== "all" || pairId !== "all" || userIdFilter.trim() !== "";
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownUp className="size-6" /> Orders & Trades</h1>
-        <p className="text-sm text-muted-foreground">Live view of all platform orders. Filter by side, status, actor (user/bot), pair, or user id.</p>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Markets & Trading"
+        title="Orders & Trades"
+        description="Live platform orders aur executed trades. Side, status, actor (user/bot), pair ya user ID se filter karein."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => refetchOrders()} disabled={ordersFetching} data-testid="button-refresh-orders">
+            <RefreshCw className={cn("w-4 h-4 mr-1.5", ordersFetching && "animate-spin")} />Refresh
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
+        <PremiumStatCard title="Total Orders" value={stats?.total ?? "—"} icon={Activity} hero hint={`${stats?.cancelled_count ?? 0} cancelled`} />
+        <PremiumStatCard title="Open" value={stats?.open_count ?? "—"} icon={Clock} hint="Resting on book" />
+        <PremiumStatCard title="Filled" value={stats?.filled_count ?? "—"} icon={CheckCircle2} hint={`Vol ≈ ${filledValue}`} />
+        <PremiumStatCard title="Buy / Sell" value={stats ? `${stats.buy_count}/${stats.sell_count}` : "—"} icon={ArrowDownUp} hint="Side balance" />
+        <PremiumStatCard title="Bot Filled" value={stats?.bot_filled ?? "—"} icon={BotIcon} hint={`of ${stats?.bot_count ?? 0} bot orders`} />
+        <PremiumStatCard title="User Filled" value={stats?.user_filled ?? "—"} icon={UserIcon} hint={`of ${stats?.user_count ?? 0} user orders`} />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <StatCard label="Total Orders" value={stats?.total ?? "—"} icon={Activity} />
-        <StatCard label="Open" value={stats?.open_count ?? "—"} icon={Clock} tone="text-blue-500" />
-        <StatCard label="Filled" value={stats?.filled_count ?? "—"} sub={`Vol ≈ ${filledValue}`} icon={CheckCircle2} tone="text-emerald-500" />
-        <StatCard label="Buy / Sell" value={stats ? `${stats.buy_count} / ${stats.sell_count}` : "—"} icon={TrendingUp} />
-        <StatCard label="Bot Filled" value={stats?.bot_filled ?? "—"} sub={`of ${stats?.bot_count ?? 0} bot orders`} icon={BotIcon} tone="text-purple-500" />
-        <StatCard label="User Filled" value={stats?.user_filled ?? "—"} sub={`of ${stats?.user_count ?? 0} user orders`} icon={UserIcon} tone="text-amber-500" />
-      </div>
-
-      {/* Filters */}
-      <Card className="p-3">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Side</label>
+      {/* Filters card */}
+      <div className="premium-card rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-4 md:px-5 pt-4 pb-3 border-b border-border/60">
+          <div className="flex items-center gap-2.5">
+            <div className="stat-orb w-8 h-8 rounded-md flex items-center justify-center"><Filter className="w-4 h-4 text-amber-300" /></div>
+            <div>
+              <h3 className="text-sm font-semibold">Filters</h3>
+              <p className="text-xs text-muted-foreground">Combine multiple filters to narrow results</p>
+            </div>
+          </div>
+          {hasFilters && <Button size="sm" variant="ghost" onClick={reset} data-testid="button-reset-filters">Reset</Button>}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Side</Label>
             <Select value={side} onValueChange={setSide}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger data-testid="select-orders-side"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All sides</SelectItem>
                 <SelectItem value="buy">Buy only</SelectItem>
@@ -115,10 +138,10 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Status</label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Status</Label>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger data-testid="select-orders-status"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="open">Open</SelectItem>
@@ -127,10 +150,10 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Actor</label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Actor</Label>
             <Select value={actor} onValueChange={setActor}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger data-testid="select-orders-actor"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="user">User orders</SelectItem>
@@ -138,115 +161,146 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Pair</label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Pair</Label>
             <Select value={pairId} onValueChange={setPairId}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger data-testid="select-orders-pair"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All pairs</SelectItem>
-                {pairs.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.symbol}</SelectItem>)}
+                {pairs.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.symbol}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">User ID</label>
-            <Input placeholder="e.g. 2" value={userIdFilter} onChange={(e) => setUserIdFilter(e.target.value)} />
+          <div className="space-y-1.5">
+            <Label className="text-xs">User ID</Label>
+            <Input placeholder="e.g. 2" value={userIdFilter} onChange={(e) => setUserIdFilter(e.target.value)} data-testid="input-orders-userid" />
           </div>
         </div>
-        <div className="flex justify-end mt-2">
-          <Button size="sm" variant="ghost" onClick={() => { setSide("all"); setStatus("all"); setActor("all"); setPairId("all"); setUserIdFilter(""); }}>Reset</Button>
-        </div>
-      </Card>
+      </div>
 
-      <Tabs defaultValue="orders">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="orders">Orders ({orders.length})</TabsTrigger>
-          <TabsTrigger value="trades">Trade History ({trades.length})</TabsTrigger>
+          <TabsTrigger value="orders" data-testid="tab-orders">Orders <span className="ml-1.5 text-xs text-muted-foreground">{orders.length}</span></TabsTrigger>
+          <TabsTrigger value="trades" data-testid="tab-trades">Trade History <span className="ml-1.5 text-xs text-muted-foreground">{trades.length}</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="orders" className="mt-3">
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>UID</TableHead>
-                  <TableHead>Pair</TableHead>
-                  <TableHead>Side</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Filled</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.length === 0 ? (
-                  <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No orders match the filters.</TableCell></TableRow>
-                ) : orders.map(o => (
-                  <TableRow key={o.id}>
-                    <TableCell className="font-mono text-[10px] text-muted-foreground" title={(o as any).uid}>{((o as any).uid || `#${o.id}`).slice(0, 10)}…</TableCell>
-                    <TableCell className="font-mono">{pairById.get(o.pairId) || `#${o.pairId}`}</TableCell>
-                    <TableCell>
-                      {o.side === "buy"
-                        ? <Badge className="bg-emerald-600"><TrendingUp className="size-3 mr-1" />BUY</Badge>
-                        : <Badge className="bg-red-600"><TrendingDown className="size-3 mr-1" />SELL</Badge>}
-                    </TableCell>
-                    <TableCell className="uppercase text-xs">{o.type}</TableCell>
-                    <TableCell className="tabular-nums">{Number(o.price).toLocaleString("en-US", { maximumFractionDigits: 8 })}</TableCell>
-                    <TableCell className="tabular-nums">{Number(o.qty).toFixed(4)}</TableCell>
-                    <TableCell className="tabular-nums">{Number(o.filledQty).toFixed(4)} {Number(o.avgPrice) > 0 && <span className="text-xs text-muted-foreground">@{Number(o.avgPrice).toFixed(4)}</span>}</TableCell>
-                    <TableCell>{statusBadge(o.status)}</TableCell>
-                    <TableCell>
-                      {o.isBot ? <Badge variant="outline" className="border-purple-500 text-purple-500"><BotIcon className="size-3 mr-1" />Bot{o.botId ? `#${o.botId}` : ""}</Badge>
-                                : <Badge variant="outline"><UserIcon className="size-3 mr-1" />User</Badge>}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">#{o.userId}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{new Date(o.createdAt).toLocaleString()}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <div className="premium-card rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="text-left font-medium px-4 py-3">UID</th>
+                    <th className="text-left font-medium px-4 py-3">Pair</th>
+                    <th className="text-left font-medium px-4 py-3">Side</th>
+                    <th className="text-left font-medium px-4 py-3">Type</th>
+                    <th className="text-right font-medium px-4 py-3">Price</th>
+                    <th className="text-right font-medium px-4 py-3">Qty</th>
+                    <th className="text-right font-medium px-4 py-3">Filled</th>
+                    <th className="text-left font-medium px-4 py-3">Status</th>
+                    <th className="text-left font-medium px-4 py-3">Actor</th>
+                    <th className="text-left font-medium px-4 py-3">User</th>
+                    <th className="text-left font-medium px-4 py-3">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {ordersLoading && Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i}><td colSpan={11} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td></tr>
+                  ))}
+                  {!ordersLoading && orders.length === 0 && (
+                    <tr><td colSpan={11} className="px-4 py-3"><EmptyState icon={ArrowDownUp} title="No orders" description="Filter adjust karein ya wait for trades." /></td></tr>
+                  )}
+                  {!ordersLoading && orders.map((o) => (
+                    <tr key={o.id} className="hover:bg-muted/20 transition-colors" data-testid={`order-${o.id}`}>
+                      <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" title={o.uid}>{(o.uid || `#${o.id}`).slice(0, 10)}…</td>
+                      <td className="px-4 py-3 font-mono font-bold">{pairById.get(o.pairId) ?? `#${o.pairId}`}</td>
+                      <td className="px-4 py-3">
+                        {o.side === "buy"
+                          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"><TrendingUp className="w-3 h-3" />BUY</span>
+                          : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/15 text-red-300 border border-red-500/30"><TrendingDown className="w-3 h-3" />SELL</span>}
+                      </td>
+                      <td className="px-4 py-3 uppercase text-xs text-muted-foreground">{o.type}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">{fmt(o.price, 8)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">{Number(o.qty).toFixed(4)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">
+                        {Number(o.filledQty).toFixed(4)}
+                        {Number(o.avgPrice) > 0 && <div className="text-[10px] text-muted-foreground">@{Number(o.avgPrice).toFixed(4)}</div>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {o.status === "filled" && <StatusPill variant="success">Filled</StatusPill>}
+                        {o.status === "open" && <StatusPill variant="info">Open</StatusPill>}
+                        {o.status === "cancelled" && <StatusPill variant="neutral">Cancelled</StatusPill>}
+                        {o.status === "partial" && <StatusPill variant="warning">Partial</StatusPill>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {o.isBot
+                          ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30"><BotIcon className="w-2.5 h-2.5" />Bot{o.botId ? `#${o.botId}` : ""}</span>
+                          : <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30"><UserIcon className="w-2.5 h-2.5" />User</span>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">#{o.userId}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground" title={new Date(o.createdAt).toLocaleString("en-IN")}>{relTime(o.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
+              <div>{orders.length} orders shown · auto-refresh 4s</div>
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Vol ≈ {filledValue}</span>
+              </div>
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="trades" className="mt-3">
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>UID</TableHead>
-                  <TableHead>Pair</TableHead>
-                  <TableHead>Side</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Order</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {trades.length === 0 ? (
-                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No trades yet.</TableCell></TableRow>
-                ) : trades.map(t => (
-                  <TableRow key={t.id}>
-                    <TableCell className="font-mono text-[10px] text-muted-foreground" title={(t as any).uid}>{((t as any).uid || `#${t.id}`).slice(0, 10)}…</TableCell>
-                    <TableCell className="font-mono">{pairById.get(t.pairId) || `#${t.pairId}`}</TableCell>
-                    <TableCell>{t.side === "buy" ? <Badge className="bg-emerald-600">BUY</Badge> : <Badge className="bg-red-600">SELL</Badge>}</TableCell>
-                    <TableCell className="tabular-nums">{Number(t.price).toLocaleString("en-US", { maximumFractionDigits: 8 })}</TableCell>
-                    <TableCell className="tabular-nums">{Number(t.qty).toFixed(4)}</TableCell>
-                    <TableCell className="tabular-nums">{(Number(t.price) * Number(t.qty)).toFixed(2)}</TableCell>
-                    <TableCell className="font-mono text-xs">#{t.orderId}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">#{t.userId}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{new Date(t.createdAt).toLocaleString()}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <div className="premium-card rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="text-left font-medium px-4 py-3">UID</th>
+                    <th className="text-left font-medium px-4 py-3">Pair</th>
+                    <th className="text-left font-medium px-4 py-3">Side</th>
+                    <th className="text-right font-medium px-4 py-3">Price</th>
+                    <th className="text-right font-medium px-4 py-3">Qty</th>
+                    <th className="text-right font-medium px-4 py-3">Value</th>
+                    <th className="text-left font-medium px-4 py-3">Order</th>
+                    <th className="text-left font-medium px-4 py-3">User</th>
+                    <th className="text-left font-medium px-4 py-3">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {tradesLoading && Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i}><td colSpan={9} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td></tr>
+                  ))}
+                  {!tradesLoading && trades.length === 0 && (
+                    <tr><td colSpan={9} className="px-4 py-3"><EmptyState icon={Activity} title="No trades yet" description="Filter adjust karein ya market activity ka wait karein." /></td></tr>
+                  )}
+                  {!tradesLoading && trades.map((t) => (
+                    <tr key={t.id} className="hover:bg-muted/20 transition-colors" data-testid={`trade-${t.id}`}>
+                      <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" title={t.uid}>{(t.uid || `#${t.id}`).slice(0, 10)}…</td>
+                      <td className="px-4 py-3 font-mono font-bold">{pairById.get(t.pairId) ?? `#${t.pairId}`}</td>
+                      <td className="px-4 py-3">
+                        {t.side === "buy"
+                          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"><TrendingUp className="w-3 h-3" />BUY</span>
+                          : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/15 text-red-300 border border-red-500/30"><TrendingDown className="w-3 h-3" />SELL</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">{fmt(t.price, 8)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">{Number(t.qty).toFixed(4)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs font-medium">{(Number(t.price) * Number(t.qty)).toFixed(2)}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{t.orderId}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">#{t.userId}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground" title={new Date(t.createdAt).toLocaleString("en-IN")}>{relTime(t.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground bg-muted/10">
+              {trades.length} trades shown · auto-refresh 4s
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
