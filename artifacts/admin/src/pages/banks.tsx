@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, patch, post, put } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -735,7 +735,7 @@ function PolicyDialog({
   const [maxDeletes, setMaxDeletes] = useState(String(initial.maxDeletes));
 
   // Reset values when dialog opens with fresh `initial`
-  useMemo(() => {
+  useEffect(() => {
     if (open) {
       setMaxPerUser(String(initial.maxPerUser));
       setMaxEdits(String(initial.maxEdits));
