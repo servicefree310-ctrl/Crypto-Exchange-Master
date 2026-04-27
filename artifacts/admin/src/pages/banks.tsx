@@ -417,16 +417,26 @@ export default function BanksPage() {
 
           <div className="space-y-4">
             {/* AI suggestion panel */}
-            <div className="rounded-lg border bg-gradient-to-br from-violet-50/60 to-blue-50/40 dark:from-violet-950/20 dark:to-blue-950/10 p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-violet-900 dark:text-violet-200">
-                  <Sparkles className="w-3.5 h-3.5" /> AI-suggested reasons
+            <div className="relative overflow-hidden rounded-xl border border-violet-500/30 dark:border-violet-400/20 bg-gradient-to-br from-slate-900 via-violet-950 to-indigo-950 dark:from-slate-950 dark:via-violet-950 dark:to-indigo-950 p-3.5 space-y-2.5 shadow-[0_8px_30px_-12px_rgba(124,58,237,0.45)]">
+              {/* Decorative glow orbs */}
+              <div className="pointer-events-none absolute -top-10 -right-8 w-40 h-40 rounded-full bg-violet-500/30 blur-3xl" />
+              <div className="pointer-events-none absolute -bottom-12 -left-10 w-44 h-44 rounded-full bg-indigo-500/25 blur-3xl" />
+              <div className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:14px_14px]" />
+
+              <div className="relative flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-violet-400 to-fuchsia-500 shadow-lg shadow-violet-500/40 ring-1 ring-white/20">
+                    <Sparkles className="w-3.5 h-3.5 text-white" />
+                  </span>
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-[13px] font-semibold text-white">AI-suggested reasons</span>
+                    <span className="text-[10px] text-violet-200/70">Powered by gpt-5-mini · context-aware</span>
+                  </div>
                 </div>
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs"
+                  className="h-8 px-3 text-xs font-medium border-0 bg-white text-violet-900 hover:bg-violet-50 shadow-md shadow-black/20"
                   disabled={!rejectFor || aiReasonsMut.isPending}
                   onClick={() => rejectFor && aiReasonsMut.mutate({ id: rejectFor.id, note: aiHint.trim() || undefined })}
                   data-testid="button-ai-suggest-reasons"
@@ -440,43 +450,57 @@ export default function BanksPage() {
                 </Button>
               </div>
 
-              <Input
-                placeholder="Optional hint for AI (e.g. 'name spelling looks edited')"
-                value={aiHint}
-                onChange={(e) => setAiHint(e.target.value)}
-                className="h-8 text-xs bg-white/70 dark:bg-zinc-950/40"
-                data-testid="input-ai-hint"
-              />
+              <div className="relative">
+                <Input
+                  placeholder="Optional hint for AI (e.g. 'name spelling looks edited')"
+                  value={aiHint}
+                  onChange={(e) => setAiHint(e.target.value)}
+                  className="h-9 text-xs bg-white/10 border-white/15 text-white placeholder:text-violet-200/50 focus-visible:ring-violet-400/60 focus-visible:border-violet-400/60 backdrop-blur-sm"
+                  data-testid="input-ai-hint"
+                />
+              </div>
 
               {aiReasonsMut.isPending && aiReasons.length === 0 && (
-                <div className="text-xs text-muted-foreground flex items-center gap-1.5 py-1">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Generating polite, contextual reasons…
+                <div className="relative text-xs text-violet-100 flex items-center gap-2 py-1.5 px-1">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-fuchsia-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-fuchsia-500" />
+                  </span>
+                  Generating polite, contextual reasons…
                 </div>
               )}
 
               {aiReasons.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {aiReasons.map((r, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setRejectReason(r)}
-                      className={cn(
-                        "text-left text-xs px-2.5 py-1.5 rounded-md border transition",
-                        "bg-white hover:bg-violet-50 hover:border-violet-300 dark:bg-zinc-950/60 dark:hover:bg-violet-950/30",
-                        rejectReason === r && "border-violet-500 ring-1 ring-violet-500/40 bg-violet-50 dark:bg-violet-950/30",
-                      )}
-                      data-testid={`chip-ai-reason-${i}`}
-                    >
-                      {r}
-                    </button>
-                  ))}
+                <div className="relative flex flex-wrap gap-1.5 pt-1">
+                  {aiReasons.map((r, i) => {
+                    const selected = rejectReason === r;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setRejectReason(r)}
+                        className={cn(
+                          "group text-left text-xs px-3 py-1.5 rounded-lg border transition-all duration-150",
+                          "backdrop-blur-sm",
+                          selected
+                            ? "bg-white text-violet-900 border-white shadow-lg shadow-violet-900/30 ring-2 ring-fuchsia-400/60"
+                            : "bg-white/10 text-violet-50 border-white/15 hover:bg-white/20 hover:border-white/30 hover:-translate-y-0.5",
+                        )}
+                        data-testid={`chip-ai-reason-${i}`}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          {selected && <Check className="w-3 h-3 text-fuchsia-600" />}
+                          {r}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
               {aiReasons.length === 0 && !aiReasonsMut.isPending && (
-                <p className="text-[11px] text-muted-foreground">
-                  Click Generate to get 4–5 polite reasons tailored to this account.
+                <p className="relative text-[11px] text-violet-200/80">
+                  Click <span className="text-white font-medium">Generate</span> to get 4–5 polite reasons tailored to this account.
                 </p>
               )}
             </div>
