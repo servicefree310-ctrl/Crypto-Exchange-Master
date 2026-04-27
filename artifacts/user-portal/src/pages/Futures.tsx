@@ -134,9 +134,36 @@ function AssetIcon({ symbol, size = 9 }: { symbol: string; size?: 6 | 7 | 8 | 9 
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Futures-enabled markets — fetches /exchange/market and returns the
+// set of symbols where the admin has flipped futuresEnabled=true.
+// pairToMarket() on the server only sets metadata.limits.leverage when
+// futures are enabled, so we use that as the truth source instead of
+// listing every spot ticker (which would expose pairs that aren't
+// actually tradeable on futures yet).
+// ──────────────────────────────────────────────────────────────────
+function useFuturesEnabledSymbols() {
+  const { data, isLoading } = useQuery<any[]>({
+    queryKey: ["futures-enabled-markets"],
+    queryFn: () => get("/exchange/market"),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const set = useMemo(() => {
+    const s = new Set<string>();
+    if (Array.isArray(data)) {
+      for (const m of data) {
+        if (m?.metadata?.limits?.leverage && m?.symbol) s.add(String(m.symbol));
+      }
+    }
+    return s;
+  }, [data]);
+  return { set, isLoading };
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Symbol switcher — perpetuals only (USDT-quoted markets)
 // ──────────────────────────────────────────────────────────────────
-function SymbolSwitcher({ current }: { current: string }) {
+function SymbolSwitcher({ current, enabled }: { current: string; enabled: Set<string> }) {
   const tickers = useTickers();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -145,12 +172,12 @@ function SymbolSwitcher({ current }: { current: string }) {
 
   const list = useMemo(() => {
     const all = Object.values(tickers)
-      .filter((t) => t.symbol.endsWith("/USDT"))
+      .filter((t) => t.symbol.endsWith("/USDT") && enabled.has(t.symbol))
       .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0));
     const trimmed = search.trim().toLowerCase();
     if (!trimmed) return all;
     return all.filter((t) => t.symbol.toLowerCase().includes(trimmed));
-  }, [tickers, search]);
+  }, [tickers, search, enabled]);
 
   const favList = useMemo(() => list.filter((t) => favs.has(t.symbol)), [list, favs]);
   const otherList = useMemo(() => list.filter((t) => !favs.has(t.symbol)), [list, favs]);
@@ -201,7 +228,11 @@ function SymbolSwitcher({ current }: { current: string }) {
             <SwitcherRow key={t.symbol} t={t} active={t.symbol === current} onPick={() => { setOpen(false); navigate(`/futures/${encodeSymbol(t.symbol)}`); }} />
           ))}
           {list.length === 0 && (
-            <div className="px-4 py-6 text-center text-xs text-muted-foreground">No matches.</div>
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+              {enabled.size === 0
+                ? "Abhi koi futures market enable nahi hai. Admin jab pair enable karega tab yahan dikhega."
+                : "No matches."}
+            </div>
           )}
         </div>
       </PopoverContent>
@@ -295,6 +326,13 @@ export default function Futures() {
   const isSimple = layoutMode === "simple";
   const isPro = layoutMode === "pro";
   const bookRows = isPro ? 16 : 12;
+
+  // Futures-enabled symbols (admin-controlled). If the current symbol
+  // isn't in this set, show a banner + disable the order form so users
+  // can't fire orders the API will reject with 400.
+  const { set: enabledFuturesSet, isLoading: enabledLoading } = useFuturesEnabledSymbols();
+  const symbolEnabled = enabledFuturesSet.has(symbol);
+  const noFuturesEnabled = !enabledLoading && enabledFuturesSet.size === 0;
 
   const lastPx = ticker?.lastPrice || 0;
   const pct = ticker?.priceChangePercent || 0;
@@ -575,7 +613,7 @@ export default function Futures() {
             <Star className={`h-4 w-4 ${isFav ? "fill-amber-400" : ""}`} />
           </button>
 
-          <SymbolSwitcher current={symbol} />
+          <SymbolSwitcher current={symbol} enabled={enabledFuturesSet} />
 
           <div className="h-10 w-px bg-border flex-shrink-0" />
 
@@ -1034,13 +1072,15 @@ export default function Futures() {
                 : "bg-gradient-to-b from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white shadow-rose-500/30"
               }`}
               onClick={handleOrder}
-              disabled={orderMutation.isPending || !user}
+              disabled={orderMutation.isPending || !user || !symbolEnabled}
             >
               {!user
                 ? "Log in to Trade"
-                : orderMutation.isPending
-                  ? "Placing…"
-                  : `${side === "long" ? "Open Long" : "Open Short"} ${leverage}× ${base}`
+                : !symbolEnabled
+                  ? (noFuturesEnabled ? "Futures markets disabled" : `${base}/${quote} futures off`)
+                  : orderMutation.isPending
+                    ? "Placing…"
+                    : `${side === "long" ? "Open Long" : "Open Short"} ${leverage}× ${base}`
               }
             </Button>
 
