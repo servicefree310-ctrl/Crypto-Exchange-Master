@@ -112,11 +112,15 @@ export default function AnnouncementsPage() {
             category: cat,
             title: String(r.title ?? "Announcement"),
             body: String(r.body ?? r.description ?? ""),
-            date: String(r.date ?? r.createdAt ?? new Date().toISOString()),
-            pinned: Boolean(r.pinned),
+            date: String(r.publishedAt ?? r.date ?? r.createdAt ?? new Date().toISOString()),
+            pinned: Boolean(r.isPinned ?? r.pinned),
+            link: r.ctaLabel && r.ctaUrl
+              ? { label: String(r.ctaLabel), href: String(r.ctaUrl) }
+              : undefined,
           });
         });
-        if (mapped.length) setItems([...mapped, ...CURATED]);
+        // Replace curated entirely if admin has published anything; otherwise keep curated copy.
+        if (mapped.length) setItems(mapped);
       })
       .catch(() => {
         /* silent — keep curated */

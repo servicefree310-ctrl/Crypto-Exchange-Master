@@ -37,6 +37,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useFeatures } from "@/lib/siteConfig";
+import { useQuery } from "@tanstack/react-query";
+import { get } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -110,11 +113,15 @@ type MoreItem = {
 };
 type MoreSection = { id: string; label: string; icon: LucideIcon; items: MoreItem[] };
 
-const MORE_MENU: MoreSection[] = [
+type FeatureGate = (f: ReturnType<typeof useFeatures>) => boolean;
+type MoreSectionDef = MoreSection & { gate?: FeatureGate; itemGates?: Record<string, FeatureGate> };
+
+const MORE_MENU: MoreSectionDef[] = [
   {
     id: "tools",
     label: "Tools",
     icon: Wrench,
+    gate: (f) => f.showTools,
     items: [
       { href: "/tools/calculator",  label: "Calculator",         desc: "Quickly calculate crypto values and returns", icon: CalculatorIcon },
       { href: "/tools/compare",     label: "Crypto Compare",     desc: "Compare cryptos across prices and metrics",   icon: GitCompare },
@@ -127,8 +134,13 @@ const MORE_MENU: MoreSection[] = [
     label: "Promotion",
     icon: Gift,
     items: [
-      { href: "/announcements", label: "Announcement", desc: "Stay updated with the latest news and updates", icon: Megaphone },
+      { href: "/announcements", label: "Announcements", desc: "Stay updated with the latest news and updates", icon: Megaphone },
+      { href: "/news",          label: "News & Insights", desc: "Market analysis, product launches and tutorials", icon: Sparkles },
     ],
+    itemGates: {
+      "/announcements": (f) => f.showAnnouncements,
+      "/news": (f) => f.showNews,
+    },
   },
   {
     id: "explore",
@@ -137,20 +149,55 @@ const MORE_MENU: MoreSection[] = [
     items: [
       { href: "/leagues", label: "Leagues", desc: "Compete and earn rewards in crypto trading contests", icon: Trophy, badge: "NEW" },
     ],
+    itemGates: {
+      "/leagues": (f) => f.showLeagues,
+    },
   },
 ];
 
-function isMoreActive(loc: string): boolean {
-  return MORE_MENU.some((s) => s.items.some((it) => loc.startsWith(it.href)));
+function isMoreActive(loc: string, sections: { items: { href: string }[] }[]): boolean {
+  return sections.some((s) => s.items.some((it) => loc.startsWith(it.href)));
 }
+
+const NOTIF_KIND_TONE: Record<string, string> = {
+  info:    "text-sky-400",
+  success: "text-emerald-400",
+  warning: "text-amber-400",
+  danger:  "text-rose-400",
+  promo:   "text-amber-400",
+};
+
+function relativeTime(iso: string): string {
+  try {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 60_000) return "just now";
+    if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+    if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+    return `${Math.floor(ms / 86_400_000)}d ago`;
+  } catch { return ""; }
+}
+
+type BroadcastNotif = {
+  id: number; title: string; body: string; kind: string;
+  ctaLabel: string; ctaUrl: string; createdAt: string;
+};
 
 export function AppHeader() {
   const { user, logout } = useAuth();
+  const features = useFeatures();
   const [location] = useLocation();
   const [mode, setMode] = useState<Mode>("exchange");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [langCode, setLangCode] = useState<string>("en");
+
+  const { data: notifs = [] } = useQuery<BroadcastNotif[]>({
+    queryKey: ["/content/notifications"],
+    queryFn: () => get<BroadcastNotif[]>("/content/notifications"),
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -204,7 +251,19 @@ export function AppHeader() {
     setMode(next);
   };
 
-  const items = user ? [...navItems, ...userNavItems] : navItems;
+  // Apply feature-flag gating to nav items
+  const featureGate: Record<string, boolean> = {
+    "/futures": features.showFutures,
+    "/earn":    features.showEarn,
+    "/p2p":     features.showP2P,
+    "/convert": features.showConvert,
+  };
+  const baseItems = navItems.filter((it) => featureGate[it.href] !== false);
+  const items = user ? [...baseItems, ...userNavItems] : baseItems;
+  const moreSections = MORE_MENU
+    .filter((s) => !s.gate || s.gate(features))
+    .map((s) => ({ ...s, items: s.items.filter((it) => !s.itemGates?.[it.href] || s.itemGates[it.href](features)) }))
+    .filter((s) => s.items.length > 0);
 
   return (
     <header
@@ -305,7 +364,7 @@ export function AppHeader() {
                 <button
                   type="button"
                   className={`relative inline-flex items-center gap-1 px-2 xl:px-3 h-9 rounded-md font-medium whitespace-nowrap transition-colors ${
-                    isMoreActive(location)
+                    isMoreActive(location, moreSections)
                       ? "text-primary bg-primary/10"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   }`}
@@ -313,14 +372,14 @@ export function AppHeader() {
                 >
                   More
                   <ChevronDown className="h-3.5 w-3.5" />
-                  {isMoreActive(location) && (
+                  {isMoreActive(location, moreSections) && (
                     <span className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
                   )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-[420px] p-0">
                 <div className="grid grid-cols-1 divide-y divide-border">
-                  {MORE_MENU.map((section) => {
+                  {moreSections.map((section) => {
                     const SectionIcon = section.icon;
                     return (
                       <div key={section.id} className="p-2">
@@ -436,49 +495,55 @@ export function AppHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Notifications — visible to guests too (audience=all|guest); auth users see all|auth */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notifications">
+                <Bell className="h-4 w-4" />
+                {notifs.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80">
+              <DropdownMenuLabel className="flex items-center justify-between">
+                <span>Notifications</span>
+                {notifs.length > 0 && (
+                  <Badge variant="outline" className="text-[9px] h-4">{notifs.length} new</Badge>
+                )}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {notifs.length === 0 ? (
+                <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                  Aap up to date hain. Naya kuch nahi.
+                </div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto">
+                  {notifs.slice(0, 8).map((n) => {
+                    const tone = NOTIF_KIND_TONE[n.kind] ?? "text-amber-400";
+                    const Icon = n.kind === "success" ? Gift : n.kind === "warning" || n.kind === "danger" ? Shield : Bell;
+                    return (
+                      <NotificationItem
+                        key={n.id}
+                        icon={<Icon className={`h-4 w-4 ${tone}`} />}
+                        title={n.title}
+                        desc={n.body || (n.ctaLabel ? n.ctaLabel : "")}
+                        time={relativeTime(n.createdAt)}
+                        href={n.ctaUrl || undefined}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild className="justify-center text-xs text-primary font-medium">
+                <Link href="/announcements">View all updates</Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {user ? (
             <>
-              {/* Notifications */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative h-9 w-9">
-                    <Bell className="h-4 w-4" />
-                    <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80">
-                  <DropdownMenuLabel className="flex items-center justify-between">
-                    <span>Notifications</span>
-                    <Badge variant="outline" className="text-[9px] h-4">3 new</Badge>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <div className="max-h-80 overflow-y-auto">
-                    <NotificationItem
-                      icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
-                      title="ZBX/USDT order filled"
-                      desc="Your buy order for 1,200 ZBX at $1.348 was filled."
-                      time="2m ago"
-                    />
-                    <NotificationItem
-                      icon={<Gift className="h-4 w-4 text-amber-400" />}
-                      title="Welcome bonus credited"
-                      desc="You received 50 ZBX as part of your welcome bonus."
-                      time="1h ago"
-                    />
-                    <NotificationItem
-                      icon={<Shield className="h-4 w-4 text-sky-400" />}
-                      title="New device login"
-                      desc="A login from Mumbai, IN was approved on your account."
-                      time="3h ago"
-                    />
-                  </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild className="justify-center text-xs text-primary font-medium">
-                    <Link href="/profile">View all notifications</Link>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
               {/* User menu — icon-only avatar */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -559,22 +624,26 @@ export function AppHeader() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
-          ) : (
+          ) : (features.showLogin || features.showSignup) ? (
             <div className="hidden sm:flex items-center gap-1.5">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/login">Log In</Link>
-              </Button>
-              <Button
-                size="sm"
-                className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold shadow-md shadow-amber-500/20"
-                asChild
-              >
-                <Link href="/signup">
-                  <Sparkles className="h-3.5 w-3.5 mr-1" /> Sign Up
-                </Link>
-              </Button>
+              {features.showLogin && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/login">Log In</Link>
+                </Button>
+              )}
+              {features.showSignup && (
+                <Button
+                  size="sm"
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold shadow-md shadow-amber-500/20"
+                  asChild
+                >
+                  <Link href="/signup">
+                    <Sparkles className="h-3.5 w-3.5 mr-1" /> Sign Up
+                  </Link>
+                </Button>
+              )}
             </div>
-          )}
+          ) : null}
 
           {/* Mobile menu trigger */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -656,7 +725,7 @@ export function AppHeader() {
                 })}
 
                 {/* Tools / Promotion / Explore sections */}
-                {MORE_MENU.map((section) => {
+                {moreSections.map((section) => {
                   const SectionIcon = section.icon;
                   return (
                     <div key={section.id} className="pt-4">
@@ -712,21 +781,25 @@ export function AppHeader() {
                       <LogOut className="h-4 w-4 mr-2" /> Log out
                     </Button>
                   </>
-                ) : (
+                ) : (features.showLogin || features.showSignup) ? (
                   <>
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link href="/login" onClick={() => setMobileOpen(false)}>Log In</Link>
-                    </Button>
-                    <Button
-                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold"
-                      asChild
-                    >
-                      <Link href="/signup" onClick={() => setMobileOpen(false)}>
-                        <Sparkles className="h-3.5 w-3.5 mr-1" /> Sign Up
-                      </Link>
-                    </Button>
+                    {features.showLogin && (
+                      <Button variant="outline" className="w-full" asChild>
+                        <Link href="/login" onClick={() => setMobileOpen(false)}>Log In</Link>
+                      </Button>
+                    )}
+                    {features.showSignup && (
+                      <Button
+                        className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold"
+                        asChild
+                      >
+                        <Link href="/signup" onClick={() => setMobileOpen(false)}>
+                          <Sparkles className="h-3.5 w-3.5 mr-1" /> Sign Up
+                        </Link>
+                      </Button>
+                    )}
                   </>
-                )}
+                ) : null}
               </div>
             </SheetContent>
           </Sheet>
@@ -741,22 +814,30 @@ function NotificationItem({
   title,
   desc,
   time,
+  href,
 }: {
   icon: React.ReactNode;
   title: string;
   desc: string;
   time: string;
+  href?: string;
 }) {
-  return (
-    <div className="px-3 py-2.5 hover:bg-muted/50 cursor-pointer">
-      <div className="flex items-start gap-2.5">
-        <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">{icon}</div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold truncate">{title}</div>
-          <div className="text-xs text-muted-foreground line-clamp-2 leading-snug">{desc}</div>
-          <div className="text-[10px] text-muted-foreground mt-0.5">{time}</div>
-        </div>
+  const inner = (
+    <div className="flex items-start gap-2.5">
+      <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold truncate">{title}</div>
+        <div className="text-xs text-muted-foreground line-clamp-2 leading-snug">{desc}</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">{time}</div>
       </div>
     </div>
   );
+  if (href) {
+    return /^https?:\/\//.test(href) ? (
+      <a href={href} target="_blank" rel="noreferrer noopener" className="block px-3 py-2.5 hover:bg-muted/50 cursor-pointer">{inner}</a>
+    ) : (
+      <Link href={href} className="block px-3 py-2.5 hover:bg-muted/50 cursor-pointer">{inner}</Link>
+    );
+  }
+  return <div className="px-3 py-2.5 hover:bg-muted/50 cursor-pointer">{inner}</div>;
 }

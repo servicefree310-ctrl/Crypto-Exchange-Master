@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Trophy, Crown, Medal, Award, Zap, Target, Users, Calendar, Sparkles, ArrowRight, DollarSign, Clock, Gift, UserCheck } from "lucide-react";
 import { PageHeader } from "@/components/premium/PageHeader";
 import { SectionCard } from "@/components/premium/SectionCard";
@@ -6,8 +7,42 @@ import { StatusPill } from "@/components/premium/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
+import { get } from "@/lib/api";
 
 type LeaderRow = { rank: number; name: string; volume: string; pnl: string; prize: string };
+
+type ApiCompetition = {
+  id: number;
+  title: string;
+  subtitle: string;
+  description: string;
+  status: string;            // upcoming | active | finished
+  startsAt: string;
+  endsAt: string;
+  prizePool: string;
+  prizeUnit: string;
+  joinUrl: string;
+  rewardTiers: { rank: string; prize: string; extra?: string; tone?: string }[];
+};
+
+function fmtDate(iso: string): string {
+  try { return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); } catch { return ""; }
+}
+
+function durationDays(s?: string, e?: string): string {
+  if (!s || !e) return "30 Days";
+  try {
+    const days = Math.max(1, Math.round((new Date(e).getTime() - new Date(s).getTime()) / 86_400_000));
+    return `${days} Days`;
+  } catch { return "30 Days"; }
+}
+
+const DEFAULT_TIERS = [
+  { rank: "🥇 Rank 1",      prize: "5,000 USDT",      extra: "+ Diamond Badge",  tone: "amber"   },
+  { rank: "🥈 Rank 2-3",    prize: "1,500-2,500 USDT", extra: "+ Gold Badge",     tone: "zinc"    },
+  { rank: "🥉 Rank 4-10",   prize: "200-500 USDT",    extra: "+ Silver Badge",   tone: "orange"  },
+  { rank: "🏅 Rank 11-100", prize: "50-100 USDT",     extra: "+ Participant NFT", tone: "emerald" },
+];
 
 const SAMPLE_LEADERBOARD: LeaderRow[] = [
   { rank: 1, name: "Crypto*****Raj",    volume: "$2.4M", pnl: "+184.2%", prize: "5,000 USDT" },
@@ -21,6 +56,36 @@ const SAMPLE_LEADERBOARD: LeaderRow[] = [
 ];
 
 export default function LeaguesPage() {
+  const [comp, setComp] = useState<ApiCompetition | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    get<ApiCompetition[]>("/content/competitions")
+      .then((data) => {
+        if (cancelled || !Array.isArray(data) || !data.length) return;
+        // Backend statuses: upcoming | active | finished
+        const live = data.find((c) => c.status === "active") ?? data.find((c) => c.status === "upcoming") ?? data[0];
+        setComp(live ?? null);
+      })
+      .catch(() => { /* fall back to defaults */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const heroTitle = comp?.title ?? "Zebvix Trading Champions";
+  const heroTagline = comp?.subtitle ?? "Season 1 — May 2026";
+  const heroDescription = comp?.description ?? "30 din ka contest. Highest ROI aur volume wale traders win karenge prize pool ka share. Spot, Futures, Convert — sab counts.";
+  const prizePool = comp?.prizePool && Number(comp.prizePool) > 0
+    ? `${Number(comp.prizePool).toLocaleString("en-IN")} ${comp.prizeUnit || "USDT"}`
+    : "$25,000";
+  const duration = durationDays(comp?.startsAt, comp?.endsAt);
+  const dateRange = comp?.startsAt && comp?.endsAt ? `${fmtDate(comp.startsAt)} → ${fmtDate(comp.endsAt)}` : "May 1 → May 30";
+  const tiers = comp?.rewardTiers && comp.rewardTiers.length > 0 ? comp.rewardTiers : DEFAULT_TIERS;
+  const topPrize = tiers[0]?.prize ?? "5,000 USDT";
+  const statusLabel = comp?.status === "active" ? "Live now"
+    : comp?.status === "upcoming" ? "Starting soon"
+    : comp?.status === "finished" ? "Season ended"
+    : "Season 1 starting soon";
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       <PageHeader
@@ -28,8 +93,8 @@ export default function LeaguesPage() {
         title="Trading Leagues"
         description="Compete karo top traders ke saath, climb karo leaderboard, aur jeeto crypto rewards."
         actions={
-          <StatusPill status="pending" variant="gold">
-            Season 1 starting soon
+          <StatusPill status={comp?.status === "active" ? "active" : "pending"} variant="gold">
+            {statusLabel}
           </StatusPill>
         }
       />
@@ -40,18 +105,26 @@ export default function LeaguesPage() {
         <div className="relative grid grid-cols-1 md:grid-cols-[1fr_auto] gap-6 items-center">
           <div>
             <Badge className="mb-3 bg-amber-500/15 text-amber-400 border-amber-500/30">
-              <Sparkles className="h-3 w-3 mr-1" /> Season 1 — May 2026
+              <Sparkles className="h-3 w-3 mr-1" /> {heroTagline}
             </Badge>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-              Zebvix Trading Champions
+              {heroTitle}
             </h2>
             <p className="text-sm text-muted-foreground mt-2 max-w-xl leading-relaxed">
-              30 din ka contest. Highest ROI aur volume wale traders win karenge prize pool ka share. Spot, Futures, Convert — sab counts.
+              {heroDescription}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold">
-                <Trophy className="h-4 w-4 mr-1.5" /> Join Waitlist
-              </Button>
+              {comp?.joinUrl ? (
+                <Button asChild className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold">
+                  <a href={comp.joinUrl} target={/^https?:\/\//.test(comp.joinUrl) ? "_blank" : undefined} rel="noreferrer noopener">
+                    <Trophy className="h-4 w-4 mr-1.5" /> {comp.status === "active" ? "Join Now" : "Join Waitlist"}
+                  </a>
+                </Button>
+              ) : (
+                <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold">
+                  <Trophy className="h-4 w-4 mr-1.5" /> Join Waitlist
+                </Button>
+              )}
               <Button variant="outline" asChild>
                 <Link href="/markets">Start Trading <ArrowRight className="h-4 w-4 ml-1.5" /></Link>
               </Button>
@@ -70,9 +143,9 @@ export default function LeaguesPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <PremiumStatCard title="Total Prize Pool" value="$25,000" icon={DollarSign} hint="USDT + ZBX rewards" accent />
-        <PremiumStatCard title="Duration" value="30 Days" icon={Clock} hint="May 1 → May 30" />
-        <PremiumStatCard title="Top Prize" value="5,000 USDT" icon={Gift} hint="Rank #1 winner" accent />
+        <PremiumStatCard title="Total Prize Pool" value={prizePool} icon={DollarSign} hint="USDT + ZBX rewards" accent />
+        <PremiumStatCard title="Duration" value={duration} icon={Clock} hint={dateRange} />
+        <PremiumStatCard title="Top Prize" value={topPrize} icon={Gift} hint="Rank #1 winner" accent />
         <PremiumStatCard title="Spots" value="Unlimited" icon={UserCheck} hint="Open to all KYC users" />
       </div>
 
@@ -134,10 +207,9 @@ export default function LeaguesPage() {
           <Trophy className="h-5 w-5 text-amber-400" /> Reward Tiers
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <RewardTier rank="🥇 Rank 1" prize="5,000 USDT" extra="+ Diamond Badge" tone="amber" />
-          <RewardTier rank="🥈 Rank 2-3" prize="1,500-2,500 USDT" extra="+ Gold Badge" tone="zinc" />
-          <RewardTier rank="🥉 Rank 4-10" prize="200-500 USDT" extra="+ Silver Badge" tone="orange" />
-          <RewardTier rank="🏅 Rank 11-100" prize="50-100 USDT" extra="+ Participant NFT" tone="emerald" />
+          {tiers.map((t, i) => (
+            <RewardTier key={i} rank={t.rank} prize={t.prize} extra={t.extra ?? ""} tone={t.tone ?? "amber"} />
+          ))}
         </div>
       </SectionCard>
     </div>

@@ -33,6 +33,11 @@ import OrdersPage from "@/pages/orders";
 import UserAddressesPage from "@/pages/user-addresses";
 import BannersPage from "@/pages/banners";
 import PromotionsPage from "@/pages/promotions";
+import AnnouncementsCmsPage from "@/pages/announcements-cms";
+import NewsCmsPage from "@/pages/news-cms";
+import CompetitionsPage from "@/pages/competitions";
+import NotificationsBroadcastPage from "@/pages/notifications-broadcast";
+import SiteSettingsPage from "@/pages/site-settings";
 import RedisPage from "@/pages/redis";
 import BackendStatusPage from "@/pages/backend-status";
 import NotFound from "@/pages/not-found";
@@ -87,6 +92,11 @@ function Protected() {
         <Route path="/earn" component={EarnPage} />
         <Route path="/banners" component={BannersPage} />
         <Route path="/promotions" component={PromotionsPage} />
+        <Route path="/announcements" component={AnnouncementsCmsPage} />
+        <Route path="/news" component={NewsCmsPage} />
+        <Route path="/competitions" component={CompetitionsPage} />
+        <Route path="/broadcast-notifications" component={NotificationsBroadcastPage} />
+        <Route path="/site-settings" component={SiteSettingsPage} />
         <Route path="/redis" component={RedisPage} />
         <Route path="/legal" component={LegalPage} />
         <Route path="/chat" component={ChatPage} />

@@ -19,6 +19,8 @@ import promoRouter from "./promo";
 import redisAdminRouter from "./redis-admin";
 import supportUserRouter from "./support-user";
 import bicryptoRouter from "./bicrypto";
+import contentRouter from "./content";
+import adminContentRouter from "./admin-content";
 
 const router: IRouter = Router();
 
@@ -51,5 +53,7 @@ router.use(klinesRouter);
 router.use(promoRouter);
 router.use(supportUserRouter);
 router.use("/admin", redisAdminRouter);
+router.use(contentRouter);
+router.use(adminContentRouter);
 
 export default router;

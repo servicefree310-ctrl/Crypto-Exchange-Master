@@ -113,3 +113,88 @@ export const promotionsTable = pgTable("home_promotions", {
 });
 
 export type Promotion = typeof promotionsTable.$inferSelect;
+
+// ── Announcements (product / security / promo / maintenance updates) ──────────
+export const announcementsTable = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  category: text("category").notNull().default("product"), // product|security|maintenance|promotion|listing
+  ctaLabel: text("cta_label").notNull().default(""),
+  ctaUrl: text("cta_url").notNull().default(""),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  isPublished: boolean("is_published").notNull().default(true),
+  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  position: integer("position").notNull().default(0),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+export type Announcement = typeof announcementsTable.$inferSelect;
+
+// ── News (longer-form market / product articles) ──────────────────────────────
+export const newsItemsTable = pgTable("news_items", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  excerpt: text("excerpt").notNull().default(""),
+  body: text("body").notNull().default(""),
+  category: text("category").notNull().default("market"), // market|product|insight|tutorial|press
+  coverImageUrl: text("cover_image_url").notNull().default(""),
+  source: text("source").notNull().default("Zebvix"),
+  sourceUrl: text("source_url").notNull().default(""),
+  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+  isPublished: boolean("is_published").notNull().default(true),
+  isFeatured: boolean("is_featured").notNull().default(false),
+  position: integer("position").notNull().default(0),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+export type NewsItem = typeof newsItemsTable.$inferSelect;
+
+// ── Competitions (Trading Leagues / contests) ─────────────────────────────────
+export const competitionsTable = pgTable("competitions", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  subtitle: text("subtitle").notNull().default(""),
+  description: text("description").notNull().default(""),
+  prizePool: text("prize_pool").notNull().default("0"),
+  prizeUnit: text("prize_unit").notNull().default("USDT"),
+  topPrize: text("top_prize").notNull().default("0"),
+  rewardTiersJson: text("reward_tiers_json").notNull().default("[]"), // [{rank, label, prize}]
+  rulesJson: text("rules_json").notNull().default("[]"),              // ["...", "..."]
+  heroIcon: text("hero_icon").notNull().default("trophy"),
+  heroColor: text("hero_color").notNull().default("#fcd535"),
+  joinUrl: text("join_url").notNull().default(""),
+  scoringRule: text("scoring_rule").notNull().default("roi"), // roi|volume|pnl
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  status: text("status").notNull().default("upcoming"), // upcoming|active|finished
+  isFeatured: boolean("is_featured").notNull().default(false),
+  isPublished: boolean("is_published").notNull().default(true),
+  position: integer("position").notNull().default(0),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+export type Competition = typeof competitionsTable.$inferSelect;
+
+// ── Broadcast notifications (admin → all users, header bell) ──────────────────
+export const broadcastNotificationsTable = pgTable("broadcast_notifications", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  kind: text("kind").notNull().default("info"), // info|success|warning|danger
+  ctaLabel: text("cta_label").notNull().default(""),
+  ctaUrl: text("cta_url").notNull().default(""),
+  audience: text("audience").notNull().default("all"), // all|auth|guest
+  isActive: boolean("is_active").notNull().default(true),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+export type BroadcastNotification = typeof broadcastNotificationsTable.$inferSelect;

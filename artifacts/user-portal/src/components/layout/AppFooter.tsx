@@ -5,69 +5,40 @@ import {
   Github,
   Youtube,
   Instagram,
+  Facebook,
+  Linkedin,
+  MessageCircle,
   Mail,
   Shield,
   Lock,
   Award,
   Globe2,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useSiteConfig, type FooterSocial, type FooterBadge } from "@/lib/siteConfig";
 
-type LinkItem = { label: string; href: string; external?: boolean };
+const SOCIAL_ICONS: Record<string, LucideIcon> = {
+  twitter:   Twitter,
+  telegram:  Send,
+  instagram: Instagram,
+  youtube:   Youtube,
+  github:    Github,
+  facebook:  Facebook,
+  linkedin:  Linkedin,
+  discord:   MessageCircle,
+};
 
-const COLUMNS: { title: string; links: LinkItem[] }[] = [
-  {
-    title: "Products",
-    links: [
-      { label: "Spot trading", href: "/trade" },
-      { label: "Perpetual futures", href: "/futures" },
-      { label: "Markets", href: "/markets" },
-      { label: "Wallet", href: "/wallet" },
-      { label: "Portfolio", href: "/portfolio" },
-    ],
-  },
-  {
-    title: "Company",
-    links: [
-      { label: "About Zebvix", href: "/about" },
-      { label: "Careers", href: "/careers" },
-      { label: "Blog", href: "/blog" },
-      { label: "Press", href: "/press" },
-      { label: "Contact", href: "/contact" },
-    ],
-  },
-  {
-    title: "Support",
-    links: [
-      { label: "Help center", href: "/help" },
-      { label: "Submit a request", href: "/support" },
-      { label: "API documentation", href: "/docs/api" },
-      { label: "Fee schedule", href: "/fees" },
-      { label: "System status", href: "/status" },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
-      { label: "Terms of service", href: "/legal/terms" },
-      { label: "Privacy policy", href: "/legal/privacy" },
-      { label: "Risk disclosure", href: "/legal/risk" },
-      { label: "AML / KYC policy", href: "/legal/aml" },
-      { label: "Cookies", href: "/legal/cookies" },
-    ],
-  },
-];
-
-const SOCIALS: { label: string; href: string; icon: React.ReactNode }[] = [
-  { label: "Twitter", href: "https://twitter.com/", icon: <Twitter className="h-4 w-4" /> },
-  { label: "Telegram", href: "https://telegram.org/", icon: <Send className="h-4 w-4" /> },
-  { label: "Instagram", href: "https://instagram.com/", icon: <Instagram className="h-4 w-4" /> },
-  { label: "YouTube", href: "https://youtube.com/", icon: <Youtube className="h-4 w-4" /> },
-  { label: "GitHub", href: "https://github.com/", icon: <Github className="h-4 w-4" /> },
-];
+const BADGE_ICONS: Record<string, LucideIcon> = {
+  shield: Shield,
+  lock:   Lock,
+  award:  Award,
+};
 
 export function AppFooter() {
+  const { brand, footer } = useSiteConfig();
+
   return (
     <footer className="mt-auto border-t border-border bg-gradient-to-b from-card/40 to-card/80">
       {/* ── Top: Newsletter strip ─────────────────────────────── */}
@@ -105,58 +76,58 @@ export function AppFooter() {
         <div className="md:col-span-4 lg:col-span-4 space-y-4">
           <Link href="/" className="inline-flex items-center gap-2">
             <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 text-black font-extrabold text-lg flex items-center justify-center shadow-lg">
-              Z
+              {brand.name.charAt(0).toUpperCase()}
             </span>
             <span className="text-xl font-extrabold tracking-tight">
-              Zebvix<span className="text-primary">.</span>
+              {brand.name}<span className="text-primary">.</span>
             </span>
           </Link>
           <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-            India's pro-grade crypto exchange — built on its own L1 chain. Spot &amp; perpetual futures,
-            ZBX-20 smart contracts, native DEX &amp; bridge, all powered by Zebvix L1
-            <span className="text-foreground/80"> (chain 7878)</span>.
+            {brand.tagline}
           </p>
 
           {/* Trust badges */}
-          <div className="flex flex-wrap gap-2 pt-2">
-            <TrustBadge icon={<Shield className="h-3 w-3" />} text="ISO 27001" />
-            <TrustBadge icon={<Lock className="h-3 w-3" />} text="SOC 2 Type II" />
-            <TrustBadge icon={<Award className="h-3 w-3" />} text="FIU-IND registered" />
-          </div>
+          {footer.badges.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-2">
+              {footer.badges.map((b) => <TrustBadge key={b.label} badge={b} />)}
+            </div>
+          )}
 
           {/* Socials */}
-          <div className="flex gap-2 pt-3">
-            {SOCIALS.map((s) => (
-              <a
-                key={s.label}
-                href={s.href}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label={s.label}
-                className="h-9 w-9 rounded-lg border border-border bg-background/60 text-muted-foreground hover:text-primary hover:border-primary/50 flex items-center justify-center transition-colors"
-              >
-                {s.icon}
-              </a>
-            ))}
-          </div>
+          {footer.socials.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-3">
+              {footer.socials.map((s) => <SocialLink key={s.label} social={s} />)}
+            </div>
+          )}
         </div>
 
         {/* Link columns */}
         <div className="md:col-span-8 lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-6">
-          {COLUMNS.map((col) => (
+          {footer.columns.map((col) => (
             <div key={col.title}>
               <h4 className="text-xs font-bold uppercase tracking-wider text-foreground/90 mb-3">
                 {col.title}
               </h4>
               <ul className="space-y-2.5">
                 {col.links.map((l) => (
-                  <li key={l.label}>
-                    <Link
-                      href={l.href}
-                      className="text-sm text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      {l.label}
-                    </Link>
+                  <li key={`${col.title}:${l.label}`}>
+                    {l.external || /^https?:\/\//.test(l.href) ? (
+                      <a
+                        href={l.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        {l.label}
+                      </a>
+                    ) : (
+                      <Link
+                        href={l.href}
+                        className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        {l.label}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -166,20 +137,18 @@ export function AppFooter() {
       </div>
 
       {/* ── Risk disclaimer ───────────────────────────────────── */}
-      <div className="border-t border-border/60">
-        <div className="container mx-auto px-4 py-5 text-[11px] leading-relaxed text-muted-foreground">
-          <strong className="text-foreground/90">Risk warning:</strong> Crypto-asset trading is subject to
-          high market risk and price volatility. The value of your investment can go down as well as up,
-          and you may not get back the amount you invested. Trading derivatives such as perpetual futures
-          carries additional risk and can result in the loss of all of your collateral. You are solely
-          responsible for your trading decisions and Zebvix is not liable for any losses you may incur.
+      {footer.riskWarning && (
+        <div className="border-t border-border/60">
+          <div className="container mx-auto px-4 py-5 text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground/90">Risk warning:</strong> {footer.riskWarning}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Bottom strip ──────────────────────────────────────── */}
       <div className="border-t border-border bg-background/60">
         <div className="container mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
-          <div>© {new Date().getFullYear()} Zebvix Technologies Pvt Ltd. All rights reserved.</div>
+          <div>{brand.copyright.replace(/^©\s*/, "© ").replace(/\{year\}/g, String(new Date().getFullYear()))}</div>
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
@@ -196,11 +165,28 @@ export function AppFooter() {
   );
 }
 
-function TrustBadge({ icon, text }: { icon: React.ReactNode; text: string }) {
+function SocialLink({ social }: { social: FooterSocial }) {
+  const Icon = SOCIAL_ICONS[social.kind] ?? Globe2;
+  return (
+    <a
+      href={social.href}
+      target="_blank"
+      rel="noreferrer noopener"
+      aria-label={social.label}
+      title={social.label}
+      className="h-9 w-9 rounded-lg border border-border bg-background/60 text-muted-foreground hover:text-primary hover:border-primary/50 flex items-center justify-center transition-colors"
+    >
+      <Icon className="h-4 w-4" />
+    </a>
+  );
+}
+
+function TrustBadge({ badge }: { badge: FooterBadge }) {
+  const Icon = BADGE_ICONS[badge.kind] ?? Shield;
   return (
     <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border bg-background/40 text-[11px] text-muted-foreground">
-      <span className="text-primary">{icon}</span>
-      {text}
+      <span className="text-primary"><Icon className="h-3 w-3" /></span>
+      {badge.label}
     </span>
   );
 }
