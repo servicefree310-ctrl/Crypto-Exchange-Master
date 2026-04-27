@@ -90,6 +90,24 @@ uri = "file://attached_assets/generated_images/zebvix_logo_v4_lockup.png"
 type = "image"
 title = "zebvix premium lockup v4"
 
+[[generated]]
+id = "59Evkiho-y9esUklk8CUU"
+uri = "file://attached_assets/generated_images/zebvix_logo_v5_refined_mark.png"
+type = "image"
+title = "zebvix refined hex candle Z mark"
+
+[[generated]]
+id = "wzIbaqicncmy7OvGA69R0"
+uri = "file://attached_assets/generated_images/zebvix_logo_v5_refined_lockup.png"
+type = "image"
+title = "zebvix refined full lockup"
+
+[[generated]]
+id = "i8Q3HLq900Ky71OljB8KV"
+uri = "file://attached_assets/generated_images/zebvix_logo_v5_refined_banner.png"
+type = "image"
+title = "zebvix refined banner lockup"
+
 [[outputs]]
 id = "Supekt0-8Z_z3aydNlg2a"
 uri = "file://attached_assets/generated_images/cryptox_logo_icon.png"
@@ -167,3 +185,21 @@ id = "mCidJNBW8P42X5HlND6Op"
 uri = "file://attached_assets/generated_images/zebvix_logo_v4_lockup.png"
 type = "image"
 title = "Zebvix — Premium Brand Lockup (mark + wordmark)"
+
+[[outputs]]
+id = "ETY9ZzWq15p0O0twaCJS9"
+uri = "file://attached_assets/generated_images/zebvix_logo_v5_refined_mark.png"
+type = "image"
+title = "Zebvix — Refined Hex Candle Mark (icon only)"
+
+[[outputs]]
+id = "EOPnYIZmJJqeXs6FfPjKg"
+uri = "file://attached_assets/generated_images/zebvix_logo_v5_refined_lockup.png"
+type = "image"
+title = "Zebvix — Refined Full Lockup (mark + ZEBVIX, square)"
+
+[[outputs]]
+id = "1IoOyv4tb_0bZIeZQ37JE"
+uri = "file://attached_assets/generated_images/zebvix_logo_v5_refined_banner.png"
+type = "image"
+title = "Zebvix — Refined Horizontal Banner (mark + wordmark + tagline)"
