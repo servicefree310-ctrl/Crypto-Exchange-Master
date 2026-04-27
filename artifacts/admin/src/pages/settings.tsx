@@ -1,12 +1,19 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, put } from "@/lib/api";
-import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/premium/PageHeader";
+import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
+import { EmptyState } from "@/components/premium/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState, useMemo, useEffect } from "react";
-import { IndianRupee, Percent, TrendingUp, Users, Crown, Plus, Trash2, RotateCcw } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  IndianRupee, Percent, TrendingUp, Users, Crown, Plus, Trash2, RotateCcw, Settings2, Database,
+  Search, Save, Sparkles,
+} from "lucide-react";
 
 type Setting = { key: string; value: string };
 
@@ -37,116 +44,214 @@ const FEE_KEYS = [
 
 export default function SettingsPage() {
   const qc = useQueryClient();
+  const { toast } = useToast();
   const { data = [] } = useQuery<Setting[]>({ queryKey: ["/admin/settings"], queryFn: () => get<Setting[]>("/admin/settings") });
-  const save = useMutation({ mutationFn: ({ key, value }: { key: string; value: string }) => put(`/admin/settings/${encodeURIComponent(key)}`, { value }), onSuccess: () => qc.invalidateQueries({ queryKey: ["/admin/settings"] }) });
+  const save = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) => put(`/admin/settings/${encodeURIComponent(key)}`, { value }),
+    onSuccess: (_d, vars) => { qc.invalidateQueries({ queryKey: ["/admin/settings"] }); toast({ title: "Saved", description: vars.key }); },
+    onError: (e: any) => toast({ title: "Save failed", description: e?.message, variant: "destructive" }),
+  });
+
   const inrSetting = useMemo(() => data.find(s => s.key === "inr_usdt_rate"), [data]);
   const [inrRate, setInrRate] = useState("");
   useEffect(() => { if (inrSetting && !inrRate) setInrRate(inrSetting.value); }, [inrSetting]); // eslint-disable-line
   const [newKey, setNewKey] = useState("");
   const [newVal, setNewVal] = useState("");
+  const [search, setSearch] = useState("");
 
   const settingsMap = useMemo(() => Object.fromEntries(data.map(s => [s.key, s.value])), [data]);
   const [feeDraft, setFeeDraft] = useState<Record<string, string>>({});
+  // Track the last-seen server value per key so we only re-sync clean fields,
+  // never clobbering a field the user is currently editing.
+  const lastServerRef = useRef<Record<string, string>>({});
   useEffect(() => {
-    const init: Record<string, string> = {};
-    FEE_KEYS.forEach(f => { init[f.key] = settingsMap[f.key] ?? ""; });
-    setFeeDraft(init);
-  }, [data]); // eslint-disable-line
+    setFeeDraft(prev => {
+      const next = { ...prev };
+      FEE_KEYS.forEach(f => {
+        const server = settingsMap[f.key] ?? "";
+        const lastSeen = lastServerRef.current[f.key];
+        const draft = prev[f.key];
+        // First load OR clean (draft still equals previous server value) → sync
+        if (lastSeen === undefined || draft === undefined || draft === lastSeen) {
+          next[f.key] = server;
+        }
+        lastServerRef.current[f.key] = server;
+      });
+      return next;
+    });
+  }, [settingsMap]);
+
+  const stats = useMemo(() => {
+    const total = data.length;
+    const tiers = (() => {
+      const stored = data.find(s => s.key === "fees.vip_tiers")?.value;
+      if (!stored) return DEFAULT_TIERS.length;
+      try { const p = JSON.parse(stored); return Array.isArray(p) ? p.length : DEFAULT_TIERS.length; } catch { return DEFAULT_TIERS.length; }
+    })();
+    const feesConfigured = FEE_KEYS.filter(f => settingsMap[f.key]).length;
+    return { total, tiers, feesConfigured, inr: inrSetting?.value };
+  }, [data, settingsMap, inrSetting]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return data;
+    return data.filter(s => s.key.toLowerCase().includes(q) || (s.value || "").toLowerCase().includes(q));
+  }, [data, search]);
 
   return (
-    <div className="space-y-4">
-      <Card className="p-4 border-primary/40 bg-primary/5">
-        <div className="flex items-center gap-2 mb-2">
-          <IndianRupee className="w-4 h-4 text-primary" />
-          <Label className="text-base font-semibold">INR / USDT Rate (live broadcast)</Label>
-        </div>
-        <div className="text-xs text-muted-foreground mb-3">All app prices use this rate. Changes are pushed to mobile clients within 5s via the price feed.</div>
-        <div className="flex gap-2 items-center">
-          <Input value={inrRate} onChange={(e) => setInrRate(e.target.value)} placeholder="e.g. 84.50" className="max-w-xs" />
-          <Button onClick={() => { if (inrRate) save.mutate({ key: "inr_usdt_rate", value: inrRate }); }} disabled={save.isPending}>Update Rate</Button>
-          {inrSetting && <span className="text-xs text-muted-foreground">Current: ₹{inrSetting.value}</span>}
-        </div>
-      </Card>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="System"
+        title="Settings"
+        description="Platform-wide rates, fees, VIP tiers and arbitrary key/value config consumed by all clients."
+      />
 
-      <Card className="p-4 border-orange-500/40 bg-orange-500/5">
-        <div className="flex items-center gap-2 mb-1">
-          <Percent className="w-4 h-4 text-orange-500" />
-          <Label className="text-base font-semibold">Trading Fees, GST, TDS & Referral Commission</Label>
-        </div>
-        <div className="text-xs text-muted-foreground mb-4">
-          Configure platform-wide fee rates. Mobile app pulls these every load and shows the breakdown to users at order time.
-          GST applies on the trading fee (not trade value). TDS applies on sell value as per Indian crypto regulations.
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {FEE_KEYS.map(f => {
-            const Icon = f.icon;
-            const cur = settingsMap[f.key] ?? "";
-            const draft = feeDraft[f.key] ?? "";
-            const dirty = draft !== cur && draft !== "";
-            return (
-              <div key={f.key} className="rounded-lg border bg-card p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon className="w-3.5 h-3.5 text-orange-500" />
-                  <Label className="text-sm font-semibold">{f.label}</Label>
-                  {cur && <span className="ml-auto text-xs text-muted-foreground">Now: {cur}%</span>}
-                </div>
-                <div className="text-[11px] text-muted-foreground mb-2">{f.hint}</div>
-                <div className="flex gap-2 items-center">
-                  <div className="relative flex-1">
-                    <Input
-                      type="number" step="0.01" min="0"
-                      value={draft}
-                      placeholder={`Default ${f.def}`}
-                      onChange={(e) => setFeeDraft(d => ({ ...d, [f.key]: e.target.value }))}
-                      className="pr-8"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <PremiumStatCard hero title="INR / USDT Rate" value={stats.inr ? `₹${stats.inr}` : "—"} icon={IndianRupee} hint="Live broadcast to clients" />
+        <PremiumStatCard title="Fee Rules" value={`${stats.feesConfigured}/${FEE_KEYS.length}`} icon={Percent} accent />
+        <PremiumStatCard title="VIP Tiers" value={stats.tiers} icon={Crown} />
+        <PremiumStatCard title="Total Settings" value={stats.total} icon={Database} />
+      </div>
+
+      <Tabs defaultValue="rates">
+        <TabsList>
+          <TabsTrigger value="rates">Rates & Fees</TabsTrigger>
+          <TabsTrigger value="vip">VIP Schedule</TabsTrigger>
+          <TabsTrigger value="raw">Raw Settings ({stats.total})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="rates" className="space-y-4 mt-4">
+          <div className="premium-card rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <IndianRupee className="w-4 h-4 text-amber-300" />
+              <Label className="text-base font-semibold">INR / USDT Rate (live broadcast)</Label>
+            </div>
+            <div className="text-xs text-muted-foreground mb-4">
+              All app prices use this rate. Changes are pushed to mobile clients within 5s via the price feed.
+            </div>
+            <div className="flex gap-2 items-center">
+              <Input value={inrRate} onChange={(e) => setInrRate(e.target.value)} placeholder="e.g. 84.50" className="max-w-xs" data-testid="input-inr-rate" />
+              <Button onClick={() => { if (inrRate) save.mutate({ key: "inr_usdt_rate", value: inrRate }); }} disabled={save.isPending} data-testid="button-save-inr-rate">
+                <Save className="w-3.5 h-3.5 mr-1.5" /> Update Rate
+              </Button>
+              {inrSetting && <span className="text-xs text-muted-foreground ml-2">Current: <span className="gold-text font-semibold">₹{inrSetting.value}</span></span>}
+            </div>
+          </div>
+
+          <div className="premium-card rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Percent className="w-4 h-4 text-amber-300" />
+              <Label className="text-base font-semibold">Trading Fees, GST, TDS & Referral Commission</Label>
+            </div>
+            <div className="text-xs text-muted-foreground mb-4">
+              Configure platform-wide fee rates. Mobile app pulls these every load and shows the breakdown to users at order time.
+              GST applies on the trading fee (not trade value). TDS applies on sell value as per Indian crypto regulations.
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {FEE_KEYS.map(f => {
+                const Icon = f.icon;
+                const cur = settingsMap[f.key] ?? "";
+                const draft = feeDraft[f.key] ?? "";
+                const dirty = draft !== cur && draft !== "";
+                return (
+                  <div key={f.key} className="rounded-lg border border-border/60 bg-muted/10 p-3 hover:border-amber-500/30 transition-colors">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Icon className="w-3.5 h-3.5 text-amber-300" />
+                      <Label className="text-sm font-semibold">{f.label}</Label>
+                      {cur && <span className="ml-auto text-xs text-muted-foreground">Now: <span className="font-mono">{cur}%</span></span>}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mb-2">{f.hint}</div>
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1">
+                        <Input
+                          type="number" step="0.01" min="0"
+                          value={draft}
+                          placeholder={`Default ${f.def}`}
+                          onChange={(e) => setFeeDraft(d => ({ ...d, [f.key]: e.target.value }))}
+                          className="pr-8"
+                          aria-label={f.label}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={!dirty || save.isPending}
+                        onClick={() => save.mutate({ key: f.key, value: draft })}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                    {dirty && <div className="text-[10px] text-amber-400 mt-1.5 flex items-center gap-1"><Sparkles className="w-2.5 h-2.5" />Unsaved</div>}
                   </div>
-                  <Button
-                    size="sm"
-                    disabled={!dirty || save.isPending}
-                    onClick={() => save.mutate({ key: f.key, value: draft })}
-                  >
-                    Save
-                  </Button>
-                </div>
+                );
+              })}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="vip" className="mt-4">
+          <VipTierEditor data={data} save={save} />
+        </TabsContent>
+
+        <TabsContent value="raw" className="space-y-4 mt-4">
+          <div className="premium-card rounded-xl p-4">
+            <Label className="text-sm font-semibold mb-2 flex items-center gap-2"><Plus className="w-3.5 h-3.5 text-amber-300" />Add / Update Setting</Label>
+            <div className="flex gap-2">
+              <Input placeholder="Key (e.g. trading.maintenance)" value={newKey} onChange={(e) => setNewKey(e.target.value)} className="font-mono text-xs" />
+              <Input placeholder="Value" value={newVal} onChange={(e) => setNewVal(e.target.value)} />
+              <Button onClick={() => { if (newKey) { save.mutate({ key: newKey, value: newVal }); setNewKey(""); setNewVal(""); } }} disabled={!newKey || save.isPending}>
+                <Save className="w-3.5 h-3.5 mr-1.5" />Save
+              </Button>
+            </div>
+          </div>
+
+          <div className="premium-card rounded-xl">
+            <div className="p-3 border-b border-border/60">
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input className="pl-9 h-9" placeholder="Search keys / values…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      <VipTierEditor data={data} save={save} />
-
-      <Card className="p-4">
-        <Label className="text-sm font-semibold mb-2 block">Add / Update Setting</Label>
-        <div className="flex gap-2">
-          <Input placeholder="Key" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
-          <Input placeholder="Value" value={newVal} onChange={(e) => setNewVal(e.target.value)} />
-          <Button onClick={() => { if (newKey) { save.mutate({ key: newKey, value: newVal }); setNewKey(""); setNewVal(""); } }}>Save</Button>
-        </div>
-      </Card>
-
-      <Card>
-        <Table>
-          <TableHeader><TableRow><TableHead>Key</TableHead><TableHead>Value</TableHead><TableHead></TableHead></TableRow></TableHeader>
-          <TableBody>
-            {data.map((s) => <Row key={s.key} setting={s} onSave={(v) => save.mutate({ key: s.key, value: v })} />)}
-          </TableBody>
-        </Table>
-      </Card>
+            </div>
+            {filtered.length === 0 ? (
+              <EmptyState
+                icon={Database}
+                title={search ? "No matching settings" : "No settings yet"}
+                description={search ? "Try a different search." : "Add a key/value pair above to get started."}
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Key</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead className="w-24"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((s) => <Row key={s.key} setting={s} onSave={(v) => save.mutate({ key: s.key, value: v })} saving={save.isPending} />)}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-function Row({ setting, onSave }: { setting: Setting; onSave: (v: string) => void }) {
+function Row({ setting, onSave, saving }: { setting: Setting; onSave: (v: string) => void; saving?: boolean }) {
   const [v, setV] = useState(setting.value);
   useEffect(() => { setV(setting.value); }, [setting.value]);
+  const dirty = v !== setting.value;
   return (
-    <TableRow>
+    <TableRow className="hover:bg-muted/20">
       <TableCell className="font-mono text-xs">{setting.key}</TableCell>
-      <TableCell><Input value={v} onChange={(e) => setV(e.target.value)} /></TableCell>
-      <TableCell><Button size="sm" onClick={() => onSave(v)}>Save</Button></TableCell>
+      <TableCell><Input value={v} onChange={(e) => setV(e.target.value)} className="h-8" aria-label={`Value for ${setting.key}`} /></TableCell>
+      <TableCell>
+        <Button size="sm" onClick={() => onSave(v)} disabled={!dirty || saving}>
+          <Save className="w-3 h-3 mr-1" /> Save
+        </Button>
+      </TableCell>
     </TableRow>
   );
 }
@@ -207,65 +312,65 @@ function VipTierEditor({ data, save }: { data: Setting[]; save: any }) {
   const fmtVol = (v: number) => v >= 1e6 ? `${(v/1e6).toFixed(v % 1e6 ? 2 : 0)}M` : v >= 1e3 ? `${(v/1e3).toFixed(0)}K` : String(v);
 
   return (
-    <Card className="p-4 border-yellow-500/40 bg-yellow-500/5">
+    <div className="premium-card rounded-xl p-5">
       <div className="flex items-center gap-2 mb-1">
-        <Crown className="w-4 h-4 text-yellow-500" />
+        <Crown className="w-4 h-4 text-amber-300" />
         <Label className="text-base font-semibold">Volume-Based VIP Fee Schedule</Label>
         <span className="ml-auto flex gap-2">
-          <Button size="sm" variant="outline" onClick={reset} title="Reset to defaults">
+          <Button size="sm" variant="outline" onClick={reset} title="Reset to defaults" aria-label="Reset to defaults">
             <RotateCcw className="w-3 h-3 mr-1" /> Reset
           </Button>
           <Button size="sm" onClick={persist} disabled={!dirty || save.isPending}>
-            Save Schedule
+            <Save className="w-3.5 h-3.5 mr-1.5" />Save Schedule
           </Button>
         </span>
       </div>
-      <div className="text-xs text-muted-foreground mb-3">
+      <div className="text-xs text-muted-foreground mb-4">
         Users automatically promoted to higher tier based on 30-day trading volume (USDT). Lower fees + bigger withdraw discount at higher VIP.
-        Fee values are in <span className="font-semibold text-yellow-500">percent</span> (e.g. 0.20 = 0.20%).
+        Fee values are in <span className="font-semibold gold-text">percent</span> (e.g. 0.20 = 0.20%).
       </div>
 
-      <div className="overflow-x-auto rounded-lg border bg-card">
+      <div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40">
               <TableHead className="w-14 text-xs">Lvl</TableHead>
               <TableHead className="w-28 text-xs">Name</TableHead>
               <TableHead className="text-xs">30d Vol ≥ (USDT)</TableHead>
-              <TableHead className="text-xs text-blue-500">Spot Maker %</TableHead>
-              <TableHead className="text-xs text-blue-600">Spot Taker %</TableHead>
-              <TableHead className="text-xs text-orange-500">Fut Maker %</TableHead>
-              <TableHead className="text-xs text-orange-600">Fut Taker %</TableHead>
-              <TableHead className="text-xs text-green-600">Withdraw −%</TableHead>
+              <TableHead className="text-xs text-blue-400">Spot Maker %</TableHead>
+              <TableHead className="text-xs text-blue-500">Spot Taker %</TableHead>
+              <TableHead className="text-xs text-orange-400">Fut Maker %</TableHead>
+              <TableHead className="text-xs text-orange-500">Fut Taker %</TableHead>
+              <TableHead className="text-xs text-emerald-400">Withdraw −%</TableHead>
               <TableHead className="w-10"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {tiers.map((t, idx) => (
               <TableRow key={idx} className="hover:bg-muted/20">
-                <TableCell className="text-center font-mono text-sm font-bold text-yellow-500">{idx}</TableCell>
-                <TableCell><Input className="h-8" value={t.name} onChange={e => updateField(idx, "name", e.target.value)} /></TableCell>
+                <TableCell className="text-center font-mono text-sm font-bold gold-text">{idx}</TableCell>
+                <TableCell><Input className="h-8" value={t.name} onChange={e => updateField(idx, "name", e.target.value)} aria-label={`Tier ${idx} name`} /></TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Input className="h-8 w-32 font-mono text-xs" type="number" min="0" step="1000"
-                      value={t.minVolume} onChange={e => updateField(idx, "minVolume", e.target.value)} />
+                      value={t.minVolume} onChange={e => updateField(idx, "minVolume", e.target.value)} aria-label={`Tier ${idx} min volume`} />
                     <span className="text-[10px] text-muted-foreground w-10">{fmtVol(t.minVolume)}</span>
                   </div>
                 </TableCell>
                 <TableCell><Input className="h-8 w-20" type="number" step="0.001" min="0"
-                  value={t.spotMaker} onChange={e => updateField(idx, "spotMaker", e.target.value)} /></TableCell>
+                  value={t.spotMaker} onChange={e => updateField(idx, "spotMaker", e.target.value)} aria-label={`Tier ${idx} spot maker`} /></TableCell>
                 <TableCell><Input className="h-8 w-20" type="number" step="0.001" min="0"
-                  value={t.spotTaker} onChange={e => updateField(idx, "spotTaker", e.target.value)} /></TableCell>
+                  value={t.spotTaker} onChange={e => updateField(idx, "spotTaker", e.target.value)} aria-label={`Tier ${idx} spot taker`} /></TableCell>
                 <TableCell><Input className="h-8 w-20" type="number" step="0.001" min="0"
-                  value={t.futuresMaker} onChange={e => updateField(idx, "futuresMaker", e.target.value)} /></TableCell>
+                  value={t.futuresMaker} onChange={e => updateField(idx, "futuresMaker", e.target.value)} aria-label={`Tier ${idx} futures maker`} /></TableCell>
                 <TableCell><Input className="h-8 w-20" type="number" step="0.001" min="0"
-                  value={t.futuresTaker} onChange={e => updateField(idx, "futuresTaker", e.target.value)} /></TableCell>
+                  value={t.futuresTaker} onChange={e => updateField(idx, "futuresTaker", e.target.value)} aria-label={`Tier ${idx} futures taker`} /></TableCell>
                 <TableCell><Input className="h-8 w-20" type="number" step="1" min="0" max="100"
-                  value={t.withdrawDiscount} onChange={e => updateField(idx, "withdrawDiscount", e.target.value)} /></TableCell>
+                  value={t.withdrawDiscount} onChange={e => updateField(idx, "withdrawDiscount", e.target.value)} aria-label={`Tier ${idx} withdraw discount`} /></TableCell>
                 <TableCell>
                   {tiers.length > 1 && (
                     <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:bg-destructive/10"
-                      onClick={() => removeTier(idx)}>
+                      onClick={() => removeTier(idx)} aria-label={`Remove tier ${idx}`}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   )}
@@ -280,8 +385,8 @@ function VipTierEditor({ data, save }: { data: Setting[]; save: any }) {
         <Button size="sm" variant="outline" onClick={addTier}>
           <Plus className="w-3.5 h-3.5 mr-1" /> Add Tier
         </Button>
-        {dirty && <span className="text-xs text-yellow-600 font-semibold">⚠ Unsaved changes — click "Save Schedule" to apply</span>}
+        {dirty && <span className="text-xs text-amber-400 font-semibold flex items-center gap-1"><Sparkles className="w-3 h-3" />Unsaved changes — click "Save Schedule" to apply</span>}
       </div>
-    </Card>
+    </div>
   );
 }

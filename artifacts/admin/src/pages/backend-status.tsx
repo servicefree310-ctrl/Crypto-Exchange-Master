@@ -3,7 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckCircle2, XCircle, Lock, Unlock, Loader2, AlertTriangle, Hammer, Server, ChevronDown, ChevronRight, Play, Copy } from "lucide-react";
+import {
+  CheckCircle2, XCircle, Lock, Unlock, Loader2, AlertTriangle, Hammer, Server,
+  ChevronDown, ChevronRight, Play, Copy, RefreshCw, Activity, Search, Layers,
+} from "lucide-react";
+import { PageHeader } from "@/components/premium/PageHeader";
+import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
+import { StatusPill } from "@/components/premium/StatusPill";
 
 type AuthMode = "none" | "user" | "admin" | "optional";
 type Status = "live" | "stub" | "not-implemented" | "deprecated";
@@ -387,63 +393,77 @@ export default function BackendStatusPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Backend Status</h2>
-          <p className="text-sm text-muted-foreground">Saare backend endpoints — kya live hai, kya stub hai, aur auth chahiye ya nahi.</p>
-        </div>
-        <div className="flex gap-2">
-          <Input placeholder="Search path / description…" value={filter} onChange={e => setFilter(e.target.value)} className="md:w-72" />
-          <Button variant="outline" onClick={pingAll}>Re-ping public endpoints</Button>
-        </div>
+      <PageHeader
+        eyebrow="Infrastructure"
+        title="Backend Status"
+        description="Saare backend endpoints — kya live hai, kya stub hai, aur auth chahiye ya nahi. Click any row to inspect live response."
+        actions={
+          <div className="flex gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search path / description…" value={filter} onChange={e => setFilter(e.target.value)} className="md:w-72 pl-9" />
+            </div>
+            <Button variant="outline" onClick={pingAll} data-testid="button-reping-endpoints">
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Re-ping
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <PremiumStatCard hero title="Total Endpoints" value={totals.total} icon={Layers} hint={`${totals.live + totals.stub + totals.ni + totals.dep} total`} />
+        <PremiumStatCard title="Live" value={totals.live} icon={CheckCircle2} accent />
+        <PremiumStatCard title="Stubs" value={totals.stub} icon={Hammer} />
+        <PremiumStatCard title="501 Blocked" value={totals.ni} icon={XCircle} />
+        <PremiumStatCard title="Deprecated" value={totals.dep} icon={AlertTriangle} />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total Endpoints</CardTitle></CardHeader><CardContent className="text-2xl font-bold">{totals.total}</CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Live</CardTitle></CardHeader><CardContent className="text-2xl font-bold text-emerald-600">{totals.live}</CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Stubs</CardTitle></CardHeader><CardContent className="text-2xl font-bold text-amber-600">{totals.stub}</CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">501 Blocked</CardTitle></CardHeader><CardContent className="text-2xl font-bold text-rose-600">{totals.ni}</CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Deprecated</CardTitle></CardHeader><CardContent className="text-2xl font-bold text-slate-500">{totals.dep}</CardContent></Card>
-      </div>
-
-      <div className="space-y-6">
+      <div className="space-y-4">
         {visibleGroups.map(g => (
-          <Card key={g.name}>
-            <CardHeader>
+          <div key={g.name} className="premium-card rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/60 bg-muted/20">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Server className="w-4 h-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2 font-semibold text-sm">
+                    <Server className="w-4 h-4 text-amber-300" />
                     {g.name}
-                    <Badge variant="outline" className="text-xs ml-2">
+                    <Badge variant="outline" className="text-xs ml-1">
                       {g.layer === "node" ? "Node" : g.layer === "go" ? "Go" : "Node + Go"}
                     </Badge>
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">{g.summary}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{g.summary}</p>
                 </div>
                 <div className="text-xs text-muted-foreground whitespace-nowrap">{g.endpoints.length} endpoints</div>
               </div>
-            </CardHeader>
-            <CardContent>
+            </div>
+            <div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="text-xs uppercase text-muted-foreground border-b">
+                  <thead className="text-[11px] uppercase text-muted-foreground border-b border-border/60 bg-muted/10">
                     <tr>
-                      <th className="w-6 py-2"></th>
+                      <th className="w-6 py-2 pl-3"></th>
                       <th className="text-left py-2 pr-3">Method</th>
                       <th className="text-left py-2 pr-3">Path</th>
                       <th className="text-left py-2 pr-3">Description</th>
                       <th className="text-left py-2 pr-3">Auth</th>
                       <th className="text-left py-2 pr-3">Status</th>
-                      <th className="text-left py-2">Live Probe</th>
+                      <th className="text-left py-2 pr-3">Live Probe</th>
                     </tr>
                   </thead>
                   <tbody>
                     {g.endpoints.map(e => {
                       const sm = STATUS_META[e.status];
                       const am = AUTH_META[e.auth];
-                      const SIcon = sm.icon;
-                      const AIcon = am.icon;
+                      const statusVariant: "success" | "warning" | "danger" | "neutral" =
+                        e.status === "live" ? "success"
+                        : e.status === "stub" ? "warning"
+                        : e.status === "not-implemented" ? "danger"
+                        : "neutral";
+                      const authVariant: "success" | "warning" | "info" | "neutral" =
+                        e.auth === "none" ? "success"
+                        : e.auth === "user" ? "info"
+                        : e.auth === "admin" ? "warning"
+                        : "neutral";
                       const key = e.method + " " + e.path;
                       const isOpen = !!expanded[key];
                       const ChevIcon = isOpen ? ChevronDown : ChevronRight;
@@ -453,10 +473,10 @@ export default function BackendStatusPage() {
                       return (
                         <Fragment key={key}>
                           <tr
-                            className="border-b last:border-b-0 hover:bg-muted/30 cursor-pointer"
+                            className="border-b last:border-b-0 border-border/40 hover:bg-muted/20 cursor-pointer transition-colors"
                             onClick={() => void toggleRow(e)}
                           >
-                            <td className="py-2 pl-1">
+                            <td className="py-2 pl-3">
                               <ChevIcon className="w-4 h-4 text-muted-foreground" />
                             </td>
                             <td className="py-2 pr-3">
@@ -465,31 +485,27 @@ export default function BackendStatusPage() {
                             <td className="py-2 pr-3 font-mono text-xs">{e.path}</td>
                             <td className="py-2 pr-3 text-muted-foreground">{e.desc}</td>
                             <td className="py-2 pr-3">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${am.cls}`}>
-                                <AIcon className="w-3 h-3" />{am.label}
-                              </span>
+                              <StatusPill variant={authVariant}>{am.label}</StatusPill>
                             </td>
                             <td className="py-2 pr-3">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${sm.cls}`}>
-                                <SIcon className="w-3 h-3" />{sm.label}
-                              </span>
+                              <StatusPill variant={statusVariant}>{sm.label}</StatusPill>
                             </td>
-                            <td className="py-2 text-xs">
+                            <td className="py-2 pr-3 text-xs">
                               {!e.pingable ? (
                                 <span className="text-muted-foreground/60">—</span>
                               ) : probe === "loading" || !probe ? (
                                 <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
                               ) : "error" in probe ? (
-                                <span className="text-rose-600">net err</span>
+                                <span className="text-rose-400">net err</span>
                               ) : (
-                                <span className={probe.ok ? "text-emerald-600" : "text-rose-600"}>
+                                <span className={probe.ok ? "text-emerald-400" : "text-rose-400"}>
                                   {probe.status} · {probe.ms}ms
                                 </span>
                               )}
                             </td>
                           </tr>
                           {isOpen && (
-                            <tr className="border-b last:border-b-0 bg-muted/20">
+                            <tr className="border-b last:border-b-0 border-border/40 bg-muted/10">
                               <td></td>
                               <td colSpan={6} className="py-3 pr-3">
                                 <div className="space-y-3 text-xs">
@@ -569,21 +585,38 @@ export default function BackendStatusPage() {
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
       </div>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">Legend</CardTitle></CardHeader>
-        <CardContent className="text-sm space-y-2">
-          <div><strong>Live:</strong> Production-ready, persists to DB, contract-stable.</div>
-          <div><strong>Stub:</strong> Returns valid Bicrypto-shaped empty/placeholder data so Flutter UI renders. Backing logic pending.</div>
-          <div><strong>501 Blocked:</strong> Intentionally refuses (security or scope) until proper implementation lands.</div>
-          <div><strong>Deprecated:</strong> Compatibility shim — use the canonical endpoint listed in description.</div>
-          <div className="pt-2"><strong>Auth modes:</strong> Public (no auth), User JWT (Flutter accessToken cookie), Admin Session (legacy cookie session), Optional (works either way).</div>
-        </CardContent>
-      </Card>
+      <div className="premium-card rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-4 h-4 text-amber-300" />
+          <h3 className="text-base font-semibold">Legend</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+          <div className="flex items-start gap-2">
+            <StatusPill variant="success">Live</StatusPill>
+            <span className="text-muted-foreground">Production-ready, persists to DB, contract-stable.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <StatusPill variant="warning">Stub</StatusPill>
+            <span className="text-muted-foreground">Returns valid Bicrypto-shaped empty/placeholder data so Flutter UI renders. Backing logic pending.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <StatusPill variant="danger">501 Blocked</StatusPill>
+            <span className="text-muted-foreground">Intentionally refuses (security or scope) until proper implementation lands.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <StatusPill variant="neutral">Deprecated</StatusPill>
+            <span className="text-muted-foreground">Compatibility shim — use the canonical endpoint listed in description.</span>
+          </div>
+        </div>
+        <div className="mt-3 pt-3 border-t border-border/40 text-xs text-muted-foreground">
+          <strong className="text-foreground">Auth modes:</strong> Public (no auth) · User JWT (Flutter accessToken cookie) · Admin Session (legacy cookie session) · Optional (works either way).
+        </div>
+      </div>
     </div>
   );
 }
