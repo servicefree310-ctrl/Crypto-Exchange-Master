@@ -12,7 +12,11 @@ export const bankAccountsTable = pgTable("bank_accounts", {
   rejectReason: text("reject_reason"),
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   reviewedBy: integer("reviewed_by"),
+  editCount: integer("edit_count").notNull().default(0),
+  nameMatch: text("name_match"),
+  nameMatchScore: integer("name_match_score"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
 export type BankAccount = typeof bankAccountsTable.$inferSelect;

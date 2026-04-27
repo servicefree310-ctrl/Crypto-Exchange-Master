@@ -18,6 +18,7 @@ import {
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { consumeVerifiedOtp } from "./otp";
+import { getBankPolicy } from "./admin";
 
 const router: IRouter = Router();
 
@@ -46,7 +47,10 @@ router.get("/banks", requireAuth, async (req, res): Promise<void> => {
   const rows = await db
     .select()
     .from(bankAccountsTable)
-    .where(eq(bankAccountsTable.userId, req.user!.id))
+    .where(and(
+      eq(bankAccountsTable.userId, req.user!.id),
+      sql`${bankAccountsTable.status} <> 'deleted'`,
+    ))
     .orderBy(desc(bankAccountsTable.createdAt));
   res.json(rows);
 });
@@ -62,37 +66,51 @@ router.post("/banks", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid IFSC code" }); return;
   }
   const acctNorm = String(accountNumber).replace(/\s+/g, "");
+  const policy = await getBankPolicy();
 
   try {
     const created = await db.transaction(async (tx) => {
-      // 1. Block if there's already a verified bank for this user
-      const verified = await tx
-        .select({ id: bankAccountsTable.id })
+      // Per-user advisory lock to serialize concurrent bank mutations
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${BigInt(0xB4E_0000)}, ${userId})`);
+      // 1. Cap on active (non-deleted) banks per user
+      const active = await tx
+        .select({ id: bankAccountsTable.id, status: bankAccountsTable.status })
         .from(bankAccountsTable)
-        .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.status, "verified")))
-        .limit(1);
-      if (verified.length > 0) {
-        const e: any = new Error("You already have a verified bank account. Remove it first to add another.");
+        .where(eq(bankAccountsTable.userId, userId));
+      const activeCount = active.filter((b) => b.status !== "deleted").length;
+      if (activeCount >= policy.maxPerUser) {
+        const e: any = new Error(`You can have at most ${policy.maxPerUser} bank account${policy.maxPerUser === 1 ? "" : "s"}. Remove one first.`);
         e.code = 409; throw e;
       }
-      // 2. Block duplicate account number for same user
+      // 2. Block if there's already a verified bank when limit is 1 (back-compat)
+      if (policy.maxPerUser === 1) {
+        const verified = active.filter((b) => b.status === "verified");
+        if (verified.length > 0) {
+          const e: any = new Error("You already have a verified bank account. Remove it first to add another.");
+          e.code = 409; throw e;
+        }
+      }
+      // 3. Block duplicate account number for same user (active rows)
       const dup = await tx
         .select({ id: bankAccountsTable.id })
         .from(bankAccountsTable)
-        .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.accountNumber, acctNorm)))
+        .where(and(
+          eq(bankAccountsTable.userId, userId),
+          eq(bankAccountsTable.accountNumber, acctNorm),
+          sql`${bankAccountsTable.status} <> 'deleted'`,
+        ))
         .limit(1);
       if (dup.length > 0) {
         const e: any = new Error("This account is already added"); e.code = 409; throw e;
       }
       const [row] = await tx.insert(bankAccountsTable).values({
         userId, bankName: String(bankName), accountNumber: acctNorm, ifsc: ifscNorm,
-        holderName: String(holderName), status: "under_review", isPrimary: true,
+        holderName: String(holderName), status: "under_review", isPrimary: activeCount === 0,
       }).returning();
       return row;
     });
     res.status(201).json(created);
   } catch (e: any) {
-    // unique partial index `bank_accounts_one_verified_per_user` will fire if race condition occurs
     if (e?.code === 409) { res.status(409).json({ error: e.message }); return; }
     if (typeof e?.message === "string" && e.message.includes("bank_accounts_one_verified_per_user")) {
       res.status(409).json({ error: "You already have a verified bank account." }); return;
@@ -101,18 +119,98 @@ router.post("/banks", requireAuth, async (req, res): Promise<void> => {
   }
 });
 
+router.patch("/banks/:id", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "id required" }); return; }
+  const { bankName, accountNumber, ifsc, holderName } = req.body ?? {};
+  const policy = await getBankPolicy();
+  try {
+    const updated = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${BigInt(0xB4E_0000)}, ${userId})`);
+      const [bank] = await tx.select().from(bankAccountsTable)
+        .where(and(eq(bankAccountsTable.id, id), eq(bankAccountsTable.userId, userId))).limit(1);
+      if (!bank) { const e: any = new Error("Bank not found"); e.code = 404; throw e; }
+      if (bank.status === "deleted") { const e: any = new Error("This account has been removed"); e.code = 400; throw e; }
+      if (bank.status === "verified") { const e: any = new Error("Verified bank cannot be edited. Remove it and add a new one."); e.code = 403; throw e; }
+      // Lifetime edit cap (sum across user's banks)
+      const allBanks = await tx.select({ ec: bankAccountsTable.editCount }).from(bankAccountsTable)
+        .where(eq(bankAccountsTable.userId, userId));
+      const totalEdits = allBanks.reduce((s, b) => s + (b.ec ?? 0), 0);
+      if (totalEdits >= policy.maxEdits) {
+        const e: any = new Error(`Edit limit reached (${policy.maxEdits}). Contact support.`); e.code = 429; throw e;
+      }
+      const patch: Record<string, unknown> = {};
+      if (typeof bankName === "string" && bankName.trim()) patch.bankName = bankName.trim();
+      if (typeof holderName === "string" && holderName.trim()) patch.holderName = holderName.trim();
+      if (typeof ifsc === "string") {
+        const ifscNorm = ifsc.toUpperCase();
+        if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscNorm)) {
+          const e: any = new Error("Invalid IFSC code"); e.code = 400; throw e;
+        }
+        patch.ifsc = ifscNorm;
+      }
+      let acctNorm: string | null = null;
+      if (typeof accountNumber === "string") {
+        acctNorm = accountNumber.replace(/\s+/g, "");
+        if (!acctNorm) { const e: any = new Error("Invalid account number"); e.code = 400; throw e; }
+        // Block duplicate against other active rows for same user
+        const dup = await tx.select({ id: bankAccountsTable.id }).from(bankAccountsTable)
+          .where(and(
+            eq(bankAccountsTable.userId, userId),
+            eq(bankAccountsTable.accountNumber, acctNorm),
+            sql`${bankAccountsTable.status} <> 'deleted'`,
+            sql`${bankAccountsTable.id} <> ${id}`,
+          )).limit(1);
+        if (dup.length > 0) { const e: any = new Error("Another bank already uses this account number"); e.code = 409; throw e; }
+        patch.accountNumber = acctNorm;
+      }
+      if (Object.keys(patch).length === 0) {
+        const e: any = new Error("No editable fields provided"); e.code = 400; throw e;
+      }
+      patch.editCount = (bank.editCount ?? 0) + 1;
+      patch.status = "under_review";
+      patch.rejectReason = null;
+      patch.nameMatch = null;
+      patch.nameMatchScore = null;
+      const [row] = await tx.update(bankAccountsTable).set(patch)
+        .where(eq(bankAccountsTable.id, id)).returning();
+      return row;
+    });
+    res.json(updated);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
 router.delete("/banks/:id", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
   const id = Number(req.params.id);
   if (!id) { res.status(400).json({ error: "id required" }); return; }
-  const [bank] = await db
-    .select()
-    .from(bankAccountsTable)
-    .where(and(eq(bankAccountsTable.id, id), eq(bankAccountsTable.userId, userId)))
-    .limit(1);
-  if (!bank) { res.status(404).json({ error: "Bank not found" }); return; }
-  await db.delete(bankAccountsTable).where(eq(bankAccountsTable.id, id));
-  res.json({ ok: true });
+  const policy = await getBankPolicy();
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${BigInt(0xB4E_0000)}, ${userId})`);
+      const [bank] = await tx.select().from(bankAccountsTable)
+        .where(and(eq(bankAccountsTable.id, id), eq(bankAccountsTable.userId, userId))).limit(1);
+      if (!bank) { const e: any = new Error("Bank not found"); e.code = 404; throw e; }
+      if (bank.status === "deleted") { const e: any = new Error("Already removed"); e.code = 400; throw e; }
+      // Lifetime delete cap
+      const removed = await tx.select({ id: bankAccountsTable.id }).from(bankAccountsTable)
+        .where(and(eq(bankAccountsTable.userId, userId), eq(bankAccountsTable.status, "deleted")));
+      if (removed.length >= policy.maxDeletes) {
+        const e: any = new Error(`Delete limit reached (${policy.maxDeletes}). Contact support.`); e.code = 429; throw e;
+      }
+      await tx.update(bankAccountsTable).set({ status: "deleted", isPrimary: false })
+        .where(eq(bankAccountsTable.id, id));
+      return { ok: true, deleteCount: removed.length + 1, maxDeletes: policy.maxDeletes };
+    });
+    res.json(result);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 // ─── Withdrawals (transactional balance lock + debit) ─────────────────────────

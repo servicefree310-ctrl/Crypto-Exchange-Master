@@ -758,27 +758,228 @@ router.patch("/admin/kyc-settings/:level", adminOnly, async (req, res): Promise<
 });
 
 // Bank approvals
+// ─── Bank policy (max banks per user, max edits/deletes) ──────────────────
+const BANK_POLICY_KEY = "bank.policy";
+type BankPolicy = { maxPerUser: number; maxEdits: number; maxDeletes: number };
+const DEFAULT_BANK_POLICY: BankPolicy = { maxPerUser: 1, maxEdits: 3, maxDeletes: 3 };
+
+export async function getBankPolicy(): Promise<BankPolicy> {
+  const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, BANK_POLICY_KEY)).limit(1);
+  if (!row) return { ...DEFAULT_BANK_POLICY };
+  try {
+    const parsed = JSON.parse(row.value) as Partial<BankPolicy>;
+    return {
+      maxPerUser: Math.max(1, Math.min(20, Number(parsed.maxPerUser ?? DEFAULT_BANK_POLICY.maxPerUser))),
+      maxEdits: Math.max(0, Math.min(50, Number(parsed.maxEdits ?? DEFAULT_BANK_POLICY.maxEdits))),
+      maxDeletes: Math.max(0, Math.min(50, Number(parsed.maxDeletes ?? DEFAULT_BANK_POLICY.maxDeletes))),
+    };
+  } catch { return { ...DEFAULT_BANK_POLICY }; }
+}
+
+// Compute a 0-100 similarity score between two name strings.
+// Normalizes (lowercase, strip non-letters, collapse spaces) then uses
+// Levenshtein-based ratio + token-overlap as a tiebreaker.
+function normalizeName(s: string): string {
+  // Unicode-aware: NFKD strip diacritics, keep any letter from any script, collapse spaces
+  const decomposed = s.normalize("NFKD").replace(/\p{M}/gu, "");
+  return decomposed.toLowerCase().replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const dp: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = i - 1;
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+export function nameSimilarity(holder: string | null, kyc: string | null): { score: number; label: "match" | "partial" | "mismatch" | "unknown" } {
+  if (!holder || !kyc) return { score: 0, label: "unknown" };
+  const a = normalizeName(holder);
+  const b = normalizeName(kyc);
+  if (!a || !b) return { score: 0, label: "unknown" };
+  const dist = levenshtein(a, b);
+  const editScore = Math.max(0, Math.round(100 * (1 - dist / Math.max(a.length, b.length))));
+  const at = new Set(a.split(" ").filter(Boolean));
+  const bt = new Set(b.split(" ").filter(Boolean));
+  const inter = [...at].filter((x) => bt.has(x)).length;
+  const tokenScore = at.size && bt.size ? Math.round((100 * (2 * inter)) / (at.size + bt.size)) : 0;
+  const score = Math.max(editScore, tokenScore);
+  const label: "match" | "partial" | "mismatch" =
+    score >= 90 ? "match" : score >= 60 ? "partial" : "mismatch";
+  return { score, label };
+}
+
+async function latestKycName(userId: number): Promise<string | null> {
+  const rows = await db.select().from(kycRecordsTable)
+    .where(and(eq(kycRecordsTable.userId, userId), eq(kycRecordsTable.status, "approved")))
+    .orderBy(desc(kycRecordsTable.level), desc(kycRecordsTable.reviewedAt))
+    .limit(1);
+  return rows[0]?.fullName ?? null;
+}
+
+// GET banks (extended) — includes user info and live KYC name match
 router.get("/admin/banks", supportPlus, async (req, res): Promise<void> => {
   const status = (req.query.status as string) || null;
   const rows = status
     ? await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.status, status)).orderBy(desc(bankAccountsTable.createdAt))
     : await db.select().from(bankAccountsTable).orderBy(desc(bankAccountsTable.createdAt));
-  res.json(rows);
+  if (rows.length === 0) { res.json([]); return; }
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = await db.select().from(usersTable).where(or(...userIds.map((id) => eq(usersTable.id, id))));
+  const userMap = new Map(users.map((u) => [u.id, u]));
+  const kycRows = await db.select().from(kycRecordsTable)
+    .where(and(eq(kycRecordsTable.status, "approved"), or(...userIds.map((id) => eq(kycRecordsTable.userId, id)))))
+    .orderBy(desc(kycRecordsTable.level));
+  const kycByUser = new Map<number, string>();
+  for (const k of kycRows) {
+    if (k.fullName && !kycByUser.has(k.userId)) kycByUser.set(k.userId, k.fullName);
+  }
+  const enriched = rows.map((b) => {
+    const u = userMap.get(b.userId);
+    const kycName = kycByUser.get(b.userId) ?? null;
+    const sim = nameSimilarity(b.holderName, kycName);
+    return {
+      ...b,
+      user: u ? { id: u.id, uid: u.uid, email: u.email, name: u.name, kycLevel: u.kycLevel, status: u.status, bankEditCount: 0, bankDeleteCount: 0 } : null,
+      kycName,
+      nameMatchLive: sim.label,
+      nameMatchScoreLive: sim.score,
+    };
+  });
+  res.json(enriched);
 });
+
+// Stats
+router.get("/admin/banks/stats", supportPlus, async (_req, res): Promise<void> => {
+  const all = await db.select().from(bankAccountsTable);
+  let pending = 0, verified = 0, rejected = 0;
+  for (const b of all) {
+    if (b.status === "verified") verified++;
+    else if (b.status === "rejected") rejected++;
+    else if (b.status === "deleted") continue;
+    else pending++;
+  }
+  // Compute mismatches over all banks (using stored or live)
+  const userIds = [...new Set(all.map((r) => r.userId))];
+  let mismatches = 0;
+  if (userIds.length > 0) {
+    const kycRows = await db.select().from(kycRecordsTable)
+      .where(and(eq(kycRecordsTable.status, "approved"), or(...userIds.map((id) => eq(kycRecordsTable.userId, id)))))
+      .orderBy(desc(kycRecordsTable.level));
+    const kycByUser = new Map<number, string>();
+    for (const k of kycRows) {
+      if (k.fullName && !kycByUser.has(k.userId)) kycByUser.set(k.userId, k.fullName);
+    }
+    for (const b of all) {
+      const sim = nameSimilarity(b.holderName, kycByUser.get(b.userId) ?? null);
+      if (sim.label === "mismatch") mismatches++;
+    }
+  }
+  res.json({ total: all.length, pending, verified, rejected, mismatches });
+});
+
+// Policy
+router.get("/admin/banks/policy", supportPlus, async (_req, res): Promise<void> => {
+  res.json(await getBankPolicy());
+});
+router.put("/admin/banks/policy", adminOnly, async (req, res): Promise<void> => {
+  const b = req.body ?? {};
+  const next: BankPolicy = {
+    maxPerUser: Math.max(1, Math.min(20, Number(b.maxPerUser ?? DEFAULT_BANK_POLICY.maxPerUser))),
+    maxEdits: Math.max(0, Math.min(50, Number(b.maxEdits ?? DEFAULT_BANK_POLICY.maxEdits))),
+    maxDeletes: Math.max(0, Math.min(50, Number(b.maxDeletes ?? DEFAULT_BANK_POLICY.maxDeletes))),
+  };
+  const value = JSON.stringify(next);
+  const existing = await db.select().from(settingsTable).where(eq(settingsTable.key, BANK_POLICY_KEY)).limit(1);
+  if (existing.length === 0) {
+    await db.insert(settingsTable).values({ key: BANK_POLICY_KEY, value });
+  } else {
+    await db.update(settingsTable).set({ value }).where(eq(settingsTable.key, BANK_POLICY_KEY));
+  }
+  res.json(next);
+});
+
+// Patch (verify/reject) — also persists computed name-match snapshot on verify
 router.patch("/admin/banks/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   const { status, rejectReason } = req.body ?? {};
   if (!["verified", "rejected", "under_review"].includes(status)) {
     res.status(400).json({ error: "Invalid status" }); return;
   }
-  const [b] = await db.update(bankAccountsTable).set({
-    status,
-    rejectReason: rejectReason ?? null,
-    reviewedBy: req.user!.id,
-    verifiedAt: status === "verified" ? new Date() : null,
-  }).where(eq(bankAccountsTable.id, id)).returning();
+  const [existing] = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  let nameMatch: string | null = existing.nameMatch;
+  let nameMatchScore: number | null = existing.nameMatchScore;
+  if (status === "verified") {
+    const kycName = await latestKycName(existing.userId);
+    const sim = nameSimilarity(existing.holderName, kycName);
+    nameMatch = sim.label;
+    nameMatchScore = sim.score;
+  }
+  try {
+    const [b] = await db.update(bankAccountsTable).set({
+      status,
+      rejectReason: rejectReason ?? null,
+      reviewedBy: req.user!.id,
+      verifiedAt: status === "verified" ? new Date() : null,
+      nameMatch,
+      nameMatchScore,
+    }).where(eq(bankAccountsTable.id, id)).returning();
+    res.json(b);
+  } catch (e: any) {
+    if (typeof e?.message === "string" && e.message.includes("bank_accounts_one_verified_per_user")) {
+      res.status(409).json({ error: "User already has another verified bank account. Reject or remove it before verifying this one." });
+      return;
+    }
+    throw e;
+  }
+});
+
+// Re-check name match against user's latest approved KYC (writes moderation fields → admin only)
+router.post("/admin/banks/:id/recheck-name", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const [b] = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.id, id)).limit(1);
   if (!b) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(b);
+  const kycName = await latestKycName(b.userId);
+  const sim = nameSimilarity(b.holderName, kycName);
+  const [updated] = await db.update(bankAccountsTable).set({
+    nameMatch: sim.label, nameMatchScore: sim.score,
+  }).where(eq(bankAccountsTable.id, id)).returning();
+  res.json({ kycName, holderName: b.holderName, ...sim, record: updated });
+});
+
+// Full dossier for a single bank: bank + user + all banks of user + KYC name
+router.get("/admin/banks/:id/full", supportPlus, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const [bank] = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.id, id)).limit(1);
+  if (!bank) { res.status(404).json({ error: "Not found" }); return; }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, bank.userId)).limit(1);
+  const allBanks = await db.select().from(bankAccountsTable)
+    .where(eq(bankAccountsTable.userId, bank.userId)).orderBy(desc(bankAccountsTable.createdAt));
+  const kycName = await latestKycName(bank.userId);
+  const sim = nameSimilarity(bank.holderName, kycName);
+  const policy = await getBankPolicy();
+  res.json({
+    bank,
+    user: user ? sanitizeUser(user) : null,
+    kycName,
+    nameMatch: sim,
+    allBanks,
+    policy,
+    counters: {
+      banks: allBanks.length,
+      verifiedBanks: allBanks.filter((b) => b.status === "verified").length,
+      totalEdits: allBanks.reduce((s, b) => s + (b.editCount ?? 0), 0),
+    },
+  });
 });
 
 // INR deposits/withdrawals approval
