@@ -6,13 +6,20 @@ type User = {
   email: string;
   fullName: string;
   name?: string;
-  phone?: string;
+  phone?: string | null;
   role: string;
   kycLevel?: number;
   vipTier?: number;
   referralCode?: string;
+  referredBy?: number | null;
   status?: string;
   twoFaEnabled?: boolean;
+  uid?: string;
+  avatarUrl?: string | null;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
+  lastLoginAt?: string | null;
+  createdAt?: string;
 };
 
 type AuthContextType = {

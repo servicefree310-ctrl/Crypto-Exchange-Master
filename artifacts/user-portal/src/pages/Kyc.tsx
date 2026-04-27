@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Shield, BadgeCheck, Lock, Clock, CheckCircle2, XCircle, AlertCircle,
   Loader2, Upload, FileText, User as UserIcon, Camera, MapPin, Calendar,
-  Hash, ArrowRight, Info, IdCard,
+  Hash, ArrowRight, Info, IdCard, Mail, Phone, Crown, Gift, KeyRound,
+  Copy, Check, Fingerprint, ShieldCheck, ShieldOff, TrendingUp,
 } from "lucide-react";
 import { get, post, ApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -18,6 +19,11 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { toast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/premium/PageHeader";
+import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
+import { SectionCard } from "@/components/premium/SectionCard";
+import { StatusPill } from "@/components/premium/StatusPill";
+import { Link } from "wouter";
 
 type KycSetting = {
   level: number;
@@ -76,6 +82,44 @@ function fmtINR(n: number) {
   return `₹${n}`;
 }
 
+function fmtDate(s: string | null | undefined): string {
+  if (!s) return "—";
+  try {
+    return new Date(s).toLocaleDateString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function fmtDateTime(s: string | null | undefined): string {
+  if (!s) return "—";
+  try {
+    const d = new Date(s);
+    return d.toLocaleString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function maskPhone(p: string | null | undefined): string {
+  if (!p) return "—";
+  if (p.length < 6) return p;
+  return p.slice(0, 3) + "•••••" + p.slice(-2);
+}
+
+function maskEmail(e: string | null | undefined): string {
+  if (!e) return "—";
+  const [u, d] = e.split("@");
+  if (!u || !d) return e;
+  if (u.length <= 2) return e;
+  return u.slice(0, 2) + "•••" + "@" + d;
+}
+
 export default function Kyc() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -92,7 +136,7 @@ export default function Kyc() {
 
   const [submitFor, setSubmitFor] = useState<number | null>(null);
 
-  const currentLevel = (user as any)?.kycLevel ?? 0;
+  const currentLevel = user?.kycLevel ?? 0;
 
   // Latest record per level (sorted desc by createdAt — first occurrence is latest)
   const latestByLevel = useMemo(() => {
@@ -107,28 +151,193 @@ export default function Kyc() {
   const settings = settingsQ.data ?? [];
   const sorted = [...settings].sort((a, b) => a.level - b.level);
 
+  // Limits unlocked at the user's *current* level (used for KPI tiles).
+  const currentSettings = useMemo(
+    () => sorted.find((s) => s.level === currentLevel),
+    [sorted, currentLevel],
+  );
+
+  // Verification roll-up — what counts as "fully verified" for the badge
+  // and for the Status KPI tile. We treat L1+ + email-verified as the
+  // baseline; full = L3 + email + phone + 2FA.
+  const verification = useMemo(() => {
+    const emailOk = !!user?.emailVerified;
+    const phoneOk = !!user?.phoneVerified;
+    const twoFaOk = !!user?.twoFaEnabled;
+    const kycFull = currentLevel >= 3;
+    if (kycFull && emailOk && phoneOk && twoFaOk) return { label: "Fully Verified", variant: "success" as const };
+    if (currentLevel >= 1 && emailOk) return { label: "Verified", variant: "success" as const };
+    if (currentLevel >= 1) return { label: "Partial", variant: "warning" as const };
+    return { label: "Unverified", variant: "danger" as const };
+  }, [currentLevel, user?.emailVerified, user?.phoneVerified, user?.twoFaEnabled]);
+
   return (
     <div className="container mx-auto max-w-6xl p-4 sm:p-6 space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
-            <Shield className="h-6 w-6 text-amber-400" /> KYC Verification
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Verify your identity to unlock higher limits and more features.
-          </p>
-        </div>
-        <Badge className="bg-emerald-500/15 text-emerald-400 border-transparent text-sm font-bold uppercase px-3 py-1.5" data-testid="badge-current-level">
-          <BadgeCheck className="h-4 w-4 mr-1" /> Current: Level {currentLevel}
-        </Badge>
+      <PageHeader
+        eyebrow="Compliance"
+        title="KYC Verification"
+        description="Apni identity verify karke higher limits aur extra features unlock karein."
+        actions={
+          <StatusPill variant={currentLevel >= 3 ? "gold" : currentLevel >= 1 ? "success" : "warning"}>
+            <BadgeCheck className="h-3 w-3 mr-0.5" /> Level {currentLevel} / 3
+          </StatusPill>
+        }
+      />
+
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kyc-kpis">
+        <PremiumStatCard
+          title="Verification"
+          value={verification.label}
+          icon={verification.variant === "success" ? ShieldCheck : ShieldOff}
+          accent={verification.variant === "success"}
+          hint={`${currentLevel}/3 levels`}
+        />
+        <PremiumStatCard
+          title="Daily Withdraw"
+          value={currentSettings ? fmtINR(Number(currentSettings.withdrawLimit)) : "—"}
+          icon={TrendingUp}
+          hint={currentLevel === 0 ? "Submit L1 to unlock" : `Level ${currentLevel} limit`}
+        />
+        <PremiumStatCard
+          title="Daily Trade"
+          value={currentSettings ? fmtINR(Number(currentSettings.tradeLimit)) : "—"}
+          icon={TrendingUp}
+          hint={currentLevel === 0 ? "Submit L1 to unlock" : `Level ${currentLevel} limit`}
+        />
+        <PremiumStatCard
+          title="VIP Tier"
+          value={user?.vipTier ? `VIP ${user.vipTier}` : "Standard"}
+          icon={Crown}
+          accent={!!user?.vipTier}
+          hint={user?.vipTier ? "Premium fee tier" : "Trade more to upgrade"}
+        />
       </div>
 
+      {/* Account Details — show user info from /auth/me */}
+      <SectionCard
+        title="Account Details"
+        description="Aapki current account information aur verification status."
+        icon={UserIcon}
+      >
+        <div className="flex flex-col sm:flex-row gap-5">
+          {/* Avatar + identity */}
+          <div className="flex items-center gap-4 sm:w-72 shrink-0">
+            <Avatar user={user} />
+            <div className="min-w-0">
+              <div className="font-semibold text-base truncate" data-testid="account-name">
+                {user?.name || user?.fullName || "—"}
+              </div>
+              <div className="text-xs text-muted-foreground truncate">
+                UID: <span className="font-mono">{user?.uid ?? user?.id ?? "—"}</span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                <StatusPill status={user?.status || "active"} />
+                {user?.role && user.role !== "user" && (
+                  <StatusPill variant="gold">{user.role.toUpperCase()}</StatusPill>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Separator orientation="vertical" className="hidden sm:block h-auto" />
+          <Separator className="sm:hidden" />
+
+          {/* Field grid */}
+          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <DetailField
+              icon={Mail}
+              label="Email"
+              value={maskEmail(user?.email)}
+              testId="account-email"
+              trailing={
+                user?.emailVerified
+                  ? <StatusPill variant="success">Verified</StatusPill>
+                  : <StatusPill variant="warning">Unverified</StatusPill>
+              }
+            />
+            <DetailField
+              icon={Phone}
+              label="Phone"
+              value={user?.phone ? maskPhone(user.phone) : "Not added"}
+              testId="account-phone"
+              trailing={
+                user?.phoneVerified
+                  ? <StatusPill variant="success">Verified</StatusPill>
+                  : user?.phone
+                    ? <StatusPill variant="warning">Unverified</StatusPill>
+                    : null
+              }
+            />
+            <DetailField
+              icon={KeyRound}
+              label="Two-Factor Auth"
+              value={user?.twoFaEnabled ? "Enabled" : "Disabled"}
+              testId="account-2fa"
+              trailing={
+                user?.twoFaEnabled
+                  ? <StatusPill variant="success">Active</StatusPill>
+                  : (
+                    <Link href="/settings">
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-amber-400 hover:text-amber-300">
+                        Enable
+                      </Button>
+                    </Link>
+                  )
+              }
+            />
+            <DetailField
+              icon={Fingerprint}
+              label="KYC Level"
+              value={`Level ${currentLevel}${currentLevel ? ` · ${LEVEL_META[currentLevel]?.name ?? ""}` : " · Unverified"}`}
+              testId="account-kyc"
+              trailing={
+                currentLevel >= 3
+                  ? <StatusPill variant="gold">Full</StatusPill>
+                  : currentLevel >= 1
+                    ? <StatusPill variant="success">L{currentLevel}</StatusPill>
+                    : <StatusPill variant="warning">L0</StatusPill>
+              }
+            />
+            <DetailField
+              icon={Calendar}
+              label="Member Since"
+              value={fmtDate(user?.createdAt)}
+              testId="account-created"
+            />
+            <DetailField
+              icon={Clock}
+              label="Last Login"
+              value={fmtDateTime(user?.lastLoginAt)}
+              testId="account-last-login"
+            />
+            <DetailField
+              icon={Gift}
+              label="Referral Code"
+              value={user?.referralCode || "—"}
+              mono
+              testId="account-ref"
+              trailing={
+                user?.referralCode
+                  ? <CopyButton value={user.referralCode} />
+                  : null
+              }
+            />
+            <DetailField
+              icon={Crown}
+              label="VIP Tier"
+              value={user?.vipTier ? `VIP ${user.vipTier}` : "Standard"}
+              testId="account-vip"
+            />
+          </div>
+        </div>
+      </SectionCard>
+
       {/* Progress bar */}
-      <Card className="p-5">
+      <Card className="p-5" data-testid="kyc-progress">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Verification progress</span>
-          <span className="text-xs text-muted-foreground">{currentLevel} / 3 levels</span>
+          <span className="text-xs text-muted-foreground tabular-nums">{currentLevel} / 3 levels</span>
         </div>
         <div className="relative h-2 bg-muted rounded-full overflow-hidden">
           <div
@@ -172,7 +381,7 @@ export default function Kyc() {
                 <div className={`h-10 w-10 rounded-lg bg-card/60 flex items-center justify-center`}>
                   <Icon className="h-5 w-5" />
                 </div>
-                <StatusBadge status={status} />
+                <LevelStatusBadge status={status} />
               </div>
 
               <h3 className="font-bold text-lg">Level {s.level} · {meta.name}</h3>
@@ -241,8 +450,7 @@ export default function Kyc() {
 
       {/* Submission history */}
       {(myKycQ.data?.length ?? 0) > 0 && (
-        <Card className="p-5">
-          <h2 className="font-semibold mb-3 flex items-center gap-2"><FileText className="h-4 w-4" /> Submission history</h2>
+        <SectionCard title="Submission history" icon={FileText}>
           <div className="space-y-2">
             {(myKycQ.data ?? []).map((r) => (
               <div key={r.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-muted/30 border border-border/40 text-sm" data-testid={`record-${r.id}`}>
@@ -256,13 +464,11 @@ export default function Kyc() {
                     </div>
                   </div>
                 </div>
-                {r.status === "approved" && <Badge className="bg-emerald-500/15 text-emerald-400 border-transparent text-[10px]">APPROVED</Badge>}
-                {r.status === "pending" && <Badge className="bg-amber-500/15 text-amber-400 border-transparent text-[10px]">PENDING</Badge>}
-                {r.status === "rejected" && <Badge className="bg-rose-500/15 text-rose-400 border-transparent text-[10px]">REJECTED</Badge>}
+                <StatusPill status={r.status} />
               </div>
             ))}
           </div>
-        </Card>
+        </SectionCard>
       )}
 
       {/* Helper */}
@@ -270,12 +476,12 @@ export default function Kyc() {
         <div className="flex items-start gap-3">
           <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
           <div className="text-xs text-muted-foreground leading-relaxed">
-            <p className="font-medium text-foreground mb-1">How it works</p>
+            <p className="font-medium text-foreground mb-1">Kaise kaam karta hai</p>
             <ul className="space-y-0.5 list-disc list-inside marker:text-muted-foreground/40">
-              <li>Submissions are usually reviewed within <span className="text-foreground">24 hours</span>.</li>
-              <li>Use clear, well-lit photos of your original documents — no screenshots.</li>
-              <li>Information must match your bank account name to allow withdrawals.</li>
-              <li>You can re-submit if a level is rejected with a reason from our team.</li>
+              <li>Submission usually <span className="text-foreground">24 hours</span> mein review ho jaati hai.</li>
+              <li>Original documents ki clear, well-lit photo upload karein — screenshots na lein.</li>
+              <li>Information aapke bank account name se match honi chahiye taaki withdrawals chal sakein.</li>
+              <li>Reject hone par hum reason batayenge aur aap dobara submit kar sakte hain.</li>
             </ul>
           </div>
         </div>
@@ -293,8 +499,80 @@ export default function Kyc() {
   );
 }
 
-// ───────────────── Status badge ─────────────────
-function StatusBadge({ status }: { status: "achieved" | "pending" | "rejected" | "available" | "locked" }) {
+// ───────────────── Account-detail field row ─────────────────
+function DetailField({
+  icon: Icon, label, value, trailing, mono, testId,
+}: {
+  icon: any; label: string; value: string; trailing?: React.ReactNode; mono?: boolean; testId?: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 min-w-0" data-testid={testId}>
+      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className={`text-sm truncate ${mono ? "font-mono" : ""}`}>{value}</div>
+      </div>
+      {trailing && <div className="flex-shrink-0">{trailing}</div>}
+    </div>
+  );
+}
+
+// ───────────────── Avatar (initials fallback) ─────────────────
+function Avatar({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
+  if (user?.avatarUrl) {
+    return (
+      <img
+        src={user.avatarUrl}
+        alt={user.name || user.email}
+        className="h-14 w-14 rounded-full object-cover border border-border/60"
+      />
+    );
+  }
+  const seed = (user?.name || user?.fullName || user?.email || "?").trim();
+  const initials = seed
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "?";
+  return (
+    <div className="h-14 w-14 rounded-full bg-gradient-to-br from-amber-500/30 to-orange-500/20 border border-amber-500/30 flex items-center justify-center text-amber-300 font-bold text-lg">
+      {initials}
+    </div>
+  );
+}
+
+// ───────────────── Copy-to-clipboard button ─────────────────
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast({ title: "Copied to clipboard" });
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast({ title: "Copy failed", variant: "destructive" });
+    }
+  };
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      onClick={onCopy}
+      className="h-6 px-2 text-[11px]"
+      data-testid="copy-referral"
+    >
+      {copied ? <Check className="h-3 w-3 mr-1 text-emerald-400" /> : <Copy className="h-3 w-3 mr-1" />}
+      {copied ? "Copied" : "Copy"}
+    </Button>
+  );
+}
+
+// ───────────────── Level status badge ─────────────────
+function LevelStatusBadge({ status }: { status: "achieved" | "pending" | "rejected" | "available" | "locked" }) {
   const map: Record<string, { label: string; cls: string; Icon: any }> = {
     achieved: { label: "Approved", cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", Icon: CheckCircle2 },
     pending: { label: "Pending", cls: "bg-amber-500/15 text-amber-400 border-amber-500/30", Icon: Clock },
