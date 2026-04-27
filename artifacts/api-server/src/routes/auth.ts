@@ -118,6 +118,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
   await db.insert(loginLogsTable).values({ userId: user.id, email, ip, userAgent: ua, success: "true" });
+  await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
   const token = await createSession(user.id, req);
   res.cookie(SESSION_COOKIE, token, COOKIE_OPTS);
   res.json({ user: sanitizeUser(user) });

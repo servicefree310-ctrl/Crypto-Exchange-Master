@@ -4,7 +4,7 @@ import {
   db, coinsTable, pairsTable, fundingRatesTable, adminApiKeysTable,
   usersTable, kycRecordsTable, walletsTable, sessionsTable,
   inrDepositsTable, cryptoDepositsTable, inrWithdrawalsTable, cryptoWithdrawalsTable,
-  futuresPositionsTable,
+  futuresPositionsTable, loginLogsTable, ordersTable,
 } from "@workspace/db";
 void sql;
 import { requireAuth } from "../middlewares/auth";
@@ -49,7 +49,7 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const { passwordHash, ...safe } = user;
-  const [kyc, wallets, sessions, inrDeps, cryDeps, inrWds, cryWds, futPos] = await Promise.all([
+  const [kyc, wallets, sessions, inrDeps, cryDeps, inrWds, cryWds, futPos, logins, orderStats] = await Promise.all([
     db.select().from(kycRecordsTable).where(eq(kycRecordsTable.userId, id)).orderBy(desc(kycRecordsTable.createdAt)),
     db.select().from(walletsTable).where(eq(walletsTable.userId, id)),
     db.select({ id: sessionsTable.id, createdAt: sessionsTable.createdAt, expiresAt: sessionsTable.expiresAt, ip: sessionsTable.ip, userAgent: sessionsTable.userAgent }).from(sessionsTable).where(eq(sessionsTable.userId, id)).orderBy(desc(sessionsTable.createdAt)).limit(20),
@@ -70,6 +70,17 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
       .where(and(eq(futuresPositionsTable.userId, id), eq(futuresPositionsTable.status, "open")))
       .orderBy(desc(futuresPositionsTable.openedAt))
       .limit(50),
+    db.select({
+      id: loginLogsTable.id, ip: loginLogsTable.ip, userAgent: loginLogsTable.userAgent,
+      success: loginLogsTable.success, reason: loginLogsTable.reason, createdAt: loginLogsTable.createdAt,
+    })
+      .from(loginLogsTable).where(eq(loginLogsTable.userId, id))
+      .orderBy(desc(loginLogsTable.createdAt)).limit(15),
+    db.select({
+      total: sql<number>`count(*)::int`,
+      filled: sql<number>`count(*) filter (where ${ordersTable.status} = 'filled')::int`,
+      open: sql<number>`count(*) filter (where ${ordersTable.status} in ('open','partial'))::int`,
+    }).from(ordersTable).where(eq(ordersTable.userId, id)),
   ]);
   res.json({
     user: safe,
@@ -77,9 +88,18 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
       twoFaEnabled: user.twoFaEnabled,
       activeSessions: sessions.length,
       lastSessionAt: sessions[0]?.createdAt ?? null,
+      emailVerified: user.emailVerified,
+      phoneVerified: user.phoneVerified,
+      lastLoginAt: user.lastLoginAt,
+    },
+    stats: {
+      orders: orderStats[0] ?? { total: 0, filled: 0, open: 0 },
+      inrDepositCount: inrDeps.length,
+      cryptoDepositCount: cryDeps.length,
+      walletCount: wallets.length,
     },
     kyc, wallets, sessions, inrDeposits: inrDeps, cryptoDeposits: cryDeps, inrWithdrawals: inrWds, cryptoWithdrawals: cryWds,
-    futuresPositions: futPos,
+    futuresPositions: futPos, loginLogs: logins,
   });
 });
 
@@ -87,7 +107,7 @@ router.get("/admin/users/:id/full", requireAuth, supportPlus, async (req, res): 
 router.patch("/admin/users/:id/full", requireAuth, adminOnly, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   const allowed: Record<string, unknown> = {};
-  for (const k of ["role", "status", "kycLevel", "vipTier", "name", "phone", "email", "twoFaEnabled"]) {
+  for (const k of ["role", "status", "kycLevel", "vipTier", "name", "phone", "email", "twoFaEnabled", "emailVerified", "phoneVerified"]) {
     if (k in (req.body ?? {})) allowed[k] = req.body[k];
   }
   if (Object.keys(allowed).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
@@ -95,6 +115,24 @@ router.patch("/admin/users/:id/full", requireAuth, adminOnly, async (req, res): 
   if (!u) { res.status(404).json({ error: "User not found" }); return; }
   const { passwordHash, ...safe } = u;
   res.json(safe);
+});
+
+// Admin: toggle email/phone verified flag
+router.post("/admin/users/:id/verify", requireAuth, adminOnly, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  const channel = String(req.body?.channel ?? "");
+  const value = req.body?.value !== false;
+  if (channel !== "email" && channel !== "phone") {
+    res.status(400).json({ error: "channel must be 'email' or 'phone'" });
+    return;
+  }
+  const set: Record<string, unknown> =
+    channel === "email" ? { emailVerified: value } : { phoneVerified: value };
+  const [u] = await db.update(usersTable).set(set).where(eq(usersTable.id, id)).returning();
+  if (!u) { res.status(404).json({ error: "User not found" }); return; }
+  const { passwordHash, ...safe } = u;
+  res.json({ ok: true, user: safe });
 });
 
 // ─── Admin: funding rates ─────────────────────────────────────────────────────
