@@ -25,6 +25,16 @@ import {
   ArrowLeftRight,
   Globe,
   Check,
+  ChevronDown,
+  Calculator as CalculatorIcon,
+  GitCompare,
+  LineChart,
+  Repeat,
+  Megaphone,
+  Trophy,
+  Wrench,
+  Compass,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -90,6 +100,49 @@ const navItems: NavItem[] = [
 const userNavItems: NavItem[] = [
   { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l) => l === "/wallet", priority: 2 },
 ];
+
+type MoreItem = {
+  href: string;
+  label: string;
+  desc: string;
+  icon: LucideIcon;
+  badge?: string;
+};
+type MoreSection = { id: string; label: string; icon: LucideIcon; items: MoreItem[] };
+
+const MORE_MENU: MoreSection[] = [
+  {
+    id: "tools",
+    label: "Tools",
+    icon: Wrench,
+    items: [
+      { href: "/tools/calculator",  label: "Calculator",         desc: "Quickly calculate crypto values and returns", icon: CalculatorIcon },
+      { href: "/tools/compare",     label: "Crypto Compare",     desc: "Compare cryptos across prices and metrics",   icon: GitCompare },
+      { href: "/tools/predictions", label: "Price Predictions",  desc: "Explore potential future crypto price trends", icon: LineChart },
+      { href: "/tools/converter",   label: "Currency Converter", desc: "Convert values between crypto and fiat",      icon: Repeat },
+    ],
+  },
+  {
+    id: "promotion",
+    label: "Promotion",
+    icon: Gift,
+    items: [
+      { href: "/announcements", label: "Announcement", desc: "Stay updated with the latest news and updates", icon: Megaphone },
+    ],
+  },
+  {
+    id: "explore",
+    label: "Explore",
+    icon: Compass,
+    items: [
+      { href: "/leagues", label: "Leagues", desc: "Compete and earn rewards in crypto trading contests", icon: Trophy, badge: "NEW" },
+    ],
+  },
+];
+
+function isMoreActive(loc: string): boolean {
+  return MORE_MENU.some((s) => s.items.some((it) => loc.startsWith(it.href)));
+}
 
 export function AppHeader() {
   const { user, logout } = useAuth();
@@ -245,6 +298,75 @@ export function AppHeader() {
                 </Link>
               );
             })}
+
+            {/* "More" mega menu — Tools / Promotion / Explore */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={`relative inline-flex items-center gap-1 px-2 xl:px-3 h-9 rounded-md font-medium whitespace-nowrap transition-colors ${
+                    isMoreActive(location)
+                      ? "text-primary bg-primary/10"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                  aria-label="More menu"
+                >
+                  More
+                  <ChevronDown className="h-3.5 w-3.5" />
+                  {isMoreActive(location) && (
+                    <span className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[420px] p-0">
+                <div className="grid grid-cols-1 divide-y divide-border">
+                  {MORE_MENU.map((section) => {
+                    const SectionIcon = section.icon;
+                    return (
+                      <div key={section.id} className="p-2">
+                        <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-400">
+                          <SectionIcon className="h-3 w-3" />
+                          {section.label}
+                        </div>
+                        <div className="space-y-0.5">
+                          {section.items.map((item) => {
+                            const ItemIcon = item.icon;
+                            const active = location.startsWith(item.href);
+                            return (
+                              <DropdownMenuItem key={item.href} asChild>
+                                <Link
+                                  href={item.href}
+                                  className={`flex items-start gap-3 px-2 py-2 rounded-md cursor-pointer ${
+                                    active ? "bg-primary/10" : ""
+                                  }`}
+                                >
+                                  <div className="h-9 w-9 rounded-lg bg-muted/60 border border-border flex items-center justify-center flex-shrink-0">
+                                    <ItemIcon className="h-4 w-4 text-amber-400" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-sm font-semibold text-foreground">{item.label}</span>
+                                      {item.badge && (
+                                        <Badge className="h-4 px-1.5 text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                                          {item.badge}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                                      {item.desc}
+                                    </p>
+                                  </div>
+                                </Link>
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </nav>
         </div>
 
@@ -530,6 +652,41 @@ export function AppHeader() {
                         </Badge>
                       )}
                     </Link>
+                  );
+                })}
+
+                {/* Tools / Promotion / Explore sections */}
+                {MORE_MENU.map((section) => {
+                  const SectionIcon = section.icon;
+                  return (
+                    <div key={section.id} className="pt-4">
+                      <div className="px-3 pb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-400">
+                        <SectionIcon className="h-3 w-3" />
+                        {section.label}
+                      </div>
+                      {section.items.map((item) => {
+                        const ItemIcon = item.icon;
+                        const active = location.startsWith(item.href);
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setMobileOpen(false)}
+                            className={`flex items-center gap-3 px-3 h-11 rounded-lg text-sm font-medium transition-colors ${
+                              active ? "bg-primary/15 text-primary" : "text-foreground hover:bg-muted/50"
+                            }`}
+                          >
+                            <ItemIcon className="h-4 w-4" />
+                            <span className="flex-1 truncate">{item.label}</span>
+                            {item.badge && (
+                              <Badge className="h-4 px-1.5 text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                                {item.badge}
+                              </Badge>
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
                   );
                 })}
               </nav>

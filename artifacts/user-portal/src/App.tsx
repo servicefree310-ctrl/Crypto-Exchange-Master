@@ -38,6 +38,12 @@ import Help from "@/pages/Help";
 import Status from "@/pages/Status";
 import P2P from "@/pages/P2P";
 import Convert from "@/pages/Convert";
+import Calculator from "@/pages/tools/Calculator";
+import Converter from "@/pages/tools/Converter";
+import Compare from "@/pages/tools/Compare";
+import Predictions from "@/pages/tools/Predictions";
+import Announcements from "@/pages/Announcements";
+import Leagues from "@/pages/Leagues";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -106,6 +112,13 @@ function App() {
                 <Route path="/status" component={Status} />
                 <Route path="/p2p" component={P2P} />
                 <Route path="/convert" component={Convert} />
+
+                <Route path="/tools/calculator" component={Calculator} />
+                <Route path="/tools/converter" component={Converter} />
+                <Route path="/tools/compare" component={Compare} />
+                <Route path="/tools/predictions" component={Predictions} />
+                <Route path="/announcements" component={Announcements} />
+                <Route path="/leagues" component={Leagues} />
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />

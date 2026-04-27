@@ -53,6 +53,7 @@ The project is structured as a pnpm workspace monorepo, leveraging Node.js 24 an
 - **Admin Fund Endpoint:** `adminOnly` API for atomically funding user wallets with audit trails.
 - **Bicrypto v5 Adapter:** Provides Flutter-shaped endpoints for various functionalities, including auth with Proof-of-Work.
 - **Go Service Skeleton:** Established for performance-critical services like the matching engine.
+- **User-portal "More" Mega-Menu:** Header dropdown groups three discovery sections — Tools (Calculator, Currency Converter, Crypto Compare, Price Predictions), Promotion (Announcements), and Explore (Trading Leagues). Same grouping rendered in the mobile drawer. All six pages are public and use the premium pattern (`PageHeader`, `SectionCard`, `PremiumStatCard`, `StatusPill`); Predictions clamps projected prices to a sane band and explicitly carries a "NOT financial advice" disclaimer.
 
 # External Dependencies
 
