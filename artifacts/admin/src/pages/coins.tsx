@@ -1,157 +1,728 @@
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, post, patch, del } from "@/lib/api";
-import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/premium/PageHeader";
+import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
+import { StatusPill } from "@/components/premium/StatusPill";
+import { EmptyState } from "@/components/premium/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Pencil, Search } from "lucide-react";
-import { useState, useMemo } from "react";
-import { useAuth } from "@/lib/auth";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import {
+  Coins as CoinsIcon, Plus, Pencil, Trash2, Search, RefreshCw, ListChecks,
+  Eye, EyeOff, TrendingUp, TrendingDown, Activity, Sparkles, Calendar, Link2,
+  Image as ImageIcon, FileText, Hash, Tag, Layers, Zap, Loader2,
+  CircleDollarSign, AlertTriangle,
+} from "lucide-react";
 
 type Coin = {
   id: number; symbol: string; name: string; type: string; decimals: number;
   logoUrl: string | null; description: string | null; status: string; isListed: boolean;
   listingAt: string | null; currentPrice: string; change24h: string;
-  binanceSymbol: string | null; priceSource: string; manualPrice: string | null; infoUrl: string | null;
+  binanceSymbol: string | null; priceSource: string; manualPrice: string | null;
+  infoUrl: string | null; marketCapRank: number | null;
+  createdAt?: string; updatedAt?: string;
 };
 
-function CoinForm({ initial, onSubmit }: { initial?: Partial<Coin>; onSubmit: (v: Partial<Coin>) => void }) {
-  const [v, setV] = useState<Partial<Coin>>(initial || { type: "crypto", decimals: 8, status: "active", isListed: true, currentPrice: "0", priceSource: "binance" });
+const COIN_GRADIENTS = [
+  "from-orange-500 to-amber-500",
+  "from-blue-500 to-cyan-500",
+  "from-violet-500 to-fuchsia-500",
+  "from-emerald-500 to-teal-500",
+  "from-rose-500 to-pink-500",
+  "from-indigo-500 to-blue-500",
+  "from-yellow-500 to-orange-500",
+  "from-sky-500 to-blue-500",
+];
+
+function coinGradient(symbol: string): string {
+  let h = 0;
+  for (let i = 0; i < symbol.length; i++) h = (h * 31 + symbol.charCodeAt(i)) >>> 0;
+  return COIN_GRADIENTS[h % COIN_GRADIENTS.length];
+}
+
+function CoinAvatar({ coin, size = 9 }: { coin: Pick<Coin, "symbol" | "logoUrl">; size?: number }) {
+  const [errored, setErrored] = useState(false);
+  const px = `w-${size} h-${size}`;
+  if (coin.logoUrl && !errored) {
+    return (
+      <img
+        src={coin.logoUrl}
+        alt={coin.symbol}
+        className={cn(px, "rounded-full bg-muted/30 object-cover ring-1 ring-border/60")}
+        onError={() => setErrored(true)}
+      />
+    );
+  }
   return (
-    <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
-      <div className="grid grid-cols-2 gap-3">
-        <div><Label>Symbol</Label><Input value={v.symbol || ""} onChange={(e) => setV({ ...v, symbol: e.target.value.toUpperCase() })} /></div>
-        <div><Label>Name</Label><Input value={v.name || ""} onChange={(e) => setV({ ...v, name: e.target.value })} /></div>
-        <div><Label>Type</Label>
-          <Select value={v.type || "crypto"} onValueChange={(t) => setV({ ...v, type: t })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="crypto">Crypto</SelectItem><SelectItem value="fiat">Fiat</SelectItem></SelectContent>
-          </Select>
-        </div>
-        <div><Label>Decimals</Label><Input type="number" value={v.decimals ?? 8} onChange={(e) => setV({ ...v, decimals: Number(e.target.value) })} /></div>
-        <div><Label>Price Source</Label>
-          <Select value={v.priceSource || "binance"} onValueChange={(t) => setV({ ...v, priceSource: t })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="binance">Live (CoinGecko/Binance)</SelectItem>
-              <SelectItem value="manual">Manual</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div><Label>Binance Symbol (override)</Label><Input placeholder="e.g. BTCUSDT" value={v.binanceSymbol || ""} onChange={(e) => setV({ ...v, binanceSymbol: e.target.value.toUpperCase() })} /></div>
-        <div><Label>Manual Price (USDT)</Label><Input value={v.manualPrice || ""} placeholder="only when source = manual" onChange={(e) => setV({ ...v, manualPrice: e.target.value })} /></div>
-        <div><Label>Current Price (USDT)</Label><Input value={v.currentPrice || "0"} onChange={(e) => setV({ ...v, currentPrice: e.target.value })} /></div>
-        <div><Label>24h Change %</Label><Input value={v.change24h || "0"} onChange={(e) => setV({ ...v, change24h: e.target.value })} /></div>
-        <div><Label>Status</Label>
-          <Select value={v.status || "active"} onValueChange={(t) => setV({ ...v, status: t })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="paused">Paused</SelectItem>
-              <SelectItem value="delisted">Delisted</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-2"><Label>Logo URL</Label><Input value={v.logoUrl || ""} onChange={(e) => setV({ ...v, logoUrl: e.target.value })} /></div>
-        <div className="col-span-2"><Label>Info URL</Label><Input value={v.infoUrl || ""} onChange={(e) => setV({ ...v, infoUrl: e.target.value })} /></div>
-        <div className="col-span-2"><Label>Description</Label>
-          <textarea className="w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[80px]" value={v.description || ""} onChange={(e) => setV({ ...v, description: e.target.value })} />
-        </div>
-        <div><Label>Listing At (countdown)</Label><Input type="datetime-local" value={v.listingAt ? new Date(v.listingAt).toISOString().slice(0,16) : ""} onChange={(e) => setV({ ...v, listingAt: e.target.value || null })} /></div>
-        <div className="flex items-center gap-2 mt-6">
-          <Switch checked={v.isListed ?? true} onCheckedChange={(c) => setV({ ...v, isListed: c })} />
-          <Label>Listed (visible to users)</Label>
-        </div>
-      </div>
-      <Button className="w-full" onClick={() => onSubmit(v)}>Save</Button>
+    <div
+      className={cn(
+        px,
+        "rounded-full bg-gradient-to-br flex items-center justify-center text-white font-bold ring-1 ring-white/15 shadow-md",
+        coinGradient(coin.symbol),
+        size <= 8 ? "text-[10px]" : "text-xs",
+      )}
+    >
+      {coin.symbol.slice(0, 3)}
     </div>
   );
 }
 
+function fmtPrice(v: string | number, decimals = 6): string {
+  const n = typeof v === "string" ? Number(v) : v;
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  if (n >= 1) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return n.toLocaleString("en-US", { maximumFractionDigits: decimals, minimumFractionDigits: 2 });
+}
+
+function relTime(s: string | null | undefined): string {
+  if (!s) return "—";
+  const t = new Date(s).getTime();
+  if (!Number.isFinite(t)) return "—";
+  const diff = t - Date.now();
+  const abs = Math.abs(diff);
+  const m = Math.round(abs / 60000);
+  const h = Math.round(abs / 3600000);
+  const d = Math.round(abs / 86400000);
+  const txt = m < 60 ? `${m}m` : h < 48 ? `${h}h` : `${d}d`;
+  return diff > 0 ? `in ${txt}` : `${txt} ago`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 export default function CoinsPage() {
   const { user: me } = useAuth();
   const qc = useQueryClient();
+  const { toast } = useToast();
   const isAdmin = me?.role === "admin" || me?.role === "superadmin";
+
+  const [tab, setTab] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const { data = [], isLoading } = useQuery<Coin[]>({ queryKey: ["/admin/coins"], queryFn: () => get<Coin[]>("/admin/coins") });
-  const create = useMutation({ mutationFn: (v: Partial<Coin>) => post("/admin/coins", v), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/admin/coins"] }); setOpen(false); } });
-  const update = useMutation({ mutationFn: ({ id, v }: { id: number; v: Partial<Coin> }) => patch(`/admin/coins/${id}`, v), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/admin/coins"] }); setEdit(null); } });
-  const remove = useMutation({ mutationFn: (id: number) => del(`/admin/coins/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["/admin/coins"] }) });
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Coin | null>(null);
+  const [deleteFor, setDeleteFor] = useState<Coin | null>(null);
+
+  const { data = [], isLoading, refetch, isFetching } = useQuery<Coin[]>({
+    queryKey: ["/admin/coins"],
+    queryFn: () => get<Coin[]>("/admin/coins"),
+  });
+
+  const create = useMutation({
+    mutationFn: (v: Partial<Coin>) => post("/admin/coins", v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/admin/coins"] });
+      setOpen(false);
+      toast({ title: "Coin added" });
+    },
+    onError: (e: Error) => toast({ title: "Add failed", description: e.message, variant: "destructive" }),
+  });
+  const update = useMutation({
+    mutationFn: ({ id, v }: { id: number; v: Partial<Coin> }) => patch(`/admin/coins/${id}`, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/admin/coins"] });
+      setEdit(null);
+      toast({ title: "Coin updated" });
+    },
+    onError: (e: Error) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+  });
+  const quickToggle = useMutation({
+    mutationFn: ({ id, v }: { id: number; v: Partial<Coin> }) => patch(`/admin/coins/${id}`, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/admin/coins"] }),
+    onError: (e: Error) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => del(`/admin/coins/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/admin/coins"] });
+      setDeleteFor(null);
+      toast({ title: "Coin removed" });
+    },
+    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
+
+  // Stats from in-memory data
+  const stats = useMemo(() => {
+    const total = data.length;
+    const listed = data.filter((c) => c.isListed).length;
+    const active = data.filter((c) => c.status === "active").length;
+    const manual = data.filter((c) => c.priceSource === "manual").length;
+    const upcoming = data.filter((c) => c.listingAt && new Date(c.listingAt).getTime() > Date.now()).length;
+    const gainers = data.filter((c) => Number(c.change24h) > 0).length;
+    const losers = data.filter((c) => Number(c.change24h) < 0).length;
+    const sorted = [...data].sort((a, b) => Number(b.change24h) - Number(a.change24h));
+    const topGainer = sorted[0];
+    const topLoser = sorted[sorted.length - 1];
+    return { total, listed, active, manual, upcoming, gainers, losers, topGainer, topLoser };
+  }, [data]);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return data;
-    return data.filter(c => c.symbol.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
-  }, [data, search]);
+    const q = search.trim().toLowerCase();
+    return data.filter((c) => {
+      if (tab === "listed" && !c.isListed) return false;
+      if (tab === "unlisted" && c.isListed) return false;
+      if (tab === "manual" && c.priceSource !== "manual") return false;
+      if (tab === "upcoming") {
+        if (!c.listingAt || new Date(c.listingAt).getTime() <= Date.now()) return false;
+      }
+      if (tab === "paused" && c.status !== "paused") return false;
+      if (!q) return true;
+      const fields = [c.symbol, c.name, c.binanceSymbol ?? "", c.type, String(c.id)]
+        .join(" ").toLowerCase();
+      return fields.includes(q);
+    });
+  }, [data, tab, search]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center gap-3">
-        <div className="relative max-w-sm flex-1">
-          <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
-          <Input placeholder="Search symbol or name…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
-        </div>
-        <div className="text-sm text-muted-foreground">{filtered.length}/{data.length} coins</div>
-        {isAdmin && (
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild><Button><Plus className="w-4 h-4 mr-1" /> Add Coin</Button></DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader><DialogTitle>Add coin</DialogTitle></DialogHeader>
-              <CoinForm onSubmit={(v) => create.mutate(v)} />
-            </DialogContent>
-          </Dialog>
-        )}
-      </div>
-      <Card>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Symbol</TableHead><TableHead>Name</TableHead><TableHead>Source</TableHead>
-                <TableHead>Price (USDT)</TableHead><TableHead>24h%</TableHead><TableHead>Listed</TableHead>
-                <TableHead>Status</TableHead><TableHead>Listing</TableHead>{isAdmin && <TableHead></TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={9} className="text-center py-6">Loading…</TableCell></TableRow>}
-              {filtered.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-bold">{c.symbol}</TableCell>
-                  <TableCell>{c.name}</TableCell>
-                  <TableCell><Badge variant={c.priceSource === "manual" ? "secondary" : "outline"}>{c.priceSource}</Badge></TableCell>
-                  <TableCell className="tabular-nums">${Number(c.currentPrice).toLocaleString("en-US", { maximumFractionDigits: 6 })}</TableCell>
-                  <TableCell className={Number(c.change24h) >= 0 ? "text-green-500" : "text-red-500"}>{Number(c.change24h).toFixed(2)}%</TableCell>
-                  <TableCell>{c.isListed ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
-                  <TableCell><Badge variant={c.status === "active" ? "default" : "secondary"}>{c.status}</Badge></TableCell>
-                  <TableCell className="text-xs">{c.listingAt ? new Date(c.listingAt).toLocaleString("en-IN") : "—"}</TableCell>
-                  {isAdmin && (
-                    <TableCell className="text-right space-x-1">
-                      <Button size="icon" variant="ghost" onClick={() => setEdit(c)}><Pencil className="w-4 h-4" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete ${c.symbol}?`)) remove.mutate(c.id); }}><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Markets"
+        title="Coins & Tokens"
+        description="Listed assets ko manage karein — pricing source, listing schedule, visibility aur status sab ek jagah."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              data-testid="button-refresh-coins"
+            >
+              <RefreshCw className={cn("w-4 h-4 mr-1.5", isFetching && "animate-spin")} />
+              Refresh
+            </Button>
+            {isAdmin && (
+              <Button onClick={() => setOpen(true)} data-testid="button-add-coin">
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Coin
+              </Button>
+            )}
+          </>
+        }
+      />
 
-      {edit && (
-        <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>Edit {edit.symbol}</DialogTitle></DialogHeader>
-            <CoinForm initial={edit} onSubmit={(v) => update.mutate({ id: edit.id, v })} />
-          </DialogContent>
-        </Dialog>
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
+        <PremiumStatCard
+          title="Total Coins" value={stats.total} icon={CoinsIcon} hero
+          hint={`${stats.listed} listed`}
+        />
+        <PremiumStatCard
+          title="Active" value={stats.active} icon={Activity}
+          hint={`${stats.total - stats.active} paused/delisted`}
+        />
+        <PremiumStatCard
+          title="Listed" value={stats.listed} icon={Eye}
+          hint={`${stats.total - stats.listed} hidden`}
+        />
+        <PremiumStatCard
+          title="Manual Pricing" value={stats.manual} icon={Sparkles}
+          hint={`${stats.total - stats.manual} live`}
+        />
+        <PremiumStatCard
+          title="Gainers (24h)" value={stats.gainers} icon={TrendingUp}
+          hint={stats.topGainer ? `${stats.topGainer.symbol} ${Number(stats.topGainer.change24h).toFixed(2)}%` : "—"}
+        />
+        <PremiumStatCard
+          title="Upcoming" value={stats.upcoming} icon={Calendar}
+          hint="Scheduled listings"
+        />
+      </div>
+
+      {/* Tabs + Search */}
+      <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+        <Tabs value={tab} onValueChange={setTab} className="w-full md:w-auto">
+          <TabsList className="overflow-x-auto">
+            <TabsTrigger value="all" data-testid="tab-coins-all">All <span className="ml-1.5 text-xs text-muted-foreground">{data.length}</span></TabsTrigger>
+            <TabsTrigger value="listed" data-testid="tab-coins-listed">Listed <span className="ml-1.5 text-xs text-muted-foreground">{stats.listed}</span></TabsTrigger>
+            <TabsTrigger value="unlisted" data-testid="tab-coins-unlisted">Unlisted <span className="ml-1.5 text-xs text-muted-foreground">{stats.total - stats.listed}</span></TabsTrigger>
+            <TabsTrigger value="manual" data-testid="tab-coins-manual">Manual <span className="ml-1.5 text-xs text-muted-foreground">{stats.manual}</span></TabsTrigger>
+            <TabsTrigger value="upcoming" data-testid="tab-coins-upcoming">Upcoming <span className="ml-1.5 text-xs text-muted-foreground">{stats.upcoming}</span></TabsTrigger>
+            <TabsTrigger value="paused" data-testid="tab-coins-paused">Paused</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="relative md:w-80">
+          <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
+          <Input
+            placeholder="Search symbol, name, binance pair…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8"
+            data-testid="input-search-coins"
+          />
+        </div>
+      </div>
+
+      {/* Premium table */}
+      <div className="premium-card rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="text-left font-medium px-4 py-3">Coin</th>
+                <th className="text-left font-medium px-4 py-3">Source</th>
+                <th className="text-right font-medium px-4 py-3">Price (USDT)</th>
+                <th className="text-right font-medium px-4 py-3">24h %</th>
+                <th className="text-center font-medium px-4 py-3">Listed</th>
+                <th className="text-left font-medium px-4 py-3">Status</th>
+                <th className="text-left font-medium px-4 py-3">Listing</th>
+                {isAdmin && <th className="text-right font-medium px-4 py-3 pr-5">Actions</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {isLoading && (
+                <>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i}>
+                      <td className="px-4 py-3" colSpan={isAdmin ? 8 : 7}>
+                        <Skeleton className="h-9 w-full" />
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              )}
+              {!isLoading && filtered.length === 0 && (
+                <tr>
+                  <td className="px-4 py-3" colSpan={isAdmin ? 8 : 7}>
+                    <EmptyState
+                      icon={CoinsIcon}
+                      title="No coins found"
+                      description={search ? "Apna search query change karke try karein." : "Pehla coin add karke shuruwat karein."}
+                      action={isAdmin && !search ? (
+                        <Button onClick={() => setOpen(true)} size="sm">
+                          <Plus className="w-4 h-4 mr-1.5" />Add Coin
+                        </Button>
+                      ) : undefined}
+                    />
+                  </td>
+                </tr>
+              )}
+              {!isLoading && filtered.map((c) => {
+                const change = Number(c.change24h);
+                const up = change >= 0;
+                const isUpcoming = c.listingAt && new Date(c.listingAt).getTime() > Date.now();
+                return (
+                  <tr key={c.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-coin-${c.symbol}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <CoinAvatar coin={c} size={9} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">{c.symbol}</span>
+                            <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground border border-border/60">
+                              {c.type}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[180px]">{c.name}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.priceSource === "manual" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30">
+                          <Sparkles className="w-3 h-3" />Manual
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                          <Zap className="w-3 h-3" />Live{c.binanceSymbol ? ` · ${c.binanceSymbol}` : ""}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium">
+                      ${fmtPrice(c.currentPrice)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={cn(
+                        "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-medium tabular-nums text-xs",
+                        up ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400",
+                      )}>
+                        {up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                        {change.toFixed(2)}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Switch
+                        checked={c.isListed}
+                        disabled={!isAdmin || quickToggle.isPending}
+                        onCheckedChange={(v) => quickToggle.mutate({ id: c.id, v: { isListed: v } })}
+                        data-testid={`switch-listed-${c.symbol}`}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusPill status={c.status} />
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {c.listingAt ? (
+                        <span className={cn("inline-flex items-center gap-1", isUpcoming && "text-amber-300 font-medium")}>
+                          <Calendar className="w-3 h-3" />
+                          {relTime(c.listingAt)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3 pr-4 text-right whitespace-nowrap">
+                        <Button
+                          size="sm" variant="ghost"
+                          onClick={() => setEdit(c)}
+                          data-testid={`button-edit-${c.symbol}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5 mr-1" />Edit
+                        </Button>
+                        <Button
+                          size="icon" variant="ghost"
+                          onClick={() => setDeleteFor(c)}
+                          data-testid={`button-delete-${c.symbol}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
+          <div>{filtered.length} of {data.length} coins</div>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {stats.gainers} up</span>
+            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /> {stats.losers} down</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Add coin */}
+      {isAdmin && (
+        <CoinFormDialog
+          open={open}
+          onOpenChange={setOpen}
+          title="Add new coin"
+          description="Symbol, pricing source aur listing details set karein."
+          submitLabel="Add coin"
+          submitting={create.isPending}
+          onSubmit={(v) => create.mutate(v)}
+        />
       )}
+
+      {/* Edit coin */}
+      {isAdmin && edit && (
+        <CoinFormDialog
+          open={!!edit}
+          onOpenChange={(o) => { if (!o) setEdit(null); }}
+          title={`Edit ${edit.symbol}`}
+          description="Coin details update karein. Changes turant live ho jayenge."
+          submitLabel="Save changes"
+          submitting={update.isPending}
+          initial={edit}
+          onSubmit={(v) => update.mutate({ id: edit.id, v })}
+        />
+      )}
+
+      {/* Delete confirm */}
+      <Dialog open={!!deleteFor} onOpenChange={(o) => { if (!o) setDeleteFor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+              Delete coin
+            </DialogTitle>
+            <DialogDescription>
+              {deleteFor && (
+                <>Are you sure you want to delete <strong className="text-foreground">{deleteFor.symbol} ({deleteFor.name})</strong>?
+                Yeh action permanent hai aur saare related networks/pairs/wallets affect ho sakte hain.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteFor(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => deleteFor && remove.mutate(deleteFor.id)}
+              data-testid="button-confirm-delete"
+            >
+              {remove.isPending && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
+              Delete coin
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ───── Coin form dialog ────────────────────────────────────────────────────
+function CoinFormDialog({
+  open, onOpenChange, title, description, submitLabel, submitting, initial, onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  title: string;
+  description?: string;
+  submitLabel: string;
+  submitting: boolean;
+  initial?: Coin;
+  onSubmit: (v: Partial<Coin>) => void;
+}) {
+  const empty: Partial<Coin> = {
+    type: "crypto", decimals: 8, status: "active", isListed: true,
+    currentPrice: "0", change24h: "0", priceSource: "binance",
+  };
+  const [v, setV] = useState<Partial<Coin>>(initial ?? empty);
+  useEffect(() => {
+    if (open) setV(initial ?? empty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initial?.id]);
+
+  const set = <K extends keyof Coin>(k: K, val: Coin[K] | null | undefined) =>
+    setV((p) => ({ ...p, [k]: val as any }));
+
+  const isManual = v.priceSource === "manual";
+  const symValid = !!v.symbol && /^[A-Z0-9]{2,15}$/.test(v.symbol);
+  const canSave = symValid && !!v.name && !submitting;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            {(v.symbol || v.logoUrl) && (
+              <CoinAvatar coin={{ symbol: (v.symbol || "??").toString(), logoUrl: v.logoUrl ?? null }} size={10} />
+            )}
+            <div>
+              <DialogTitle>{title}</DialogTitle>
+              {description && <DialogDescription>{description}</DialogDescription>}
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="max-h-[65vh] overflow-y-auto pr-1 space-y-5">
+          {/* Identity */}
+          <FormSection icon={Tag} title="Identity">
+            <Field label="Symbol *" hint="Uppercase, 2–15 chars (e.g. BTC, USDT)">
+              <Input
+                value={v.symbol ?? ""}
+                onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") as any)}
+                placeholder="BTC"
+                data-testid="input-coin-symbol"
+              />
+            </Field>
+            <Field label="Name *">
+              <Input
+                value={v.name ?? ""}
+                onChange={(e) => set("name", e.target.value as any)}
+                placeholder="Bitcoin"
+                data-testid="input-coin-name"
+              />
+            </Field>
+            <Field label="Type">
+              <Select value={v.type ?? "crypto"} onValueChange={(t) => set("type", t as any)}>
+                <SelectTrigger data-testid="select-coin-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="crypto">Crypto</SelectItem>
+                  <SelectItem value="fiat">Fiat</SelectItem>
+                  <SelectItem value="stable">Stablecoin</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Decimals">
+              <Input
+                type="number" min={0} max={18}
+                value={v.decimals ?? 8}
+                onChange={(e) => set("decimals", Number(e.target.value) as any)}
+                data-testid="input-coin-decimals"
+              />
+            </Field>
+          </FormSection>
+
+          {/* Pricing */}
+          <FormSection icon={CircleDollarSign} title="Pricing">
+            <Field label="Price source">
+              <Select value={v.priceSource ?? "binance"} onValueChange={(t) => set("priceSource", t as any)}>
+                <SelectTrigger data-testid="select-price-source"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="binance">Live (CoinGecko/Binance)</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Binance symbol (override)" hint="Empty = auto from symbol">
+              <Input
+                value={v.binanceSymbol ?? ""}
+                placeholder="e.g. BTCUSDT"
+                onChange={(e) => set("binanceSymbol", e.target.value.toUpperCase() as any)}
+                data-testid="input-binance-symbol"
+              />
+            </Field>
+            <Field label="Manual price (USDT)" hint={isManual ? "Used as live price" : "Only when source = manual"}>
+              <Input
+                value={v.manualPrice ?? ""}
+                onChange={(e) => set("manualPrice", e.target.value as any)}
+                placeholder="0.00"
+                disabled={!isManual}
+                data-testid="input-manual-price"
+              />
+            </Field>
+            <Field label="Current price (USDT)" hint="Auto-updated by feeds">
+              <Input
+                value={v.currentPrice ?? "0"}
+                onChange={(e) => set("currentPrice", e.target.value as any)}
+                data-testid="input-current-price"
+              />
+            </Field>
+            <Field label="24h change %">
+              <Input
+                value={v.change24h ?? "0"}
+                onChange={(e) => set("change24h", e.target.value as any)}
+                placeholder="0.00"
+                data-testid="input-change-24h"
+              />
+            </Field>
+            <Field label="Market cap rank" hint="Optional, for sorting">
+              <Input
+                type="number"
+                value={v.marketCapRank ?? ""}
+                onChange={(e) => set("marketCapRank", e.target.value ? Number(e.target.value) as any : null)}
+                placeholder="—"
+                data-testid="input-market-rank"
+              />
+            </Field>
+          </FormSection>
+
+          {/* Listing & visibility */}
+          <FormSection icon={ListChecks} title="Listing & Visibility">
+            <Field label="Status">
+              <Select value={v.status ?? "active"} onValueChange={(t) => set("status", t as any)}>
+                <SelectTrigger data-testid="select-coin-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="paused">Paused</SelectItem>
+                  <SelectItem value="delisted">Delisted</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Listing time" hint="Future date = countdown shown to users">
+              <Input
+                type="datetime-local"
+                value={v.listingAt ? new Date(v.listingAt).toISOString().slice(0, 16) : ""}
+                onChange={(e) => set("listingAt", (e.target.value || null) as any)}
+                data-testid="input-listing-at"
+              />
+            </Field>
+            <Field label="Visible to users" full>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                <div className="flex items-center gap-2 text-sm">
+                  {v.isListed ? <Eye className="w-4 h-4 text-emerald-400" /> : <EyeOff className="w-4 h-4 text-muted-foreground" />}
+                  <span>{v.isListed ? "Listed publicly" : "Hidden from users"}</span>
+                </div>
+                <Switch
+                  checked={v.isListed ?? true}
+                  onCheckedChange={(c) => set("isListed", c as any)}
+                  data-testid="switch-coin-listed"
+                />
+              </div>
+            </Field>
+          </FormSection>
+
+          {/* Media & description */}
+          <FormSection icon={ImageIcon} title="Media & Description">
+            <Field label="Logo URL" full hint="Square PNG/SVG recommended">
+              <div className="flex items-center gap-3">
+                <Input
+                  value={v.logoUrl ?? ""}
+                  onChange={(e) => set("logoUrl", (e.target.value || null) as any)}
+                  placeholder="https://…"
+                  data-testid="input-logo-url"
+                />
+                {v.logoUrl && (
+                  <div className="shrink-0">
+                    <CoinAvatar coin={{ symbol: v.symbol ?? "?", logoUrl: v.logoUrl }} size={9} />
+                  </div>
+                )}
+              </div>
+            </Field>
+            <Field label="Info URL" full hint="Whitepaper / project site">
+              <div className="relative">
+                <Link2 className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  value={v.infoUrl ?? ""}
+                  onChange={(e) => set("infoUrl", (e.target.value || null) as any)}
+                  placeholder="https://bitcoin.org"
+                  data-testid="input-info-url"
+                />
+              </div>
+            </Field>
+            <Field label="Description" full>
+              <Textarea
+                rows={3}
+                value={v.description ?? ""}
+                onChange={(e) => set("description", (e.target.value || null) as any)}
+                placeholder="Short description users will see…"
+                data-testid="textarea-coin-description"
+              />
+            </Field>
+          </FormSection>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => onSubmit(v)}
+            disabled={!canSave}
+            data-testid="button-save-coin"
+          >
+            {submitting && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
+            {submitLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FormSection({
+  icon: Icon, title, children,
+}: { icon: typeof Tag; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/10 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/60 bg-muted/20">
+        <div className="stat-orb w-7 h-7 rounded-md flex items-center justify-center">
+          <Icon className="w-3.5 h-3.5 text-amber-300" />
+        </div>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label, hint, children, full,
+}: { label: string; hint?: string; children: React.ReactNode; full?: boolean }) {
+  return (
+    <div className={cn("space-y-1.5", full && "md:col-span-2")}>
+      <Label className="text-xs">{label}</Label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
