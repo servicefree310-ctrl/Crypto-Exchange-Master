@@ -1,51 +1,79 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, patch, post } from "@/lib/api";
-import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
-import { Activity, RefreshCw, PlayCircle, PauseCircle, Search, Zap, ExternalLink } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/premium/PageHeader";
+import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
+import { StatusPill } from "@/components/premium/StatusPill";
+import { EmptyState } from "@/components/premium/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import {
+  Activity, RefreshCw, PlayCircle, PauseCircle, Search, Zap, ExternalLink, Loader2,
+  CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, Check, X, Coins,
+} from "lucide-react";
 
 type D = {
-  id: number; userId: number; coinId: number; networkId: number; amount: string;
+  id: number; uid?: string; userId: number; coinId: number; networkId: number; amount: string;
   address: string; fromAddress: string | null; txHash: string | null;
   blockNumber: number | null; logIndex: number | null;
   confirmations: number; requiredConfirmations: number;
   status: string; detectedBy: string; createdAt: string; processedAt: string | null;
 };
-
 type Stats = {
   total: number; pending: number; completed: number; rejected: number;
   autoDetected: number; manual: number; totalAmount: number; pendingAmount: number;
 };
-
 type SweepResult = {
   networkId: number; networkName: string;
   scanned: { from: number; to: number } | null;
   detected: number; confirmed: number; errors: string[];
 };
-
 type SweeperStatus = {
   running: boolean; intervalMs: number;
   lastTickAt: number | null; nextTickAt: number | null;
   lastResults: SweepResult[];
   consecutiveErrors: Record<number, number>;
 };
-
 type Net = { id: number; name: string; chain: string; explorerUrl?: string | null; coinId: number };
 type Coin = { id: number; symbol: string };
+
+function fmt(n: string | number, dp = 8): string {
+  const v = typeof n === "string" ? Number(n) : n;
+  return Number.isFinite(v) ? v.toLocaleString("en-IN", { maximumFractionDigits: dp }) : "0";
+}
+function relTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return "just now";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 export default function CryptoDepositsPage() {
   const { user: me } = useAuth();
   const qc = useQueryClient();
+  const { toast } = useToast();
   const isAdmin = me?.role === "admin" || me?.role === "superadmin";
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [detectedFilter, setDetectedFilter] = useState<string>("all");
+
+  const [tab, setTab] = useState("all");
+  const [sourceTab, setSourceTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [approveFor, setApproveFor] = useState<D | null>(null);
+  const [approveConf, setApproveConf] = useState("");
+  const [rejectFor, setRejectFor] = useState<D | null>(null);
+
+  useEffect(() => { if (approveFor) setApproveConf(String(approveFor.confirmations || approveFor.requiredConfirmations || 12)); }, [approveFor]);
 
   const { data: stats } = useQuery<Stats>({
     queryKey: ["/admin/crypto-deposits/stats"],
@@ -65,108 +93,135 @@ export default function CryptoDepositsPage() {
   });
 
   const qs = new URLSearchParams();
-  if (statusFilter !== "all") qs.set("status", statusFilter);
-  if (detectedFilter !== "all") qs.set("detectedBy", detectedFilter);
+  if (tab !== "all") qs.set("status", tab);
+  if (sourceTab !== "all") qs.set("detectedBy", sourceTab);
   const qsStr = qs.toString();
-  const { data = [] } = useQuery<D[]>({
-    queryKey: ["/admin/crypto-deposits", statusFilter, detectedFilter],
+  const { data = [], refetch, isLoading, isFetching } = useQuery<D[]>({
+    queryKey: ["/admin/crypto-deposits", tab, sourceTab],
     queryFn: () => get<D[]>(`/admin/crypto-deposits${qsStr ? `?${qsStr}` : ""}`),
     refetchInterval: 5000,
   });
 
-  const update = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: Record<string, unknown> }) =>
-      patch(`/admin/crypto-deposits/${id}`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/admin/crypto-deposits"] });
-      qc.invalidateQueries({ queryKey: ["/admin/crypto-deposits/stats"] });
-    },
-  });
+  const inv = () => {
+    qc.invalidateQueries({ queryKey: ["/admin/crypto-deposits"] });
+    qc.invalidateQueries({ queryKey: ["/admin/crypto-deposits/stats"] });
+  };
 
+  const update = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: Record<string, unknown> }) => patch(`/admin/crypto-deposits/${id}`, body),
+    onSuccess: inv,
+    onError: (e: Error) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+  });
   const scanAll = useMutation({
     mutationFn: () => post("/admin/sweeper/scan", {}),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/admin/sweeper/status"] });
-      qc.invalidateQueries({ queryKey: ["/admin/crypto-deposits"] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/admin/sweeper/status"] }); inv(); toast({ title: "Scan triggered" }); },
+    onError: (e: Error) => toast({ title: "Scan failed", description: e.message, variant: "destructive" }),
   });
   const startSweeper = useMutation({
     mutationFn: () => post("/admin/sweeper/start", { intervalMs: 30000 }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/admin/sweeper/status"] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/admin/sweeper/status"] }); toast({ title: "Sweeper started" }); },
+    onError: (e: Error) => toast({ title: "Start failed", description: e.message, variant: "destructive" }),
   });
   const stopSweeper = useMutation({
     mutationFn: () => post("/admin/sweeper/stop", {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/admin/sweeper/status"] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/admin/sweeper/status"] }); toast({ title: "Sweeper stopped" }); },
+    onError: (e: Error) => toast({ title: "Stop failed", description: e.message, variant: "destructive" }),
   });
 
-  const netById = new Map(nets.map((n) => [n.id, n]));
-  const coinById = new Map(coins.map((c) => [c.id, c]));
+  const netById = useMemo(() => new Map(nets.map((n) => [n.id, n])), [nets]);
+  const coinById = useMemo(() => new Map(coins.map((c) => [c.id, c])), [coins]);
 
-  const filtered = data.filter((d) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return String(d.userId).includes(s)
-      || (d.txHash || "").toLowerCase().includes(s)
-      || d.address.toLowerCase().includes(s)
-      || (coinById.get(d.coinId)?.symbol || "").toLowerCase().includes(s);
-  });
+  const filtered = useMemo(() => {
+    return data.filter((d) => {
+      if (!search) return true;
+      const hay = `${d.uid ?? ""} ${d.userId} ${d.txHash ?? ""} ${d.address} ${coinById.get(d.coinId)?.symbol ?? ""}`.toLowerCase();
+      return hay.includes(search.toLowerCase());
+    });
+  }, [data, search, coinById]);
 
   function explorerLink(d: D) {
     const n = netById.get(d.networkId);
     if (!n?.explorerUrl || !d.txHash) return null;
-    const base = n.explorerUrl.replace(/\/$/, "");
-    return `${base}/tx/${d.txHash}`;
+    return `${n.explorerUrl.replace(/\/$/, "")}/tx/${d.txHash}`;
   }
 
   const lastTickStr = sweeper?.lastTickAt
     ? `${Math.max(0, Math.round((Date.now() - sweeper.lastTickAt) / 1000))}s ago`
     : "never";
 
+  const approve = () => {
+    if (!approveFor) return;
+    update.mutate({ id: approveFor.id, body: { status: "completed", confirmations: Number(approveConf) || approveFor.requiredConfirmations } }, {
+      onSuccess: () => { setApproveFor(null); toast({ title: "Deposit approved", description: `${fmt(approveFor.amount, 8)} credited.` }); },
+    });
+  };
+  const reject = () => {
+    if (!rejectFor) return;
+    update.mutate({ id: rejectFor.id, body: { status: "rejected" } }, {
+      onSuccess: () => { setRejectFor(null); toast({ title: "Deposit rejected" }); },
+    });
+  };
+
   return (
-    <div className="space-y-4">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Total</div><div className="text-2xl font-bold">{stats?.total ?? 0}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Pending</div><div className="text-2xl font-bold text-yellow-500">{stats?.pending ?? 0}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Completed</div><div className="text-2xl font-bold text-emerald-500">{stats?.completed ?? 0}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Rejected</div><div className="text-2xl font-bold text-red-500">{stats?.rejected ?? 0}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Auto-detected</div><div className="text-2xl font-bold text-blue-500">{stats?.autoDetected ?? 0}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Total Volume</div><div className="text-lg font-bold tabular-nums">{(stats?.totalAmount ?? 0).toFixed(4)}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Pending Volume</div><div className="text-lg font-bold tabular-nums text-yellow-500">{(stats?.pendingAmount ?? 0).toFixed(4)}</div></Card>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Treasury"
+        title="Crypto Deposits"
+        description="On-chain deposits — auto-sweeper EVM networks scan karta hai aur required confirmations ke baad credit. Manual deposits admin verify karte hain."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="button-refresh">
+            <RefreshCw className={cn("w-4 h-4 mr-1.5", isFetching && "animate-spin")} />Refresh
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
+        <PremiumStatCard title="Pending" value={stats?.pending ?? 0} icon={Clock} hero hint={`${fmt(stats?.pendingAmount ?? 0, 4)} awaiting`} />
+        <PremiumStatCard title="Completed" value={stats?.completed ?? 0} icon={CheckCircle2} hint="Credited to users" />
+        <PremiumStatCard title="Rejected" value={stats?.rejected ?? 0} icon={XCircle} hint="Manually denied" />
+        <PremiumStatCard title="Auto-Detected" value={stats?.autoDetected ?? 0} icon={Zap} hint="Sweeper found" />
+        <PremiumStatCard title="Total Volume" value={fmt(stats?.totalAmount ?? 0, 4)} icon={Wallet} hint="All-time credited" />
+        <PremiumStatCard title="Total Deposits" value={stats?.total ?? 0} icon={Coins} hint="All statuses" />
       </div>
 
       {/* Sweeper Panel */}
-      <Card className="p-4">
+      <div className="premium-card rounded-xl border border-border/60 p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${sweeper?.running ? "bg-emerald-500/20 text-emerald-500" : "bg-zinc-500/20 text-zinc-500"}`}>
-              <Activity className="h-5 w-5" />
+            <div className={cn("p-2.5 rounded-lg border", sweeper?.running
+              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+              : "bg-zinc-500/15 text-zinc-400 border-zinc-500/30")}>
+              <Activity className={cn("h-5 w-5", sweeper?.running && "animate-pulse")} />
             </div>
             <div>
               <div className="font-semibold flex items-center gap-2">
                 Auto Deposit Sweeper
-                <Badge variant={sweeper?.running ? "default" : "secondary"}>
+                <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                  sweeper?.running
+                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                    : "bg-muted/40 text-muted-foreground border-border/60")}>
                   {sweeper?.running ? "RUNNING" : "STOPPED"}
-                </Badge>
+                </span>
               </div>
               <div className="text-xs text-muted-foreground">
-                Last scan: {lastTickStr} · Interval: {(sweeper?.intervalMs ?? 30000) / 1000}s · Networks scanned: {sweeper?.lastResults?.length ?? 0}
+                Last scan: <span className="text-foreground">{lastTickStr}</span> ·
+                Interval: <span className="text-foreground">{(sweeper?.intervalMs ?? 30000) / 1000}s</span> ·
+                Networks: <span className="text-foreground">{sweeper?.lastResults?.length ?? 0}</span>
               </div>
             </div>
           </div>
           {isAdmin && (
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => scanAll.mutate()} disabled={scanAll.isPending}>
-                <RefreshCw className={`h-4 w-4 mr-1 ${scanAll.isPending ? "animate-spin" : ""}`} />
-                Scan Now
+              <Button size="sm" variant="outline" onClick={() => scanAll.mutate()} disabled={scanAll.isPending} data-testid="button-scan-now">
+                <RefreshCw className={cn("h-4 w-4 mr-1.5", scanAll.isPending && "animate-spin")} />Scan Now
               </Button>
               {sweeper?.running ? (
-                <Button size="sm" variant="destructive" onClick={() => stopSweeper.mutate()}>
-                  <PauseCircle className="h-4 w-4 mr-1" /> Stop
+                <Button size="sm" variant="destructive" onClick={() => stopSweeper.mutate()} disabled={stopSweeper.isPending} data-testid="button-stop-sweeper">
+                  <PauseCircle className="h-4 w-4 mr-1.5" />Stop
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => startSweeper.mutate()}>
-                  <PlayCircle className="h-4 w-4 mr-1" /> Start
+                <Button size="sm" onClick={() => startSweeper.mutate()} disabled={startSweeper.isPending} data-testid="button-start-sweeper">
+                  <PlayCircle className="h-4 w-4 mr-1.5" />Start
                 </Button>
               )}
             </div>
@@ -174,123 +229,206 @@ export default function CryptoDepositsPage() {
         </div>
 
         {sweeper?.lastResults && sweeper.lastResults.length > 0 && (
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             {sweeper.lastResults.map((r) => (
-              <div key={r.networkId} className="text-xs bg-muted/50 p-2 rounded border">
-                <div className="font-semibold flex items-center gap-1">
-                  <Zap className="h-3 w-3" /> {r.networkName}
+              <div key={r.networkId} className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                <div className="font-semibold text-xs flex items-center gap-1.5">
+                  <Zap className="h-3 w-3 text-primary" />{r.networkName}
                 </div>
-                <div className="text-muted-foreground">
+                <div className="text-[11px] text-muted-foreground mt-1">
                   {r.scanned ? `Blocks ${r.scanned.from}–${r.scanned.to}` : "No new blocks"}
-                  {" · "}Detected: <span className="text-blue-500">{r.detected}</span>
-                  {" · "}Credited: <span className="text-emerald-500">{r.confirmed}</span>
                 </div>
-                {r.errors.length > 0 && <div className="text-red-500 mt-1 truncate" title={r.errors.join("; ")}>⚠ {r.errors[0]}</div>}
+                <div className="flex items-center gap-3 mt-1.5 text-[11px]">
+                  <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-400" />Detected: <b>{r.detected}</b></span>
+                  <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Credited: <b>{r.confirmed}</b></span>
+                </div>
+                {r.errors.length > 0 && (
+                  <div className="text-[11px] text-destructive mt-1.5 truncate flex items-center gap-1" title={r.errors.join("; ")}>
+                    <AlertTriangle className="w-3 h-3 shrink-0" />{r.errors[0]}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
-      </Card>
+      </div>
 
-      {/* Filters */}
-      <Card className="p-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-[320px]">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search user, tx hash, address, coin…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
-          </div>
-          <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="pending">Pending</TabsTrigger>
-              <TabsTrigger value="completed">Completed</TabsTrigger>
-              <TabsTrigger value="rejected">Rejected</TabsTrigger>
+              <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
+              <TabsTrigger value="pending" data-testid="tab-pending">Pending</TabsTrigger>
+              <TabsTrigger value="completed" data-testid="tab-completed">Completed</TabsTrigger>
+              <TabsTrigger value="rejected" data-testid="tab-rejected">Rejected</TabsTrigger>
             </TabsList>
           </Tabs>
-          <Tabs value={detectedFilter} onValueChange={setDetectedFilter}>
+          <Tabs value={sourceTab} onValueChange={setSourceTab}>
             <TabsList>
-              <TabsTrigger value="all">Source: All</TabsTrigger>
-              <TabsTrigger value="sweeper">Auto</TabsTrigger>
-              <TabsTrigger value="manual">Manual</TabsTrigger>
+              <TabsTrigger value="all" data-testid="tab-source-all">All sources</TabsTrigger>
+              <TabsTrigger value="sweeper" data-testid="tab-source-sweeper">Auto</TabsTrigger>
+              <TabsTrigger value="manual" data-testid="tab-source-manual">Manual</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
-      </Card>
+        <div className="relative w-full md:w-72">
+          <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
+          <Input
+            placeholder="UID, user, tx, address, coin…" value={search} onChange={(e) => setSearch(e.target.value)}
+            className="pl-8" data-testid="input-search"
+          />
+        </div>
+      </div>
 
-      {/* Deposits Table */}
-      <Card>
+      <div className="premium-card rounded-xl overflow-hidden border border-border/60">
         <div className="overflow-x-auto">
-          <Table>
-            <TableHeader><TableRow>
-              <TableHead>UID</TableHead>
-              <TableHead>User</TableHead><TableHead>Coin</TableHead><TableHead>Network</TableHead>
-              <TableHead>Amount</TableHead><TableHead>To Address</TableHead><TableHead>Tx Hash</TableHead>
-              <TableHead>Block</TableHead><TableHead>Confirms</TableHead>
-              <TableHead>Status</TableHead><TableHead>Source</TableHead>
-              <TableHead>Date</TableHead><TableHead>Actions</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {filtered.map((d) => {
+          <table className="w-full text-sm">
+            <thead className="bg-muted/30 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="text-left font-medium px-4 py-3 pl-5">UID</th>
+                <th className="text-left font-medium px-4 py-3">User</th>
+                <th className="text-left font-medium px-4 py-3">Coin / Network</th>
+                <th className="text-right font-medium px-4 py-3">Amount</th>
+                <th className="text-left font-medium px-4 py-3">Address</th>
+                <th className="text-left font-medium px-4 py-3">Tx Hash</th>
+                <th className="text-left font-medium px-4 py-3">Confirms</th>
+                <th className="text-left font-medium px-4 py-3">Status</th>
+                <th className="text-left font-medium px-4 py-3">Source</th>
+                <th className="text-left font-medium px-4 py-3">Date</th>
+                {isAdmin && <th className="text-right font-medium px-4 py-3 pr-5">Actions</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {isLoading && Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i}><td className="px-4 py-3" colSpan={isAdmin ? 11 : 10}><Skeleton className="h-9 w-full" /></td></tr>
+              ))}
+              {!isLoading && filtered.length === 0 && (
+                <tr><td colSpan={isAdmin ? 11 : 10} className="px-4 py-3">
+                  <EmptyState icon={Coins} title="No deposits"
+                    description={search || tab !== "all" || sourceTab !== "all" ? "Filter adjust karein." : "Sweeper run hone ke baad detected deposits yahan dikhenge."} />
+                </td></tr>
+              )}
+              {!isLoading && filtered.map((d) => {
                 const link = explorerLink(d);
                 const c = coinById.get(d.coinId);
                 const n = netById.get(d.networkId);
                 const confPct = d.requiredConfirmations > 0 ? Math.min(100, (d.confirmations / d.requiredConfirmations) * 100) : 0;
                 return (
-                  <TableRow key={d.id}>
-                    <TableCell className="font-mono text-[10px] text-muted-foreground" title={d.uid}>{(d.uid || "").slice(0, 10)}…</TableCell>
-                    <TableCell>#{d.userId}</TableCell>
-                    <TableCell>{c?.symbol || `#${d.coinId}`}</TableCell>
-                    <TableCell>{n ? `${n.name}/${n.chain}` : `#${d.networkId}`}</TableCell>
-                    <TableCell className="tabular-nums font-semibold">{Number(d.amount).toFixed(8)}</TableCell>
-                    <TableCell className="font-mono text-xs truncate max-w-[140px]" title={d.address}>{d.address}</TableCell>
-                    <TableCell className="font-mono text-xs">
+                  <tr key={d.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-deposit-${d.id}`}>
+                    <td className="px-4 py-3 pl-5 font-mono text-[10px] text-muted-foreground" title={d.uid}>{(d.uid ?? "").slice(0, 10)}…</td>
+                    <td className="px-4 py-3 text-xs">#{d.userId}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-xs">{c?.symbol ?? `#${d.coinId}`}</div>
+                      <div className="text-[10px] text-muted-foreground">{n ? `${n.name} · ${n.chain}` : `#${d.networkId}`}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmt(d.amount, 8)}</td>
+                    <td className="px-4 py-3 font-mono text-[11px] truncate max-w-[140px]" title={d.address}>{d.address}</td>
+                    <td className="px-4 py-3 font-mono text-[11px]">
                       {d.txHash ? (
-                        <a href={link || "#"} target="_blank" rel="noreferrer" className="hover:underline inline-flex items-center gap-1 text-blue-500">
+                        <a href={link || "#"} target="_blank" rel="noreferrer" className="hover:underline inline-flex items-center gap-1 text-blue-400">
                           {d.txHash.slice(0, 8)}…{d.txHash.slice(-6)}
                           {link && <ExternalLink className="h-3 w-3" />}
                         </a>
-                      ) : "—"}
-                    </TableCell>
-                    <TableCell className="text-xs tabular-nums">{d.blockNumber ?? "—"}</TableCell>
-                    <TableCell>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="tabular-nums text-xs">{d.confirmations}/{d.requiredConfirmations}</span>
+                        <span className="tabular-nums text-[11px]">{d.confirmations}/{d.requiredConfirmations}</span>
                         <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div className={`h-full ${confPct >= 100 ? "bg-emerald-500" : "bg-blue-500"}`} style={{ width: `${confPct}%` }} />
+                          <div className={cn("h-full transition-all", confPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${confPct}%` }} />
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={d.status === "completed" ? "default" : d.status === "rejected" ? "destructive" : "secondary"}>{d.status}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={d.detectedBy === "sweeper" ? "border-blue-500 text-blue-500" : ""}>
-                        {d.detectedBy === "sweeper" ? "AUTO" : "manual"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs">{new Date(d.createdAt).toLocaleString("en-IN")}</TableCell>
-                    <TableCell className="space-x-1">
-                      {isAdmin && d.status === "pending" && (
-                        <>
-                          <Button size="sm" onClick={() => {
-                            const conf = prompt("Confirmations on chain?", String(d.confirmations || d.requiredConfirmations));
-                            if (conf === null) return;
-                            update.mutate({ id: d.id, body: { status: "completed", confirmations: Number(conf) } });
-                          }}>Approve</Button>
-                          <Button size="sm" variant="destructive" onClick={() => {
-                            if (confirm("Reject this deposit?")) update.mutate({ id: d.id, body: { status: "rejected" } });
-                          }}>Reject</Button>
-                        </>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                    <td className="px-4 py-3"><StatusPill status={d.status} /></td>
+                    <td className="px-4 py-3">
+                      <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-medium border inline-flex items-center gap-1",
+                        d.detectedBy === "sweeper" ? "bg-blue-500/15 text-blue-300 border-blue-500/30" : "bg-muted/40 border-border/60")}>
+                        {d.detectedBy === "sweeper" && <Zap className="w-3 h-3" />}
+                        {d.detectedBy === "sweeper" ? "AUTO" : "MANUAL"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground" title={new Date(d.createdAt).toLocaleString("en-IN")}>{relTime(d.createdAt)}</td>
+                    {isAdmin && (
+                      <td className="px-4 py-3 pr-4 text-right whitespace-nowrap space-x-1">
+                        {d.status === "pending" && (
+                          <>
+                            <Button size="sm" onClick={() => setApproveFor(d)} data-testid={`button-approve-${d.id}`}>
+                              <Check className="w-3.5 h-3.5 mr-1" />Approve
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setRejectFor(d)} data-testid={`button-reject-${d.id}`}>
+                              <X className="w-3.5 h-3.5 text-destructive" />
+                            </Button>
+                          </>
+                        )}
+                      </td>
+                    )}
+                  </tr>
                 );
               })}
-              {filtered.length === 0 && <TableRow><TableCell colSpan={12} className="text-center py-6 text-muted-foreground">No deposits</TableCell></TableRow>}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
         </div>
-      </Card>
+        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
+          <div>{filtered.length} of {data.length} deposits</div>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />{stats?.pending ?? 0} pending</span>
+            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-400" />{stats?.autoDetected ?? 0} auto</span>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={!!approveFor} onOpenChange={(o) => !o && setApproveFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-emerald-400" />Approve crypto deposit</DialogTitle>
+            <DialogDescription>User ke wallet me amount credit ho jayega. Confirmations check karke approve karein.</DialogDescription>
+          </DialogHeader>
+          {approveFor && (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm space-y-1">
+                <div><span className="text-muted-foreground">User:</span> #{approveFor.userId}</div>
+                <div><span className="text-muted-foreground">Coin:</span> {coinById.get(approveFor.coinId)?.symbol} on {netById.get(approveFor.networkId)?.chain}</div>
+                <div><span className="text-muted-foreground">Amount:</span> <span className="font-semibold">{fmt(approveFor.amount, 8)}</span></div>
+                <div className="break-all text-xs"><span className="text-muted-foreground">Tx:</span> <span className="font-mono">{approveFor.txHash || "—"}</span></div>
+              </div>
+              <div>
+                <Label className="text-xs">Confirmations on chain</Label>
+                <Input value={approveConf} onChange={(e) => setApproveConf(e.target.value)} type="number" data-testid="input-confirmations" />
+                <div className="text-[11px] text-muted-foreground mt-1">Required: {approveFor.requiredConfirmations}</div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveFor(null)}>Cancel</Button>
+            <Button onClick={approve} disabled={update.isPending} data-testid="button-confirm-approve">
+              {update.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Check className="w-4 h-4 mr-1.5" />}
+              Approve & credit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectFor} onOpenChange={(o) => !o && setRejectFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-destructive" />Reject crypto deposit</DialogTitle>
+            <DialogDescription>Yeh deposit credit nahi hoga. User ko notification jayegi.</DialogDescription>
+          </DialogHeader>
+          {rejectFor && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm space-y-1">
+              <div><span className="text-muted-foreground">User:</span> #{rejectFor.userId}</div>
+              <div><span className="text-muted-foreground">Amount:</span> {fmt(rejectFor.amount, 8)} {coinById.get(rejectFor.coinId)?.symbol}</div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectFor(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={reject} disabled={update.isPending} data-testid="button-confirm-reject">
+              {update.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <X className="w-4 h-4 mr-1.5" />}
+              Reject deposit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
