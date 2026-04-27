@@ -24,6 +24,18 @@ uri = "file://attached_assets/generated_images/cryptox_logo_wordmark.png"
 type = "image"
 title = "cryptox wordmark logo"
 
+[[generated]]
+id = "0lHGdvw7b-jwDhwUJFfay"
+uri = "file://attached_assets/generated_images/zebvix_logo_icon.png"
+type = "image"
+title = "zebvix premium logo icon"
+
+[[generated]]
+id = "jQSDbSXCuosvL_j_qUbdH"
+uri = "file://attached_assets/generated_images/zebvix_logo_wordmark.png"
+type = "image"
+title = "zebvix wordmark logo"
+
 [[outputs]]
 id = "Supekt0-8Z_z3aydNlg2a"
 uri = "file://attached_assets/generated_images/cryptox_logo_icon.png"
@@ -35,3 +47,15 @@ id = "G3zo5f5mlx_f5eZDNVBvp"
 uri = "file://attached_assets/generated_images/cryptox_logo_wordmark.png"
 type = "image"
 title = "CryptoX — Wordmark Logo (16:9, horizontal)"
+
+[[outputs]]
+id = "kDtNrhTHi-FAvSyO1qKBS"
+uri = "file://attached_assets/generated_images/zebvix_logo_icon.png"
+type = "image"
+title = "Zebvix — App Icon Logo (1:1, square)"
+
+[[outputs]]
+id = "BnXPjc3vj5rqLD5j44_Hc"
+uri = "file://attached_assets/generated_images/zebvix_logo_wordmark.png"
+type = "image"
+title = "Zebvix — Wordmark Logo (16:9, horizontal)"
