@@ -16,12 +16,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ShieldCheck, Search, FileText, Clock, CheckCircle2, XCircle, Eye,
   User as UserIcon, Mail, Phone, Calendar, IdCard, MapPin, Image as ImageIcon,
   Activity, History, ExternalLink, X, Wallet, TrendingUp, TrendingDown,
   ArrowDownToLine, ArrowUpFromLine, KeyRound, Globe, AlertTriangle,
-  Sparkles, Loader2, RefreshCw, Check,
+  Sparkles, Loader2, RefreshCw, Check, RotateCcw, ShieldAlert,
 } from "lucide-react";
 
 type KycRecord = {
@@ -33,7 +34,7 @@ type KycRecord = {
   rejectReason: string | null; reviewedBy: number | null; reviewedAt: string | null;
   createdAt: string; updatedAt: string;
 };
-type Stats = { pending: number; approved: number; rejected: number; total: number };
+type Stats = { pending: number; approved: number; rejected: number; rekyc: number; total: number };
 type DossierUser = {
   id: number; uid: string; email: string; name: string; phone: string | null;
   role: string; status: string; kycLevel: number; vipTier: number;
@@ -57,8 +58,20 @@ const STATUS_TABS = [
   { value: "pending", label: "Pending", icon: Clock },
   { value: "approved", label: "Approved", icon: CheckCircle2 },
   { value: "rejected", label: "Rejected", icon: XCircle },
+  { value: "rekyc_required", label: "Re-KYC", icon: RotateCcw },
   { value: "all", label: "All", icon: FileText },
 ] as const;
+
+function statusLabel(s: string): string {
+  if (s === "rekyc_required") return "Re-KYC";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function statusVariant(s: string): "success" | "warning" | "danger" | "info" {
+  if (s === "approved") return "success";
+  if (s === "rejected") return "danger";
+  if (s === "rekyc_required") return "info";
+  return "warning";
+}
 
 function fmtDate(d: string | null) {
   if (!d) return "—";
@@ -121,13 +134,25 @@ export default function KycPage() {
     queryFn: () => get<KycRecord[]>("/admin/kyc?status=rejected"),
     enabled: tab !== "rejected",
   });
+  const { data: rekycAll = [] } = useQuery<KycRecord[]>({
+    queryKey: ["/admin/kyc", "rekyc_required"],
+    queryFn: () => get<KycRecord[]>("/admin/kyc?status=rekyc_required"),
+    enabled: tab !== "rekyc_required",
+  });
 
   const stats: Stats = useMemo(() => {
     const p = tab === "pending" ? records : pendingAll;
     const a = tab === "approved" ? records : approvedAll;
     const r = tab === "rejected" ? records : rejectedAll;
-    return { pending: p.length, approved: a.length, rejected: r.length, total: p.length + a.length + r.length };
-  }, [records, pendingAll, approvedAll, rejectedAll, tab]);
+    const rk = tab === "rekyc_required" ? records : rekycAll;
+    return {
+      pending: p.length,
+      approved: a.length,
+      rejected: r.length,
+      rekyc: rk.length,
+      total: p.length + a.length + r.length + rk.length,
+    };
+  }, [records, pendingAll, approvedAll, rejectedAll, rekycAll, tab]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -153,10 +178,11 @@ export default function KycPage() {
         description="Review every detail and document a user has submitted across all verification levels — open the side panel for the full applicant dossier with joining info and on-platform activity."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <PremiumStatCard title="Pending Reviews" value={stats.pending} icon={Clock} accent />
         <PremiumStatCard title="Approved" value={stats.approved} icon={CheckCircle2} />
         <PremiumStatCard title="Rejected" value={stats.rejected} icon={XCircle} />
+        <PremiumStatCard title="Re-KYC Required" value={stats.rekyc} icon={RotateCcw} />
         <PremiumStatCard title="Total Submissions" value={stats.total} icon={FileText} />
       </div>
 
@@ -268,7 +294,7 @@ function ReviewRow({ record, onOpen }: { record: KycRecord; onOpen: () => void }
           )}
         </div>
         <div className="flex items-center justify-end gap-2">
-          <StatusPill status={record.status as "pending" | "approved" | "rejected"} />
+          <StatusPill status={record.status} variant={statusVariant(record.status)}>{statusLabel(record.status)}</StatusPill>
           <Button size="sm" variant="ghost" className="h-8" onClick={(e) => { e.stopPropagation(); onOpen(); }}>
             <Eye className="w-3.5 h-3.5 mr-1" /> Open
           </Button>
@@ -294,6 +320,9 @@ function UserDossierSheet({
     enabled: userId !== null,
   });
   const [rejectMode, setRejectMode] = useState(false);
+  const [rekycMode, setRekycMode] = useState(false);
+  const [rekycReason, setRekycReason] = useState("");
+  const [rekycDropLevel, setRekycDropLevel] = useState(true);
   const [rejectReason, setRejectReason] = useState("");
   const [reasonNote, setReasonNote] = useState("");
   const [aiReasons, setAiReasons] = useState<string[] | null>(null);
@@ -315,6 +344,25 @@ function UserDossierSheet({
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : "Update failed";
       toast({ title: "Update failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  const requestRekyc = useMutation({
+    mutationFn: ({ id, reason, dropLevel }: { id: number; reason: string; dropLevel: boolean }) =>
+      post<{ record: KycRecord; newKycLevel: number | null }>(`/admin/kyc/${id}/request-rekyc`, { reason, dropLevel }),
+    onSuccess: (data, vars) => {
+      const dropMsg = data.newKycLevel != null ? ` Level set to L${data.newKycLevel}.` : "";
+      toast({ title: "Re-KYC requested", description: `User must re-submit Level ${data.record.level}.${dropMsg}` });
+      qc.invalidateQueries({ queryKey: ["/admin/kyc"] });
+      qc.invalidateQueries({ queryKey: ["/admin/users", userId, "full"] });
+      qc.invalidateQueries({ queryKey: ["/admin/users-search"] });
+      setRekycMode(false);
+      setRekycReason("");
+      setRekycDropLevel(true);
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : "Re-KYC request failed";
+      toast({ title: "Re-KYC failed", description: msg, variant: "destructive" });
     },
   });
 
@@ -402,9 +450,9 @@ function UserDossierSheet({
           )}
         </div>
 
-        {current && current.status === "pending" && canModerate && (
+        {current && canModerate && (current.status === "pending" || current.status === "approved") && (
           <div className="border-t border-border/60 bg-[hsl(222_22%_4%)] px-6 py-4 sticky bottom-0">
-            {!rejectMode ? (
+            {!rejectMode && !rekycMode && current.status === "pending" ? (
               <div className="flex items-center justify-between gap-3">
                 <div className="text-xs text-muted-foreground">
                   Action will apply to <span className="text-foreground font-medium">submission #{current.id}</span> (Level {current.level}).
@@ -427,6 +475,64 @@ function UserDossierSheet({
                   >
                     <CheckCircle2 className="w-4 h-4 mr-1" />
                     {moderate.isPending ? "Saving…" : "Approve"}
+                  </Button>
+                </div>
+              </div>
+            ) : !rejectMode && !rekycMode && current.status === "approved" ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-muted-foreground">
+                  Already approved on <span className="text-foreground font-medium">{fmtShort(current.reviewedAt)}</span>. You can request the user to re-submit this level.
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-sky-400/40 text-sky-200 hover:text-sky-100 hover:bg-sky-400/10"
+                  onClick={() => setRekycMode(true)}
+                  disabled={requestRekyc.isPending}
+                  data-testid="button-request-rekyc"
+                >
+                  <RotateCcw className="w-4 h-4 mr-1" /> Request Re-KYC
+                </Button>
+              </div>
+            ) : rekycMode ? (
+              <div className="space-y-3">
+                <div className="text-xs text-sky-200 flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  The user will see this reason and be asked to re-submit Level {current.level} KYC.
+                </div>
+                <Textarea
+                  value={rekycReason}
+                  onChange={(e) => setRekycReason(e.target.value)}
+                  placeholder="Why does this user need to re-submit? (e.g. document expired, suspicious activity, name mismatch detected)"
+                  rows={3}
+                  className="text-sm"
+                  data-testid="input-rekyc-reason"
+                />
+                <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <Checkbox
+                    checked={rekycDropLevel}
+                    onCheckedChange={(v) => setRekycDropLevel(v === true)}
+                    data-testid="checkbox-rekyc-drop-level"
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Also drop user&apos;s effective KYC level (recommended). Their level will fall back to the highest other approved level.
+                  </span>
+                </label>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => { setRekycMode(false); setRekycReason(""); setRekycDropLevel(true); }}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-sky-500 hover:bg-sky-400 text-white"
+                    disabled={rekycReason.trim().length < 4 || requestRekyc.isPending}
+                    onClick={() => requestRekyc.mutate({ id: current.id, reason: rekycReason.trim(), dropLevel: rekycDropLevel })}
+                    data-testid="button-confirm-rekyc"
+                  >
+                    {requestRekyc.isPending
+                      ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> Requesting…</>
+                      : <><RotateCcw className="w-3.5 h-3.5 mr-1" /> Confirm Re-KYC</>}
                   </Button>
                 </div>
               </div>

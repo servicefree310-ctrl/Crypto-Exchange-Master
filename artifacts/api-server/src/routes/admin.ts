@@ -510,7 +510,7 @@ router.get("/admin/kyc", supportPlus, async (req, res): Promise<void> => {
 router.patch("/admin/kyc/:id", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
   const { status, rejectReason } = req.body ?? {};
-  if (!["approved", "rejected", "pending"].includes(status)) {
+  if (!["approved", "rejected", "pending", "rekyc_required"].includes(status)) {
     res.status(400).json({ error: "Invalid status" }); return;
   }
   const [rec] = await db.update(kycRecordsTable).set({
@@ -527,6 +527,44 @@ router.patch("/admin/kyc/:id", adminOnly, async (req, res): Promise<void> => {
       .where(eq(usersTable.id, rec.userId));
   }
   res.json(rec);
+});
+
+// Admin-initiated Re-KYC: marks an approved record as needing re-submission.
+// Optionally drops the user's effective kycLevel so the user must resubmit.
+router.post("/admin/kyc/:id/request-rekyc", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  const dropLevel = req.body?.dropLevel === true;
+  if (!reason || reason.length < 4) {
+    res.status(400).json({ error: "A reason (min 4 chars) is required for Re-KYC" }); return;
+  }
+  if (reason.length > 500) {
+    res.status(400).json({ error: "Reason too long (max 500 chars)" }); return;
+  }
+  const [existing] = await db.select().from(kycRecordsTable).where(eq(kycRecordsTable.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ error: "Record not found" }); return; }
+  if (existing.status !== "approved") {
+    res.status(400).json({ error: "Only approved submissions can be sent back for Re-KYC" }); return;
+  }
+  const result = await db.transaction(async (tx) => {
+    const [rec] = await tx.update(kycRecordsTable).set({
+      status: "rekyc_required",
+      rejectReason: reason,
+      reviewedBy: req.user!.id,
+      reviewedAt: new Date(),
+    }).where(eq(kycRecordsTable.id, id)).returning();
+    let newKycLevel: number | null = null;
+    if (dropLevel) {
+      // Recompute the user's effective KYC level from remaining approved records.
+      const remaining = await tx.select().from(kycRecordsTable)
+        .where(and(eq(kycRecordsTable.userId, rec.userId), eq(kycRecordsTable.status, "approved")));
+      const maxLevel = remaining.reduce((m, r) => (r.level > m ? r.level : m), 0);
+      await tx.update(usersTable).set({ kycLevel: maxLevel }).where(eq(usersTable.id, rec.userId));
+      newKycLevel = maxLevel;
+    }
+    return { record: rec, newKycLevel };
+  });
+  res.json(result);
 });
 // AI-suggested rejection reasons for a KYC submission
 router.post("/admin/kyc/:id/suggest-reasons", supportPlus, async (req, res): Promise<void> => {
