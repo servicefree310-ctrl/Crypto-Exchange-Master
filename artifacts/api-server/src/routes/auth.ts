@@ -18,7 +18,13 @@ const router: IRouter = Router();
 
 const COOKIE_OPTS = {
   httpOnly: true,
-  sameSite: "lax" as const,
+  // strict: cookie is never sent on cross-site requests — the strongest
+  // built-in CSRF defense. Combined with the originGuard middleware in
+  // app.ts this gives belt-and-braces protection. All our web clients
+  // (admin, user-portal, flutter web) are same-site to the API, so this
+  // is safe. Mobile Expo uses Bearer tokens via the bicrypto adapter and
+  // is unaffected by cookie SameSite.
+  sameSite: "strict" as const,
   path: "/",
   maxAge: 14 * 24 * 60 * 60 * 1000,
   secure: process.env.NODE_ENV === "production",

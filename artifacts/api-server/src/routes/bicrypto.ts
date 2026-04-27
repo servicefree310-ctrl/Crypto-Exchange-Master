@@ -35,7 +35,10 @@ const CSRF_COOKIE = "csrfToken";
 function cookieOpts() {
   return {
     httpOnly: true as const,
-    sameSite: "lax" as const,
+    // strict: blocks the cookie on cross-site requests — defense-in-depth
+    // alongside the originGuard middleware. Bicrypto's mobile clients use
+    // Bearer tokens (Authorization header) and aren't affected by cookies.
+    sameSite: "strict" as const,
     path: "/",
     maxAge: 14 * 24 * 60 * 60 * 1000,
     secure: process.env.NODE_ENV === "production",
