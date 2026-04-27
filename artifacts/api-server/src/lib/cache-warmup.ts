@@ -200,5 +200,12 @@ export async function invalidate(pattern: string) {
 }
 
 export function startWarmupRefresh(intervalMs = 60000) {
-  setInterval(() => { void warmAllCaches(); }, intervalMs);
+  // Multi-server safety: only the leader warms shared Redis caches.
+  // Followers read from the same Redis, so they get the warmed values for
+  // free without duplicating expensive DB scans.
+  setInterval(async () => {
+    const { isLeader } = await import("./leader");
+    if (!isLeader()) return;
+    void warmAllCaches();
+  }, intervalMs);
 }

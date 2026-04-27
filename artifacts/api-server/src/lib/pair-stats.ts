@@ -111,11 +111,20 @@ export async function recomputePairStats(): Promise<void> {
 let timer: NodeJS.Timeout | null = null;
 export function startPairStatsService(intervalMs = 30_000): void {
   if (timer) return;
-  recomputePairStats().catch((e) => logger.warn({ err: e?.message }, "initial pair stats failed"));
-  timer = setInterval(() => {
-    recomputePairStats().catch((e) => logger.warn({ err: e?.message }, "pair stats interval failed"));
-  }, intervalMs);
-  logger.info({ intervalMs }, "Pair stats service started");
+  // Multi-server safety: only the leader recomputes pair stats. Followers
+  // read the resulting Redis cache (`pair-stats:*`) when serving WS frames.
+  const guarded = async () => {
+    const { isLeader } = await import("./leader");
+    if (!isLeader()) return;
+    try {
+      await recomputePairStats();
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "pair stats recompute failed");
+    }
+  };
+  void guarded();
+  timer = setInterval(() => { void guarded(); }, intervalMs);
+  logger.info({ intervalMs }, "Pair stats service started (leader-gated)");
 }
 
 export function stopPairStatsService(): void {

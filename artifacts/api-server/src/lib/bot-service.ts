@@ -325,6 +325,10 @@ async function tick() {
 }
 
 async function safeTick() {
+  // Multi-server safety: only the leader runs market-maker bots — otherwise
+  // each replica would place duplicate maker orders.
+  const { isLeader } = await import("./leader");
+  if (!isLeader()) return;
   if (ticking) return;
   ticking = true;
   try { await tick(); }

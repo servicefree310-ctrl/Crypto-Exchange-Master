@@ -295,13 +295,22 @@ export async function tickRiskCheck(): Promise<RiskCheckResult> {
 
 export function startFuturesEngine(): void {
   if (fTimer || sTimer || rTimer) return;
-  logger.info("Futures engine starting (auto-funding 60s, settle 30s, risk 5s)");
-  fTimer = setInterval(() => { void tickAutoFunding(); }, FUNDING_TICK_MS);
-  sTimer = setInterval(() => { void tickSettleFunding(); }, SETTLE_TICK_MS);
-  rTimer = setInterval(() => { void tickRiskCheck(); }, RISK_TICK_MS);
-  void tickAutoFunding();
-  void tickSettleFunding();
-  void tickRiskCheck();
+  logger.info("Futures engine starting (auto-funding 60s, settle 30s, risk 5s, leader-gated)");
+  // Multi-server safety: cron-style ticks run only on the leader. Admin
+  // routes (`/admin/futures/funding/run` etc.) can still call the exported
+  // tick functions directly to force a run on any replica — duplicates
+  // are impossible there because the HTTP request only hits one process.
+  const guard = (fn: () => Promise<unknown>) => async () => {
+    const { isLeader } = await import("./leader");
+    if (isLeader()) void fn();
+  };
+  fTimer = setInterval(guard(tickAutoFunding), FUNDING_TICK_MS);
+  sTimer = setInterval(guard(tickSettleFunding), SETTLE_TICK_MS);
+  rTimer = setInterval(guard(tickRiskCheck), RISK_TICK_MS);
+  // Initial fire-and-forget on startup, also leader-gated.
+  void guard(tickAutoFunding)();
+  void guard(tickSettleFunding)();
+  void guard(tickRiskCheck)();
 }
 
 export function stopFuturesEngine(): void {

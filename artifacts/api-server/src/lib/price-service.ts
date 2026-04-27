@@ -2,6 +2,7 @@ import { db, coinsTable, pairsTable, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { rSet, rPublish, rHset } from "./redis";
+import { isLeader, INSTANCE_ID } from "./leader";
 
 type Tick = { symbol: string; usdt: number; inr: number; change24h: number; volume24h: number; ts: number };
 
@@ -121,7 +122,9 @@ async function tick() {
   }
 
   void rSet("price:all", JSON.stringify({ inrRate, ticks: updates, ts: Date.now() }), 30);
-  void rPublish("prices.tick", { inrRate, ticks: updates });
+  // Tag publishes with our INSTANCE_ID so the ws-fanout listener can skip
+  // our own messages (we already broadcast() locally below).
+  void rPublish("prices.tick", { from: INSTANCE_ID, inrRate, ticks: updates });
 
   // Update pairs with latest base price (in quote terms — for USDT-quoted pairs use base usdt)
   try {
@@ -177,6 +180,9 @@ async function tick() {
 let started = false;
 let ticking = false;
 async function safeTick() {
+  // Multi-server safety: only the elected leader hits external price APIs.
+  // Followers receive ticks via Redis pub/sub (see ws-fanout.ts).
+  if (!isLeader()) return;
   if (ticking) return;
   ticking = true;
   try { await tick(); } catch (e: any) { logger.warn({ err: e?.message }, "tick failed"); }
@@ -187,5 +193,21 @@ export function startPriceService(intervalMs = 1000) {
   started = true;
   void safeTick();
   setInterval(() => { void safeTick(); }, intervalMs);
-  logger.info({ intervalMs }, "price service started");
+  logger.info({ intervalMs }, "price service started (leader-gated)");
+}
+
+// Inject ticks received from another instance via Redis pub/sub. Updates
+// the local cache, INR rate, and triggers in-process subscribers (which
+// fan out to WebSocket clients connected to THIS replica). Called from
+// ws-fanout.ts on followers.
+export function injectExternalTick(ticks: Tick[], remoteInrRate?: number): void {
+  if (typeof remoteInrRate === "number" && remoteInrRate > 0) {
+    inrRate = remoteInrRate;
+  }
+  for (const t of ticks) {
+    if (t && typeof t.symbol === "string") {
+      cache.set(t.symbol, t);
+    }
+  }
+  broadcast(ticks);
 }

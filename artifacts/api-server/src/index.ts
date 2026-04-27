@@ -1,6 +1,9 @@
 import http from "node:http";
 import { WebSocketServer } from "ws";
-import app from "./app";
+// NOTE: `app` is imported dynamically inside bootstrap() AFTER initRedis().
+// app.ts constructs RedisStore (rate-limit-redis) at module load time, and
+// that constructor calls SCRIPT LOAD on the redis client, so the client must
+// already be connected. Keeping a static `import` here would crash boot.
 import { logger } from "./lib/logger";
 import { startPriceService, getCache, subscribe, getInrRate } from "./lib/price-service";
 import { startBotService } from "./lib/bot-service";
@@ -15,13 +18,13 @@ import { startPairStatsService } from "./lib/pair-stats";
 import { startPriceHistory } from "./lib/price-history";
 import { getPairStats } from "./lib/pair-stats";
 import { isAllowedInterval } from "./lib/ohlcv-cache";
+import { startLeaderElection, stopLeaderElection, isLeader, INSTANCE_ID } from "./lib/leader";
+import { startWsFanout } from "./lib/ws-fanout";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
-
-const server = http.createServer(app);
 
 // Flutter UI hits several historical Bicrypto WS paths. Rather than create
 // one WSS per path (each binds the upgrade handler), we attach one WSS with
@@ -35,18 +38,6 @@ const PRICE_WS_PATHS = [
   "/api/ws/exchange",        // additional alias seen in some Bicrypto builds
 ];
 const wss = new WebSocketServer({ noServer: true });
-
-server.on("upgrade", (req, socket, head) => {
-  const url = req.url || "";
-  // strip query string
-  const path = url.split("?")[0];
-  if (PRICE_WS_PATHS.includes(path)) {
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-  } else {
-    // No handler for this path — close the socket cleanly.
-    socket.destroy();
-  }
-});
 
 // Convert internal Tick[] → Bicrypto-style ticker map keyed by "BASE/QUOTE".
 // Emits both BASE/USDT and BASE/INR entries so the Flutter MarketService
@@ -300,26 +291,93 @@ wss.on("connection", (ws) => {
   ws.on("error", () => unsub());
 });
 
-server.listen(port, async () => {
-  logger.info({ port, wsPaths: PRICE_WS_PATHS }, "Server listening (HTTP + price WS aliases)");
-  await initRedis();
-  try { await seedCacheConfigs(); } catch (e: any) { logger.warn({ err: e?.message }, "cache config seed failed"); }
-  try { await warmAllCaches(); } catch (e: any) { logger.warn({ err: e?.message }, "cache warmup failed"); }
-  startWarmupRefresh(60000);
-  startPriceService(1000);
-  startPriceHistory();
-  startBotService(3000);
-  startDepositSweeper(30000);
-  startWithdrawalWatcher();
-  startFuturesEngine();
-  // Re-seed the Go matching engine's in-memory book from any open futures
-  // limit orders left over from the last run. Async — the server is already
-  // accepting requests; new orders that arrive before this finishes simply
-  // can't match against a not-yet-restored book (acceptable trade-off).
-  void restoreBooksOnBoot();
-  startPairStatsService(5000);
-});
+// Bootstrap order matters for multi-server safety:
+//   1. initRedis()           — required by RedisStore (rate-limit-redis) at
+//                              module-load time of `./app`, by leader.ts, and
+//                              by ws-fanout.ts.
+//   2. startLeaderElection() — must complete first heartbeat BEFORE workers
+//                              tick, so isLeader() returns the right value
+//                              on tick #1 of every gated worker.
+//   3. startWsFanout()       — followers subscribe to "prices.tick" so they
+//                              can serve their connected WS clients with
+//                              data fetched by the leader.
+//   4. dynamic import("./app") — safe now that Redis is up.
+//   5. http server + worker startup.
+async function bootstrap() {
+  // Best-effort Redis connect. If it fails, we boot in degraded mode:
+  //   - app.ts makeStore() returns undefined  → MemoryStore rate-limit (per-process).
+  //   - leader.ts isLeader() returns LEADER_SINGLE_INSTANCE_FALLBACK
+  //     (default true in dev / false in prod) → workers paused or sole-leader.
+  //   - ws-fanout.ts subscribe() no-ops, leader serves its own WS clients.
+  // This keeps single-replica/dev usable when redis-server fails to spawn,
+  // while production multi-replica deployments are protected by the env
+  // default of fallback=false (no replica self-promotes).
+  try {
+    await initRedis();
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message || String(err) },
+      "[bootstrap] Redis init failed — running in degraded (no-Redis) mode",
+    );
+  }
+  await startLeaderElection();
+  await startWsFanout();
 
-const shutdown = async () => { await shutdownRedis(); process.exit(0); };
+  const { default: app } = await import("./app");
+  const server = http.createServer(app);
+
+  server.on("upgrade", (req, socket, head) => {
+    const url = req.url || "";
+    // strip query string
+    const path = url.split("?")[0];
+    if (PRICE_WS_PATHS.includes(path)) {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    } else {
+      // No handler for this path — close the socket cleanly.
+      socket.destroy();
+    }
+  });
+
+  server.listen(port, async () => {
+    logger.info({ port, instanceId: INSTANCE_ID, wsPaths: PRICE_WS_PATHS }, "Server listening (HTTP + price WS aliases)");
+    try { await seedCacheConfigs(); } catch (e: any) { logger.warn({ err: e?.message }, "cache config seed failed"); }
+    // Cache warmup: only the leader does the initial DB-heavy populate;
+    // followers read the same Redis on demand.
+    if (isLeader()) {
+      try { await warmAllCaches(); } catch (e: any) { logger.warn({ err: e?.message }, "cache warmup failed"); }
+    }
+    // All start* calls are safe to invoke on every replica — internal tick
+    // bodies are leader-gated. We start them here so leadership hand-overs
+    // (e.g. after a leader crash + new election) take effect on the next
+    // heartbeat without needing a workflow restart.
+    startWarmupRefresh(60000);
+    startPriceService(1000);
+    startPriceHistory();
+    startBotService(3000);
+    startDepositSweeper(30000);
+    startWithdrawalWatcher();
+    startFuturesEngine();
+    // Re-seed the Go matching engine's in-memory book from any open futures
+    // limit orders left over from the last run. ONLY the leader does this —
+    // restoring on every replica would queue duplicate work into the same
+    // shared Go engine.
+    if (isLeader()) {
+      void restoreBooksOnBoot();
+    }
+    startPairStatsService(5000);
+    logger.info({ instanceId: INSTANCE_ID, leader: isLeader() }, "Multi-server workers started");
+  });
+}
+
+const shutdown = async () => {
+  await stopLeaderElection();
+  await shutdownRedis();
+  process.exit(0);
+};
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+bootstrap().catch((err) => {
+  logger.error({ err: err?.stack || String(err) }, "fatal: bootstrap failed");
+  process.exit(1);
+});

@@ -3,10 +3,12 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import webhooksRouter from "./routes/webhooks";
 import { logger } from "./lib/logger";
+import { getRedis, isRedisReady } from "./lib/redis";
 
 const app: Express = express();
 
@@ -116,11 +118,42 @@ function originGuard(req: Request, res: Response, next: NextFunction): void {
 // IP-keyed (trust proxy:1 above unwraps the real client IP). The global
 // limiter is generous because the app polls tickers/orderbook frequently;
 // hot endpoints (auth, OTP) get much tighter caps mounted before it.
+//
+// Multi-server safety: when Redis is reachable, all three limiters share a
+// distributed counter via `rate-limit-redis`. Without this, each replica
+// would maintain its own in-process counter, so an attacker could simply
+// spread requests across instances to hit N×limit.
+//
+// This module is imported AFTER initRedis() (see index.ts bootstrap), so
+// we can safely snapshot isRedisReady() at module load. When Redis is
+// available we return a RedisStore (constructor calls SCRIPT LOAD via the
+// already-connected client). When Redis is unavailable we return undefined
+// so express-rate-limit falls back to the default in-process MemoryStore —
+// safe for single-replica/dev, and the only viable option without Redis.
+//
+// At RUNTIME, rate-limit-redis can still error if Redis disconnects mid-
+// flight. All three limiters set `passOnStoreError: true` so transient
+// Redis blips fail OPEN (allow the request, log the error) rather than
+// blanket-503'ing the whole API.
+function makeStore(prefix: string): RedisStore | undefined {
+  if (!isRedisReady()) return undefined;
+  const r = getRedis();
+  if (!r) return undefined;
+  return new RedisStore({
+    prefix: `cryptox:rl:${prefix}:`,
+    sendCommand: (...args: string[]) => r.call(args[0], ...args.slice(1)) as Promise<any>,
+  });
+}
+
 const globalLimiter = rateLimit({
+  store: makeStore("global"),
   windowMs: 60 * 1000,
   limit: 600, // 10/sec sustained
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  // Fail OPEN on store errors. A Redis blip must not 503 the whole API —
+  // we'd rather under-rate-limit briefly than take downtime.
+  passOnStoreError: true,
   message: { error: "Too many requests, please slow down" },
   // Skip true-public / high-volume endpoints from the cap
   skip: (req) => {
@@ -138,18 +171,27 @@ const globalLimiter = rateLimit({
 });
 
 const authLimiter = rateLimit({
+  store: makeStore("auth"),
   windowMs: 15 * 60 * 1000,
   limit: 10, // 10 auth attempts per IP per 15 min
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  // Fail OPEN: a Redis blip during a login attempt must not lock everyone
+  // out of the API. We accept slightly looser rate limiting briefly.
+  passOnStoreError: true,
   message: { error: "Too many auth attempts, try again in 15 minutes" },
 });
 
 const otpSendLimiter = rateLimit({
+  store: makeStore("otp"),
   windowMs: 60 * 60 * 1000,
   limit: 5, // 5 OTP sends per IP per hour (stops free SMS flooding)
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  // Fail OPEN: SMS flooding protection should not trigger 503s on Redis
+  // blips. The OTP endpoint also runs behind authLimiter so an attacker
+  // can't fully bypass throttling even during a Redis outage.
+  passOnStoreError: true,
   message: { error: "Too many OTP requests, try again in 1 hour" },
 });
 

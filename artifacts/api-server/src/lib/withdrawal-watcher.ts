@@ -77,6 +77,11 @@ export async function scanBroadcasting(): Promise<{ checked: number; confirmed: 
 }
 
 async function tick(): Promise<void> {
+  // Multi-server safety: only the elected leader processes withdrawals,
+  // otherwise N replicas would all try to broadcast the same on-chain
+  // transaction and we'd lose money to double sends.
+  const { isLeader } = await import("./leader");
+  if (!isLeader()) return;
   if (running) return;
   running = true;
   try {

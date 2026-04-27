@@ -42,6 +42,15 @@ The project is structured as a pnpm workspace monorepo, leveraging Node.js 24 an
 - **Bicrypto v5 Adapter:** An adapter is implemented to provide Flutter-shaped endpoints for various functionalities, including authentication with Proof-of-Work, user profiles, finance/wallet, exchange, and futures.
 - **Go Service Skeleton:** A Go service skeleton is established for performance-critical tasks like the matching engine, WS gateway, and futures.
 
+**Multi-server / Horizontal Scaling (api-server):**
+- **Leader Election:** `src/lib/leader.ts` uses Redis `SET key NX EX 15` to elect a single leader across all replicas. Each instance has a `crypto.randomUUID()` `INSTANCE_ID`. A 5s heartbeat extends the TTL via an atomic Lua script (compare-and-extend on the stored UUID), so a crashed leader's lock auto-expires within 15s and any replica can take over.
+- **Leader-gated Workers:** All recurring tick bodies are guarded by `isLeader()` so they only run on the leader: `price-service` (external feed fetch + DB writes), `withdrawal-watcher`, `deposit-sweeper`, `bot-service`, `pair-stats`, `cache-warmup` refresh, and the 3 `futures-engine` ticks (auto-funding 60s, settle 30s, risk 5s). Boot-time `warmAllCaches()` and `restoreBooksOnBoot()` (Go matching engine reseed) also gated. Externally-callable functions (e.g. admin manual triggers) remain unrestricted.
+- **WS Fanout:** `src/lib/ws-fanout.ts` lets followers serve real-time price WebSocket clients. The leader publishes price ticks tagged with its `INSTANCE_ID` to Redis pub/sub channel `prices.tick`; followers subscribe and call `injectExternalTick()` on their local `price-service`, which fans out to their connected WS subscribers. The leader skips its own published ticks (by `INSTANCE_ID` match) to avoid double-broadcast.
+- **Distributed Rate Limits:** All 3 `express-rate-limit` instances (global / auth / OTP) use `rate-limit-redis` v4 with a shared Redis backend (key prefix `cryptox:rl:{global,auth,otp}:`). Without this, an attacker could spread requests across N replicas to hit N×limit. The `sendCommand` callback fetches the live ioredis client at command-time so it survives restarts.
+- **Bootstrap Order:** `src/index.ts` `bootstrap()` runs `initRedis()` → `startLeaderElection()` (awaits first heartbeat) → `startWsFanout()` → dynamic `import("./app")` → `http.createServer` → `server.listen` → workers. App must be imported AFTER Redis is connected because `RedisStore`'s constructor calls `SCRIPT LOAD` on the Redis client.
+- **Single-instance Fallback:** When Redis is unavailable, `leader.ts` returns `isLeader() === true` so the lone instance still does all work. Rate-limit `sendCommand` throws and `express-rate-limit` fails open (logs + allows) during the boot window.
+- **Env Vars:** `LEADER_LOCK_KEY` (default `cryptox:leader:global`), `LEADER_TTL_SEC` (default 15), `LEADER_HEARTBEAT_MS` (default 5000). Multi-server deployment requires all replicas to share the same Redis (the embedded redis-server is replaced by an external one in production via `REDIS_URL`).
+
 # External Dependencies
 
 - **pnpm workspaces:** Monorepo management.

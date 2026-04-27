@@ -346,6 +346,10 @@ export async function sweepAllNetworks(): Promise<SweepResult[]> {
 
 async function tick() {
   if (!state.running) return;
+  // Multi-server safety: only the leader sweeps deposits — otherwise we'd
+  // double-credit users (each replica sees the same incoming tx).
+  const { isLeader } = await import("./leader");
+  if (!isLeader()) return;
   state.lastTickAt = Date.now();
   try {
     const results = await sweepAllNetworks();
