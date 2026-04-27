@@ -14,6 +14,7 @@ import {
   Coins,
 } from "lucide-react";
 import { useTickers, encodeSymbol, type NormalizedTicker } from "@/lib/marketSocket";
+import { useMarketCatalog } from "@/lib/marketCatalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -263,7 +264,14 @@ export default function Markets() {
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortDesc, setSortDesc] = useState(true);
 
-  const all = useMemo(() => Object.values(tickers), [tickers]);
+  // Only show pairs the admin has actually enabled in the DB
+  // (status='active' AND tradingEnabled or futuresEnabled). Without
+  // this we'd display every spot ticker the WS feed knows about.
+  const { all: enabledSet } = useMarketCatalog();
+  const all = useMemo(
+    () => Object.values(tickers).filter((t) => enabledSet.has(t.symbol)),
+    [tickers, enabledSet],
+  );
 
   // Aggregate stats
   const stats = useMemo(() => {

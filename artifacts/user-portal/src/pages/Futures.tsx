@@ -9,6 +9,7 @@ import {
 } from "@/lib/marketSocket";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, post, del, api } from "@/lib/api";
+import { useMarketCatalog } from "@/lib/marketCatalog";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -131,33 +132,6 @@ function AssetIcon({ symbol, size = 9 }: { symbol: string; size?: 6 | 7 | 8 | 9 
       {b.slice(0, 1)}
     </div>
   );
-}
-
-// ──────────────────────────────────────────────────────────────────
-// Futures-enabled markets — fetches /exchange/market and returns the
-// set of symbols where the admin has flipped futuresEnabled=true.
-// pairToMarket() on the server only sets metadata.limits.leverage when
-// futures are enabled, so we use that as the truth source instead of
-// listing every spot ticker (which would expose pairs that aren't
-// actually tradeable on futures yet).
-// ──────────────────────────────────────────────────────────────────
-function useFuturesEnabledSymbols() {
-  const { data, isLoading } = useQuery<any[]>({
-    queryKey: ["futures-enabled-markets"],
-    queryFn: () => get("/exchange/market"),
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-  });
-  const set = useMemo(() => {
-    const s = new Set<string>();
-    if (Array.isArray(data)) {
-      for (const m of data) {
-        if (m?.metadata?.limits?.leverage && m?.symbol) s.add(String(m.symbol));
-      }
-    }
-    return s;
-  }, [data]);
-  return { set, isLoading };
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -330,7 +304,7 @@ export default function Futures() {
   // Futures-enabled symbols (admin-controlled). If the current symbol
   // isn't in this set, show a banner + disable the order form so users
   // can't fire orders the API will reject with 400.
-  const { set: enabledFuturesSet, isLoading: enabledLoading } = useFuturesEnabledSymbols();
+  const { futures: enabledFuturesSet, isLoading: enabledLoading } = useMarketCatalog();
   const symbolEnabled = enabledFuturesSet.has(symbol);
   const noFuturesEnabled = !enabledLoading && enabledFuturesSet.size === 0;
 

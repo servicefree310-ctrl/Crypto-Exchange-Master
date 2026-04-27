@@ -69,6 +69,7 @@ import {
 import { useTickers, encodeSymbol, type NormalizedTicker } from "@/lib/marketSocket";
 import { useAuth } from "@/lib/auth";
 import { get } from "@/lib/api";
+import { useMarketCatalog } from "@/lib/marketCatalog";
 
 // ──────────────────────────────────────────────────────────────────
 // Constants — real Zebvix L1 chain identity
@@ -639,7 +640,14 @@ function Reveal({
 export default function Home() {
   const tickersMap = useTickers();
   const { user } = useAuth();
-  const all = useMemo(() => Object.values(tickersMap).filter((t) => t.lastPrice > 0), [tickersMap]);
+  // Only surface pairs the admin has enabled in the DB. /exchange/market
+  // returns active+enabled pairs (spot or futures), so we use it as the
+  // allowlist to filter the WS ticker firehose.
+  const { all: enabledSet } = useMarketCatalog();
+  const all = useMemo(
+    () => Object.values(tickersMap).filter((t) => t.lastPrice > 0 && enabledSet.has(t.symbol)),
+    [tickersMap, enabledSet],
+  );
 
   const stats = useMemo(() => {
     // Build a "<quote-asset> -> USD" rate table so we can normalise every
