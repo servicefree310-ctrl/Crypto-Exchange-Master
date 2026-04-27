@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useTickers, encodeSymbol, type NormalizedTicker } from "@/lib/marketSocket";
 import { useMarketCatalog } from "@/lib/marketCatalog";
+import { buildUsdRates, quoteVolUsd } from "@/lib/volumeUsd";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -273,15 +274,23 @@ export default function Markets() {
     [tickers, enabledSet],
   );
 
+  // USD rates derived from the live tickers — used everywhere we need
+  // to sort or sum volume across mixed quote currencies (INR / USDT /
+  // BTC etc.). Without this, raw `quoteVolume` numbers can't be
+  // compared because a BTC/INR pair's lakhs of rupees dominate any
+  // USDT-quoted pair's thousands of dollars.
+  const usdRates = useMemo(() => buildUsdRates(all), [all]);
+  const volUsd = (t: NormalizedTicker) => quoteVolUsd(t, usdRates);
+
   // Aggregate stats
   const stats = useMemo(() => {
     const total = all.length;
-    const totalQuoteVol = all.reduce((s, t) => s + (t.quoteVolume || 0), 0);
+    const totalQuoteVol = all.reduce((s, t) => s + volUsd(t), 0);
     const gainers = all.filter((t) => t.priceChangePercent > 0).length;
     const losers = all.filter((t) => t.priceChangePercent < 0).length;
     const sentiment = total === 0 ? 50 : Math.round((gainers / total) * 100);
     return { total, totalQuoteVol, gainers, losers, sentiment };
-  }, [all]);
+  }, [all, usdRates]);
 
   // Top movers
   const topGainers = useMemo(
@@ -293,8 +302,8 @@ export default function Markets() {
     [all]
   );
   const topVolume = useMemo(
-    () => [...all].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 3),
-    [all]
+    () => [...all].sort((a, b) => volUsd(b) - volUsd(a)).slice(0, 3),
+    [all, usdRates]
   );
 
   // Filtered + sorted main list
@@ -311,7 +320,7 @@ export default function Markets() {
           if (!favs.has(t.symbol)) return false;
           break;
         case "hot":
-          // Hot = top quartile by quote volume
+          // Hot = top quartile by USD-normalised quote volume
           break;
         case "gainers":
           if (!(t.priceChangePercent > 0)) return false;
@@ -326,12 +335,12 @@ export default function Markets() {
       return true;
     });
     if (category === "hot") {
-      arr = arr.sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, Math.max(20, Math.ceil(arr.length * 0.25)));
+      arr = arr.sort((a, b) => volUsd(b) - volUsd(a)).slice(0, Math.max(20, Math.ceil(arr.length * 0.25)));
     }
     const dir = sortDesc ? -1 : 1;
     arr.sort((a, b) => {
       switch (sortKey) {
-        case "volume": return dir * ((a.quoteVolume || 0) - (b.quoteVolume || 0));
+        case "volume": return dir * (volUsd(a) - volUsd(b));
         case "change": return dir * (a.priceChangePercent - b.priceChangePercent);
         case "price": return dir * (a.lastPrice - b.lastPrice);
         case "name": return dir * a.symbol.localeCompare(b.symbol) * -1;
