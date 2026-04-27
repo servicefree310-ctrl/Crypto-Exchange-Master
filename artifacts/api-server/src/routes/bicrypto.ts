@@ -412,11 +412,9 @@ r.post("/auth/reset", async (req, res): Promise<void> => {
         recipient: lower, code: createHash("sha256").update(code).digest("hex"),
         expiresAt,
       });
-      // eslint-disable-next-line no-console
-      console.log(`[OTP] reset email → ${lower}: <redacted>`);
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn("[reset] failed to insert OTP", e);
+      req.log.info({ recipient: lower, purpose: "reset" }, "password reset OTP issued");
+    } catch (e: any) {
+      req.log.error({ err: e?.message, recipient: lower }, "failed to insert reset OTP");
     }
   }
   res.json({ message: "If that account exists, a reset code has been sent." });

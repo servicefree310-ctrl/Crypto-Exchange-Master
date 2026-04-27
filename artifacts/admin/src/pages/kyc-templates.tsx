@@ -15,6 +15,9 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import {
@@ -460,37 +463,57 @@ function LimitInput({ label, value, onChange, disabled }: { label: string; value
 function AddFieldMenu({ existingKeys, onAdd, disabled }: { existingKeys: string[]; onAdd: (f: FieldDef) => void; disabled?: boolean }) {
   const available = FIELD_PRESETS.filter((p) => !existingKeys.includes(p.key));
   const [pickKey, setPickKey] = useState<string>("__custom");
+  // Custom-field dialog state. Replaces window.prompt/alert with a properly-
+  // themed dialog that supports inline validation and keyboard a11y.
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customKey, setCustomKey] = useState("");
+  const [customLabel, setCustomLabel] = useState("");
+  const [customError, setCustomError] = useState<string | null>(null);
+
+  // Keys must be a valid JS identifier-ish (camelCase, no spaces / punctuation).
+  // We also reject anything already in use to keep the field list unique.
+  const validateCustom = (rawKey: string, rawLabel: string): string | null => {
+    const k = rawKey.trim();
+    if (!k) return "Key is required";
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(k)) return "Key must be camelCase letters/digits, no spaces";
+    if (existingKeys.includes(k)) return `Key "${k}" is already used`;
+    if (!rawLabel.trim()) return "Label is required";
+    return null;
+  };
+
+  const submitCustom = () => {
+    const err = validateCustom(customKey, customLabel);
+    if (err) { setCustomError(err); return; }
+    onAdd({ key: customKey.trim(), label: customLabel.trim(), type: "text", required: false });
+    setCustomOpen(false);
+    setCustomKey(""); setCustomLabel(""); setCustomError(null);
+  };
 
   const handleAdd = () => {
     if (pickKey === "__custom") {
-      const key = prompt("Custom field key (camelCase, no spaces):");
-      if (!key) return;
-      const trimmed = key.trim();
-      if (!trimmed || existingKeys.includes(trimmed)) {
-        alert("Key is empty or already used.");
-        return;
-      }
-      onAdd({ key: trimmed, label: trimmed, type: "text", required: false });
-    } else {
-      const preset = FIELD_PRESETS.find((p) => p.key === pickKey);
-      if (!preset) return;
-      onAdd({
-        key: preset.key,
-        label: preset.label,
-        type: preset.type,
-        required: true,
-        regex: preset.regex,
-        placeholder: preset.placeholder,
-        helperText: preset.helperText,
-      });
+      // Open the dialog instead of using window.prompt.
+      setCustomError(null);
+      setCustomOpen(true);
+      return;
     }
+    const preset = FIELD_PRESETS.find((p) => p.key === pickKey);
+    if (!preset) return;
+    onAdd({
+      key: preset.key,
+      label: preset.label,
+      type: preset.type,
+      required: true,
+      regex: preset.regex,
+      placeholder: preset.placeholder,
+      helperText: preset.helperText,
+    });
     setPickKey("__custom");
   };
 
   return (
     <div className="flex items-center gap-2">
       <Select value={pickKey} onValueChange={setPickKey}>
-        <SelectTrigger className="w-[180px] h-8 text-xs" disabled={disabled}>
+        <SelectTrigger className="w-[180px] h-8 text-xs" disabled={disabled} data-testid="select-add-field-preset">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -504,9 +527,75 @@ function AddFieldMenu({ existingKeys, onAdd, disabled }: { existingKeys: string[
           )}
         </SelectContent>
       </Select>
-      <Button size="sm" onClick={handleAdd} disabled={disabled}>
+      <Button size="sm" onClick={handleAdd} disabled={disabled} data-testid="button-add-field">
         <Plus className="w-3.5 h-3.5 mr-1" /> Add
       </Button>
+
+      <Dialog
+        open={customOpen}
+        onOpenChange={(o) => {
+          setCustomOpen(o);
+          if (!o) { setCustomKey(""); setCustomLabel(""); setCustomError(null); }
+        }}
+      >
+        <DialogContent className="max-w-md" data-testid="dialog-custom-field">
+          <DialogHeader>
+            <DialogTitle>Add custom KYC field</DialogTitle>
+            <DialogDescription>
+              Define a one-off field that isn't in the preset list. Keys must be
+              camelCase letters/digits and unique within this template.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="custom-field-key" className="text-xs">Field key</Label>
+              <Input
+                id="custom-field-key"
+                value={customKey}
+                onChange={(e) => { setCustomKey(e.target.value); if (customError) setCustomError(null); }}
+                placeholder="e.g. fatherName"
+                className="font-mono"
+                autoFocus
+                data-testid="input-custom-field-key"
+                onKeyDown={(e) => { if (e.key === "Enter") submitCustom(); }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="custom-field-label" className="text-xs">Display label</Label>
+              <Input
+                id="custom-field-label"
+                value={customLabel}
+                onChange={(e) => { setCustomLabel(e.target.value); if (customError) setCustomError(null); }}
+                placeholder="e.g. Father's name"
+                data-testid="input-custom-field-label"
+                onKeyDown={(e) => { if (e.key === "Enter") submitCustom(); }}
+              />
+            </div>
+            {customError && (
+              <div className="text-xs text-red-300 bg-red-500/[0.08] border border-red-500/25 rounded-md px-2.5 py-1.5" role="alert">
+                {customError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCustomOpen(false)}
+              data-testid="button-custom-field-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={submitCustom}
+              data-testid="button-custom-field-add"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" /> Add field
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

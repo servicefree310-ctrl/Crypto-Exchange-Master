@@ -22,6 +22,10 @@ import {
 import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Coin = { id: number; symbol: string; name: string; type: string; status: string };
 
@@ -486,6 +490,10 @@ function UserDossierSheet({
 }) {
   const u = dossier?.user;
   const sec = dossier?.security;
+  // AlertDialog state — replaces native window.confirm() prompts so destructive
+  // actions get a properly-themed, screen-reader-accessible confirmation.
+  const [confirm2fa, setConfirm2fa] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
 
   const copy = (text: string) => {
     try { navigator.clipboard?.writeText(text); } catch {}
@@ -571,7 +579,7 @@ function UserDossierSheet({
                   <Button
                     size="sm" variant="outline"
                     disabled={!sec.twoFaEnabled || disable2faPending}
-                    onClick={() => { if (confirm(`Disable 2FA for ${u.email}?`)) onDisable2fa(); }}
+                    onClick={() => setConfirm2fa(true)}
                     data-testid="button-disable-2fa"
                   >
                     <ShieldOff className="w-3 h-3 mr-1" />
@@ -580,7 +588,7 @@ function UserDossierSheet({
                   <Button
                     size="sm" variant="outline"
                     disabled={sec.activeSessions === 0 || forceLogoutPending}
-                    onClick={() => { if (confirm(`Revoke all ${sec.activeSessions} session(s) for ${u.email}?`)) onForceLogout(); }}
+                    onClick={() => setConfirmRevoke(true)}
                     data-testid="button-force-logout"
                   >
                     <LogOut className="w-3 h-3 mr-1" />
@@ -771,6 +779,57 @@ function UserDossierSheet({
           </div>
         )}
       </SheetContent>
+
+      {/* Destructive action confirms — rendered outside SheetContent so they
+          stack above the sheet (Radix portals each Dialog independently). */}
+      <AlertDialog open={confirm2fa} onOpenChange={setConfirm2fa}>
+        <AlertDialogContent data-testid="dialog-confirm-disable-2fa">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable 2FA?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will turn off 2-factor authentication for{" "}
+              <span className="font-mono text-amber-300">{u?.email}</span>. The
+              user will be able to sign in with just a password until they
+              re-enable it. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-disable-2fa">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500/90 hover:bg-red-500 text-white"
+              onClick={() => onDisable2fa()}
+              data-testid="button-confirm-disable-2fa"
+            >
+              Disable 2FA
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmRevoke} onOpenChange={setConfirmRevoke}>
+        <AlertDialogContent data-testid="dialog-confirm-force-logout">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke all sessions?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will sign{" "}
+              <span className="font-mono text-amber-300">{u?.email}</span> out
+              of all <span className="font-semibold">{sec?.activeSessions ?? 0}</span>{" "}
+              active session{sec?.activeSessions === 1 ? "" : "s"} on every
+              device. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-force-logout">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500/90 hover:bg-red-500 text-white"
+              onClick={() => onForceLogout()}
+              data-testid="button-confirm-force-logout"
+            >
+              Force logout
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }

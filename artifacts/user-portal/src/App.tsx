@@ -1,9 +1,10 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, RequireAuth } from "@/lib/auth";
 import { AppShell } from "@/components/layout/AppShell";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import Home from "@/pages/Home";
 import Markets from "@/pages/Markets";
@@ -35,6 +36,8 @@ import Press from "@/pages/Press";
 import Contact from "@/pages/Contact";
 import Help from "@/pages/Help";
 import Status from "@/pages/Status";
+import P2P from "@/pages/P2P";
+import Convert from "@/pages/Convert";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -42,9 +45,12 @@ const queryClient = new QueryClient();
 
 function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
+    <QueryClientProvider client={queryClient}>
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <ErrorBoundary onReset={reset}>
+            <AuthProvider>
+              <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <AppShell>
               <Switch>
@@ -98,6 +104,8 @@ function App() {
                 <Route path="/contact" component={Contact} />
                 <Route path="/help" component={Help} />
                 <Route path="/status" component={Status} />
+                <Route path="/p2p" component={P2P} />
+                <Route path="/convert" component={Convert} />
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />
@@ -108,9 +116,12 @@ function App() {
             <SupportChatWidget />
             <Toaster />
           </WouterRouter>
-        </TooltipProvider>
-      </QueryClientProvider>
-    </AuthProvider>
+              </TooltipProvider>
+            </AuthProvider>
+          </ErrorBoundary>
+        )}
+      </QueryErrorResetBoundary>
+    </QueryClientProvider>
   );
 }
 

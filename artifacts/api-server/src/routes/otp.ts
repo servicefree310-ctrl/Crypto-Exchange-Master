@@ -66,9 +66,13 @@ router.post("/otp/send", async (req, res): Promise<void> => {
 
   // TODO Phase 6: integrate msg91/twilio/sendgrid via provider config; for now we just log
   if (!hasProvider) {
-    // Log so dev/admin can see it; never expose in prod response unless dev mode
-    // eslint-disable-next-line no-console
-    console.log(`[OTP] ${channel} → ${recipient} (purpose=${purpose}): ${code}`);
+    // Log so dev/admin can see it; never expose in prod response unless dev mode.
+    // We log at warn so it stands out — running without an OTP provider is a
+    // dev-only configuration. Code is redacted in prod (info-only fields).
+    req.log.warn(
+      { channel, recipient, purpose, devCode: isDev ? code : undefined },
+      "OTP delivered via stdout — no provider configured",
+    );
   }
 
   res.json({

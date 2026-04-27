@@ -1,5 +1,6 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq, or } from "drizzle-orm";
+import { z, type ZodSchema } from "zod";
 import { db, usersTable, loginLogsTable, walletsTable, coinsTable } from "@workspace/db";
 import {
   hashPassword,
@@ -16,6 +17,43 @@ import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
+// ─── Zod schemas ─────────────────────────────────────────────────────────
+// We validate explicitly (and lowercase email up-front) so the route bodies
+// can trust their inputs and we return clean 400s instead of 500s on bad
+// payloads. .strict() rejects unknown keys to harden against mass-assignment.
+const RegisterBody = z.object({
+  email: z.string().trim().toLowerCase().email("Invalid email"),
+  password: z.string().min(6, "Password must be at least 6 characters").max(128),
+  phone: z.string().trim().min(7).max(20).optional().or(z.literal("").transform(() => undefined)),
+  name: z.string().trim().max(100).optional().or(z.literal("").transform(() => undefined)),
+  referralCode: z.string().trim().max(32).optional().or(z.literal("").transform(() => undefined)),
+}).strict();
+
+const LoginBody = z.object({
+  // login accepts either an email or a phone in the same field
+  email: z.string().trim().min(3, "Email or phone required").max(120),
+  password: z.string().min(1, "Password required").max(128),
+}).strict();
+
+function validate<T>(schema: ZodSchema<T>) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      const field = first?.path?.join(".") || "body";
+      res.status(400).json({
+        error: first?.message || "Invalid request",
+        field,
+        // expose all issues for richer client-side form feedback
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      });
+      return;
+    }
+    req.body = parsed.data;
+    next();
+  };
+}
+
 const COOKIE_OPTS = {
   httpOnly: true,
   // strict: cookie is never sent on cross-site requests — the strongest
@@ -30,12 +68,8 @@ const COOKIE_OPTS = {
   secure: process.env.NODE_ENV === "production",
 };
 
-router.post("/auth/register", async (req, res): Promise<void> => {
-  const { email, phone, password, name, referralCode } = req.body ?? {};
-  if (!email || !password || password.length < 6) {
-    res.status(400).json({ error: "Email and a 6+ char password are required" });
-    return;
-  }
+router.post("/auth/register", validate(RegisterBody), async (req, res): Promise<void> => {
+  const { email, phone, password, name, referralCode } = req.body as z.infer<typeof RegisterBody>;
   const existing = await db
     .select()
     .from(usersTable)
@@ -87,12 +121,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   res.status(201).json({ user: sanitizeUser(user) });
 });
 
-router.post("/auth/login", async (req, res): Promise<void> => {
-  const { email, password } = req.body ?? {};
-  if (!email || !password) {
-    res.status(400).json({ error: "Email and password required" });
-    return;
-  }
+router.post("/auth/login", validate(LoginBody), async (req, res): Promise<void> => {
+  const { email, password } = req.body as z.infer<typeof LoginBody>;
   const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || null;
   const ua = req.headers["user-agent"] || null;
 

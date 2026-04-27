@@ -1,10 +1,34 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { z } from "zod";
 import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { rZadd, rZrem, rPublish, rLpush, rSet } from "../lib/redis";
 import { tryMatch, getDepth, getRecentTrades } from "../lib/matching-engine";
 import { getSpotFeeRates } from "./fees";
+
+// ─── Zod schemas ─────────────────────────────────────────────────────────
+// Stricter than the historical placeSpotOrder() guard — we validate types &
+// finiteness here so a bad client sees a clean 400 instead of a 500 bubbling
+// up from the inner engine. .strict() blocks mass-assignment of fields the
+// engine doesn't expect (status, userId, fee overrides, etc).
+const PlaceOrderBody = z.object({
+  pairId: z.coerce.number().int().positive(),
+  side: z.enum(["buy", "sell"]),
+  type: z.enum(["limit", "market"]),
+  qty: z.coerce.number().finite().positive(),
+  price: z.coerce.number().finite().positive().optional(),
+}).strict().superRefine((data, ctx) => {
+  // Limit orders REQUIRE a price; market orders MUST NOT carry one (otherwise
+  // the engine would silently ignore it and the user might think their limit
+  // price was respected).
+  if (data.type === "limit" && data.price == null) {
+    ctx.addIssue({ code: "custom", path: ["price"], message: "price required for limit orders" });
+  }
+  if (data.type === "market" && data.price != null) {
+    ctx.addIssue({ code: "custom", path: ["price"], message: "price not allowed for market orders" });
+  }
+});
 
 async function pushOrderToRedis(o: any, pair: any, action: "new" | "cancel" | "fill") {
   const symbol = pair?.symbol ?? `pair-${o.pairId}`;
@@ -217,15 +241,20 @@ export async function placeSpotOrder(opts: {
 router.post("/orders", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
   const vipTier = Math.max(0, Math.min(5, req.user!.vipTier ?? 0));
-  const { pairId, side, type, price, qty } = req.body ?? {};
+  const parsed = PlaceOrderBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    res.status(400).json({
+      error: first?.message || "Invalid order",
+      field: first?.path?.join(".") || "body",
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+    });
+    return;
+  }
+  const { pairId, side, type, price, qty } = parsed.data;
   try {
     const result = await placeSpotOrder({
-      userId, vipTier,
-      pairId: Number(pairId),
-      side: String(side || "").toLowerCase() as any,
-      type: String(type || "").toLowerCase() as any,
-      qty: Number(qty),
-      price: price != null ? Number(price) : undefined,
+      userId, vipTier, pairId, side, type, qty, price,
     });
     res.status(201).json(result.matched > 0 ? { ...result.order, matched: result.matched } : result.order);
   } catch (e: any) {

@@ -9,6 +9,7 @@ import router from "./routes";
 import webhooksRouter from "./routes/webhooks";
 import { logger } from "./lib/logger";
 import { getRedis, isRedisReady } from "./lib/redis";
+import { requestId } from "./middleware/requestId";
 
 const app: Express = express();
 
@@ -196,9 +197,16 @@ const otpSendLimiter = rateLimit({
 });
 
 // ─── Middleware stack ────────────────────────────────────────────────────
+// Correlation ID first so every downstream log line carries `reqId`.
+app.use(requestId());
+
 app.use(
   pinoHttp({
     logger,
+    // pino-http calls our genReqId before assigning req.id; we already set it
+    // in the requestId middleware above, so just pass it through. This keeps
+    // the same id we returned in the X-Request-Id response header.
+    genReqId: (req) => (req as unknown as { id?: string }).id ?? "",
     serializers: {
       req(req) {
         return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
