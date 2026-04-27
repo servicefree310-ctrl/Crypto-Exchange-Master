@@ -72,6 +72,24 @@ uri = "file://attached_assets/generated_images/zebvix_logo_v3_circuit.png"
 type = "image"
 title = "zebvix crypto circuit Z"
 
+[[generated]]
+id = "T2XryLRZfz5duqYM2nsfl"
+uri = "file://attached_assets/generated_images/zebvix_logo_v4_3d_ingot.png"
+type = "image"
+title = "zebvix 3D gold ingot Z"
+
+[[generated]]
+id = "ZMQSTk-3HQcs_3acnWyZ7"
+uri = "file://attached_assets/generated_images/zebvix_logo_v4_minimal_ring.png"
+type = "image"
+title = "zebvix minimal coin ring Z"
+
+[[generated]]
+id = "-vJ_Cg1Rr2Ov48f-XmLrN"
+uri = "file://attached_assets/generated_images/zebvix_logo_v4_lockup.png"
+type = "image"
+title = "zebvix premium lockup v4"
+
 [[outputs]]
 id = "Supekt0-8Z_z3aydNlg2a"
 uri = "file://attached_assets/generated_images/cryptox_logo_icon.png"
@@ -131,3 +149,21 @@ id = "4sDCo7DO7jXyFJj-gYTEK"
 uri = "file://attached_assets/generated_images/zebvix_logo_v3_circuit.png"
 type = "image"
 title = "Zebvix — Web3 Circuit Z (Cyber/blockchain feel)"
+
+[[outputs]]
+id = "PasT2VskPraHeZKNDigLt"
+uri = "file://attached_assets/generated_images/zebvix_logo_v4_3d_ingot.png"
+type = "image"
+title = "Zebvix — 3D Gold Ingot Z (Coinbase Pro tier)"
+
+[[outputs]]
+id = "q1dy77VoAAT2rff330--m"
+uri = "file://attached_assets/generated_images/zebvix_logo_v4_minimal_ring.png"
+type = "image"
+title = "Zebvix — Minimal Coin Ring Z (Stripe/Apple tier)"
+
+[[outputs]]
+id = "mCidJNBW8P42X5HlND6Op"
+uri = "file://attached_assets/generated_images/zebvix_logo_v4_lockup.png"
+type = "image"
+title = "Zebvix — Premium Brand Lockup (mark + wordmark)"
