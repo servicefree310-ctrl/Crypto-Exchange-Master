@@ -25,7 +25,7 @@ import {
   Landmark, Search, Settings2, Clock, CheckCircle2, XCircle, ShieldAlert,
   RefreshCw, Eye, Copy, Check, Hash, User as UserIcon, Mail,
   AlertTriangle, FileText, Loader2, X, Edit3, Trash2, History,
-  ShieldCheck,
+  ShieldCheck, Sparkles,
 } from "lucide-react";
 
 type NameMatch = "match" | "partial" | "mismatch" | "unknown";
@@ -130,7 +130,16 @@ export default function BanksPage() {
   const [policyOpen, setPolicyOpen] = useState(false);
   const [rejectFor, setRejectFor] = useState<Bank | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [aiReasons, setAiReasons] = useState<string[]>([]);
+  const [aiHint, setAiHint] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+
+  const closeRejectDialog = () => {
+    setRejectFor(null);
+    setRejectReason("");
+    setAiReasons([]);
+    setAiHint("");
+  };
 
   const { data: banks = [], isLoading, refetch } = useQuery<Bank[]>({
     queryKey: ["/admin/banks", "all"],
@@ -186,6 +195,18 @@ export default function BanksPage() {
     },
     onError: (e: Error) => toast({ title: "Reject failed", description: e.message, variant: "destructive" }),
   });
+  const aiReasonsMut = useMutation({
+    mutationFn: ({ id, note }: { id: number; note?: string }) =>
+      post<{ reasons: string[] }>(`/admin/banks/${id}/suggest-reject-reasons`, note ? { note } : {}),
+    onSuccess: (data) => {
+      setAiReasons(data.reasons ?? []);
+      if (!data.reasons?.length) {
+        toast({ title: "AI returned no reasons", variant: "destructive" });
+      }
+    },
+    onError: (e: Error) => toast({ title: "AI suggestion failed", description: e.message, variant: "destructive" }),
+  });
+
   const recheckMut = useMutation({
     mutationFn: (id: number) => post<RecheckResp>(`/admin/banks/${id}/recheck-name`, {}),
     onSuccess: (data) => {
@@ -382,24 +403,102 @@ export default function BanksPage() {
       />
 
       {/* Reject reason dialog */}
-      <Dialog open={!!rejectFor} onOpenChange={(o) => { if (!o) setRejectFor(null); }}>
-        <DialogContent>
+      <Dialog
+        open={!!rejectFor}
+        onOpenChange={(o) => { if (!o) closeRejectDialog(); }}
+      >
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Reject bank account</DialogTitle>
             <DialogDescription>
               {rejectFor && `${rejectFor.holderName} · ${rejectFor.bankName} · ${maskAcct(rejectFor.accountNumber)}`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="reject-reason">Reason (visible to user)</Label>
-            <Textarea
-              id="reject-reason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="e.g. Holder name does not match KYC; please re-submit with correct details."
-              rows={4} data-testid="textarea-reject-reason"
-            />
+
+          <div className="space-y-4">
+            {/* AI suggestion panel */}
+            <div className="rounded-lg border bg-gradient-to-br from-violet-50/60 to-blue-50/40 dark:from-violet-950/20 dark:to-blue-950/10 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-violet-900 dark:text-violet-200">
+                  <Sparkles className="w-3.5 h-3.5" /> AI-suggested reasons
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={!rejectFor || aiReasonsMut.isPending}
+                  onClick={() => rejectFor && aiReasonsMut.mutate({ id: rejectFor.id, note: aiHint.trim() || undefined })}
+                  data-testid="button-ai-suggest-reasons"
+                >
+                  {aiReasonsMut.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 mr-1" />
+                  )}
+                  {aiReasons.length > 0 ? "Regenerate" : "Generate with AI"}
+                </Button>
+              </div>
+
+              <Input
+                placeholder="Optional hint for AI (e.g. 'name spelling looks edited')"
+                value={aiHint}
+                onChange={(e) => setAiHint(e.target.value)}
+                className="h-8 text-xs bg-white/70 dark:bg-zinc-950/40"
+                data-testid="input-ai-hint"
+              />
+
+              {aiReasonsMut.isPending && aiReasons.length === 0 && (
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5 py-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Generating polite, contextual reasons…
+                </div>
+              )}
+
+              {aiReasons.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {aiReasons.map((r, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setRejectReason(r)}
+                      className={cn(
+                        "text-left text-xs px-2.5 py-1.5 rounded-md border transition",
+                        "bg-white hover:bg-violet-50 hover:border-violet-300 dark:bg-zinc-950/60 dark:hover:bg-violet-950/30",
+                        rejectReason === r && "border-violet-500 ring-1 ring-violet-500/40 bg-violet-50 dark:bg-violet-950/30",
+                      )}
+                      data-testid={`chip-ai-reason-${i}`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {aiReasons.length === 0 && !aiReasonsMut.isPending && (
+                <p className="text-[11px] text-muted-foreground">
+                  Click Generate to get 4–5 polite reasons tailored to this account.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reject-reason">Reason (visible to user)</Label>
+              <Textarea
+                id="reject-reason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="e.g. Holder name does not match KYC; please re-submit with correct details."
+                rows={4}
+                data-testid="textarea-reject-reason"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Tip: pick an AI suggestion above, then edit if needed.
+              </p>
+            </div>
           </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectFor(null)}>Cancel</Button>
+            <Button variant="outline" onClick={closeRejectDialog}>Cancel</Button>
             <Button
               variant="destructive"
               disabled={!rejectReason.trim() || rejectMut.isPending}

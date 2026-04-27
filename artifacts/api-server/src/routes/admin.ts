@@ -982,6 +982,107 @@ router.get("/admin/banks/:id/full", supportPlus, async (req, res): Promise<void>
   });
 });
 
+// AI-suggested rejection reasons for a bank account
+router.post("/admin/banks/:id/suggest-reject-reasons", supportPlus, async (req, res): Promise<void> => {
+  if (!isOpenAIConfigured()) {
+    res.status(503).json({ error: "AI is not configured on this server" });
+    return;
+  }
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [bank] = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.id, id)).limit(1);
+  if (!bank) { res.status(404).json({ error: "Not found" }); return; }
+
+  const kycName = await latestKycName(bank.userId);
+  const sim = nameSimilarity(bank.holderName, kycName);
+  const allBanks = await db.select().from(bankAccountsTable)
+    .where(eq(bankAccountsTable.userId, bank.userId));
+  const dupHolders = allBanks
+    .filter((b) => b.id !== bank.id && b.status !== "deleted")
+    .map((b) => ({ holder: b.holderName, status: b.status }));
+
+  const ifsc = (bank.ifsc ?? "").toUpperCase();
+  const ifscLooksValid = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc);
+  const acct = bank.accountNumber ?? "";
+  const acctLooksValid = /^\d{6,20}$/.test(acct);
+
+  const userHint = typeof req.body?.note === "string" ? String(req.body.note).slice(0, 300) : "";
+
+  const submission = {
+    holderName: bank.holderName,
+    kycName: kycName ?? null,
+    nameMatch: { label: sim.label, score: sim.score },
+    bankName: bank.bankName,
+    ifsc,
+    ifscLooksValid,
+    accountNumberLength: acct.length,
+    accountNumberLooksValid: acctLooksValid,
+    accountNumberLast4: acct.slice(-4),
+    editCount: bank.editCount ?? 0,
+    submittedAt: bank.createdAt,
+    otherBanksOnFile: dupHolders,
+  };
+
+  const sys =
+    "You are a senior banking-operations reviewer for an Indian crypto exchange (Zebvix). " +
+    "Generate concise, polite rejection reasons for a user's bank account submission. " +
+    "Each reason 6 to 18 words. No numbering, no quotes, no markdown, no PII. " +
+    "Reply ONLY with a JSON object: " +
+    `{"reasons": ["...", "...", "..."]}. Always return 4 to 5 distinct, plausible reasons ` +
+    "that fit the data shown. Prioritize the strongest signal: name mismatch with KYC, " +
+    "invalid IFSC/account format, suspicious holder spelling, duplicate holder across accounts, " +
+    "or missing/illegible details. Do not reveal internal scores or thresholds.";
+
+  const usr =
+    "Bank submission summary (PII masked):\n" +
+    JSON.stringify(submission, null, 2) +
+    (userHint ? `\n\nReviewer note (use as context): ${userHint}` : "");
+
+  try {
+    const raw = await chatComplete(
+      [
+        { role: "system", content: sys },
+        { role: "user", content: usr },
+      ],
+      { model: "gpt-5-mini", maxTokens: 4096, timeoutMs: 25_000 },
+    );
+    let reasons: string[] = [];
+    const tryParse = (s: string) => {
+      try {
+        const v = JSON.parse(s);
+        if (v && Array.isArray(v.reasons)) {
+          return v.reasons
+            .filter((x: unknown) => typeof x === "string" && x.trim().length > 0)
+            .map((x: string) => x.trim());
+        }
+      } catch { /* ignore */ }
+      return null;
+    };
+    reasons = tryParse(raw) ?? [];
+    if (reasons.length === 0) {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) reasons = tryParse(m[0]) ?? [];
+    }
+    if (reasons.length === 0) {
+      reasons = raw.split(/\r?\n/)
+        .map((l) => l.replace(/^[-*•\d.)\s]+/, "").trim())
+        .filter((l) => l.length > 4 && l.length < 200)
+        .slice(0, 5);
+    }
+    if (reasons.length === 0) {
+      res.status(502).json({ error: "AI returned no usable reasons" });
+      return;
+    }
+    res.json({ reasons: reasons.slice(0, 5) });
+  } catch (err: unknown) {
+    if (err instanceof OpenAIError) {
+      res.status(err.status >= 400 && err.status < 600 ? err.status : 502).json({ error: err.message });
+      return;
+    }
+    res.status(502).json({ error: err instanceof Error ? err.message : "AI request failed" });
+  }
+});
+
 // INR deposits/withdrawals approval
 router.get("/admin/inr-deposits", supportPlus, async (_req, res): Promise<void> => {
   res.json(await db.select().from(inrDepositsTable).orderBy(desc(inrDepositsTable.createdAt)).limit(500));
