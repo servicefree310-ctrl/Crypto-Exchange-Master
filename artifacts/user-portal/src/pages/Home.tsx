@@ -642,7 +642,35 @@ export default function Home() {
   const all = useMemo(() => Object.values(tickersMap).filter((t) => t.lastPrice > 0), [tickersMap]);
 
   const stats = useMemo(() => {
-    const totalVol = all.reduce((s, t) => s + (t.quoteVolume || 0), 0);
+    // Build a "<quote-asset> -> USD" rate table so we can normalise every
+    // pair's quoteVolume into one currency before summing. Without this,
+    // INR pairs (₹ in lakhs) get added to USDT pairs ($ in thousands)
+    // and the total is nonsense.
+    const usdRate: Record<string, number> = {
+      USDT: 1, USDC: 1, USD: 1, BUSD: 1, DAI: 1, TUSD: 1, FDUSD: 1,
+    };
+    // Derive crypto -> USD from any <asset>/USDT|USDC|USD pair.
+    for (const t of all) {
+      const base = baseAsset(t.symbol).toUpperCase();
+      const quote = quoteAsset(t.symbol).toUpperCase();
+      if (usdRate[base]) continue;
+      if ((quote === "USDT" || quote === "USDC" || quote === "USD") && t.lastPrice > 0) {
+        usdRate[base] = t.lastPrice;
+      }
+    }
+    // INR -> USD: prefer USDT/INR live rate; fall back to ~83 if missing.
+    const usdtInr = all.find((t) => t.symbol.toUpperCase().replace("/", "") === "USDTINR" && t.lastPrice > 0);
+    usdRate["INR"] = usdtInr ? 1 / usdtInr.lastPrice : 1 / 83;
+
+    const totalVol = all.reduce((s, t) => {
+      const vol = t.quoteVolume || 0;
+      if (!vol) return s;
+      const quote = quoteAsset(t.symbol).toUpperCase();
+      const rate = usdRate[quote];
+      if (!rate) return s; // unknown quote asset — skip rather than mis-sum
+      return s + vol * rate;
+    }, 0);
+
     const gainers = all.filter((t) => t.priceChangePercent > 0).length;
     const markets = all.length;
     return { totalVol, gainers, markets };
