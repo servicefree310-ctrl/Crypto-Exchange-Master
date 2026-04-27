@@ -13,6 +13,7 @@ import {
   cryptoWithdrawalsTable,
   kycRecordsTable,
   kycSettingsTable,
+  DEFAULT_KYC_TEMPLATES,
   bankAccountsTable,
   walletsTable,
   earnProductsTable,
@@ -527,11 +528,105 @@ router.patch("/admin/kyc/:id", adminOnly, async (req, res): Promise<void> => {
   res.json(rec);
 });
 router.get("/admin/kyc-settings", supportPlus, async (_req, res): Promise<void> => {
+  // Auto-seed default templates the first time admin opens the page
+  const existing = await db.select().from(kycSettingsTable).orderBy(kycSettingsTable.level);
+  const byLevel = new Map(existing.map((r) => [r.level, r] as const));
+  const seedRows = [];
+  for (const lvl of [1, 2, 3] as const) {
+    const tpl = DEFAULT_KYC_TEMPLATES[lvl];
+    const cur = byLevel.get(lvl);
+    if (!cur) {
+      seedRows.push({
+        level: lvl,
+        name: tpl.name,
+        description: tpl.description,
+        depositLimit: lvl === 1 ? "50000" : lvl === 2 ? "500000" : "2500000",
+        withdrawLimit: lvl === 1 ? "25000" : lvl === 2 ? "250000" : "1500000",
+        tradeLimit: lvl === 1 ? "100000" : lvl === 2 ? "1000000" : "10000000",
+        features: JSON.stringify(lvl === 1 ? ["deposit", "trade"] : lvl === 2 ? ["deposit", "trade", "withdraw"] : ["deposit", "trade", "withdraw", "futures", "earn"]),
+        fields: JSON.stringify(tpl.fields),
+        enabled: true,
+      });
+    } else if (!cur.fields || cur.fields === "[]") {
+      // Backfill fields-only when a row exists from before this feature shipped
+      await db.update(kycSettingsTable).set({
+        fields: JSON.stringify(tpl.fields),
+        name: cur.name && cur.name.length > 0 ? cur.name : tpl.name,
+        description: cur.description && cur.description.length > 0 ? cur.description : tpl.description,
+      }).where(eq(kycSettingsTable.level, lvl));
+    }
+  }
+  if (seedRows.length > 0) {
+    await db.insert(kycSettingsTable).values(seedRows);
+  }
   res.json(await db.select().from(kycSettingsTable).orderBy(kycSettingsTable.level));
 });
 router.patch("/admin/kyc-settings/:level", adminOnly, async (req, res): Promise<void> => {
   const level = Number(Array.isArray(req.params.level) ? req.params.level[0] : req.params.level);
-  const [s] = await db.update(kycSettingsTable).set(req.body).where(eq(kycSettingsTable.level, level)).returning();
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  const update: Record<string, unknown> = {};
+  const stringFields: Array<"name" | "description" | "depositLimit" | "withdrawLimit" | "tradeLimit"> = [
+    "name", "description", "depositLimit", "withdrawLimit", "tradeLimit",
+  ];
+  for (const k of stringFields) {
+    if (typeof body[k] === "string") update[k] = body[k];
+  }
+  if (typeof body.enabled === "boolean") update.enabled = body.enabled;
+
+  // features: must be JSON array of strings
+  if (body.features !== undefined) {
+    let parsed: unknown = body.features;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { res.status(400).json({ error: "features must be a JSON array" }); return; }
+    }
+    if (!Array.isArray(parsed) || !parsed.every((x) => typeof x === "string")) {
+      res.status(400).json({ error: "features must be an array of strings" }); return;
+    }
+    update.features = JSON.stringify(parsed);
+  }
+
+  // fields: must be JSON array of field defs
+  if (body.fields !== undefined) {
+    let parsed: unknown = body.fields;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { res.status(400).json({ error: "fields must be a JSON array" }); return; }
+    }
+    if (!Array.isArray(parsed)) { res.status(400).json({ error: "fields must be an array" }); return; }
+    const seenKeys = new Set<string>();
+    const cleaned = [];
+    for (const raw of parsed) {
+      if (!raw || typeof raw !== "object") { res.status(400).json({ error: "each field must be an object" }); return; }
+      const f = raw as Record<string, unknown>;
+      const key = typeof f.key === "string" ? f.key.trim() : "";
+      if (!key) { res.status(400).json({ error: "each field needs a non-empty key" }); return; }
+      if (seenKeys.has(key)) { res.status(400).json({ error: `duplicate field key: ${key}` }); return; }
+      seenKeys.add(key);
+      const type = typeof f.type === "string" ? f.type : "text";
+      const allowedTypes = ["text", "textarea", "date", "number", "identity", "image", "select"];
+      if (!allowedTypes.includes(type)) { res.status(400).json({ error: `invalid type for ${key}: ${type}` }); return; }
+      if (typeof f.regex === "string" && f.regex.length > 0) {
+        try { new RegExp(f.regex); } catch { res.status(400).json({ error: `invalid regex for ${key}` }); return; }
+      }
+      cleaned.push({
+        key,
+        label: typeof f.label === "string" && f.label.length > 0 ? f.label : key,
+        type,
+        required: Boolean(f.required),
+        regex: typeof f.regex === "string" && f.regex.length > 0 ? f.regex : undefined,
+        placeholder: typeof f.placeholder === "string" ? f.placeholder : undefined,
+        helperText: typeof f.helperText === "string" ? f.helperText : undefined,
+        options: Array.isArray(f.options) ? f.options.filter((o) => typeof o === "string") : undefined,
+      });
+    }
+    update.fields = JSON.stringify(cleaned);
+  }
+
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: "no editable fields supplied" }); return;
+  }
+
+  const [s] = await db.update(kycSettingsTable).set(update).where(eq(kycSettingsTable.level, level)).returning();
   if (!s) { res.status(404).json({ error: "Not found" }); return; }
   res.json(s);
 });

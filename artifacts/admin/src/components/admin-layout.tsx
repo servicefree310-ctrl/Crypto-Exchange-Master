@@ -48,6 +48,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/users", label: "Users", icon: Users, roles: ["support", "admin", "superadmin"] },
       { href: "/kyc", label: "KYC Reviews", icon: ShieldCheck, roles: ["support", "admin", "superadmin"] },
+      { href: "/kyc-templates", label: "KYC Templates", icon: FileText, roles: ["admin", "superadmin"] },
       { href: "/banks", label: "Bank Approvals", icon: Landmark, roles: ["support", "admin", "superadmin"] },
       { href: "/login-logs", label: "Login Logs", icon: Activity, roles: ["support", "admin", "superadmin"] },
     ],
@@ -162,18 +163,20 @@ export function AdminLayout({ children }: { children: ReactNode }) {
         )}
       >
         {/* Brand */}
-        <Link href="/dashboard" onClick={() => setOpen(false)}>
-          <a className="flex items-center gap-2.5 px-5 py-4 border-b border-sidebar-border hover-elevate group">
-            <div className="relative w-9 h-9 rounded-lg overflow-hidden gold-glow shrink-0">
-              <img src={zebvixMark} alt="Zebvix" className="absolute inset-0 w-full h-full object-cover" />
+        <Link
+          href="/dashboard"
+          onClick={() => setOpen(false)}
+          className="flex items-center gap-2.5 px-5 py-4 border-b border-sidebar-border hover-elevate group"
+        >
+          <div className="relative w-9 h-9 rounded-lg overflow-hidden gold-glow shrink-0">
+            <img src={zebvixMark} alt="Zebvix" className="absolute inset-0 w-full h-full object-cover" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-bold text-base leading-tight gold-text tracking-wide">ZEBVIX</div>
+            <div className="text-[10px] text-muted-foreground leading-tight uppercase tracking-[0.18em]">
+              Admin Console
             </div>
-            <div className="min-w-0">
-              <div className="font-bold text-base leading-tight gold-text tracking-wide">ZEBVIX</div>
-              <div className="text-[10px] text-muted-foreground leading-tight uppercase tracking-[0.18em]">
-                Admin Console
-              </div>
-            </div>
-          </a>
+          </div>
         </Link>
 
         {/* Search trigger */}
@@ -200,24 +203,25 @@ export function AdminLayout({ children }: { children: ReactNode }) {
                   const active = location === it.href || (location === "/" && it.href === "/dashboard");
                   const Icon = it.icon;
                   return (
-                    <Link key={it.href} href={it.href} onClick={() => setOpen(false)}>
-                      <a
+                    <Link
+                      key={it.href}
+                      href={it.href}
+                      onClick={() => setOpen(false)}
+                      className={cn(
+                        "relative flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] hover-elevate transition-colors",
+                        active
+                          ? "bg-[hsla(45,100%,51%,0.08)] text-amber-200 font-medium"
+                          : "text-sidebar-foreground/85"
+                      )}
+                    >
+                      {active && <span className="nav-active-bar" />}
+                      <Icon
                         className={cn(
-                          "relative flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] hover-elevate transition-colors",
-                          active
-                            ? "bg-[hsla(45,100%,51%,0.08)] text-amber-200 font-medium"
-                            : "text-sidebar-foreground/85"
+                          "w-4 h-4 shrink-0",
+                          active ? "text-amber-300" : "text-muted-foreground"
                         )}
-                      >
-                        {active && <span className="nav-active-bar" />}
-                        <Icon
-                          className={cn(
-                            "w-4 h-4 shrink-0",
-                            active ? "text-amber-300" : "text-muted-foreground"
-                          )}
-                        />
-                        <span className="truncate">{it.label}</span>
-                      </a>
+                      />
+                      <span className="truncate">{it.label}</span>
                     </Link>
                   );
                 })}
@@ -278,10 +282,11 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
           {/* Breadcrumbs */}
           <div className="flex items-center gap-1.5 text-sm min-w-0">
-            <Link href="/dashboard">
-              <a className="text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
-                Console
-              </a>
+            <Link
+              href="/dashboard"
+              className="text-muted-foreground hover:text-foreground transition-colors hidden sm:inline"
+            >
+              Console
             </Link>
             {currentSection && (
               <>

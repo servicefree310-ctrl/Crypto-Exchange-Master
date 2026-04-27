@@ -268,27 +268,106 @@ router.get("/kyc/my", requireAuth, async (req, res): Promise<void> => {
   res.json(rows);
 });
 
+// Map a configured field key to its column on the kyc_records row.
+// Anything not in this set is treated as a custom field and stored in `extra`.
+const KYC_FIELD_TO_COLUMN: Record<string, "fullName" | "dob" | "address" | "panNumber" | "aadhaarNumber" | "panDocUrl" | "aadhaarDocUrl" | "selfieUrl"> = {
+  fullName: "fullName",
+  dob: "dob",
+  address: "address",
+  panNumber: "panNumber",
+  aadhaarNumber: "aadhaarNumber",
+  panDoc: "panDocUrl",
+  panDocUrl: "panDocUrl",
+  aadhaarDoc: "aadhaarDocUrl",
+  aadhaarDocUrl: "aadhaarDocUrl",
+  selfie: "selfieUrl",
+  selfieUrl: "selfieUrl",
+};
+
+type ParsedKycField = {
+  key: string;
+  label: string;
+  type: string;
+  required: boolean;
+  regex?: string;
+};
+
+function parseFieldsConfig(raw: string): ParsedKycField[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((f) => f && typeof f.key === "string")
+      .map((f) => ({
+        key: String(f.key),
+        label: String(f.label ?? f.key),
+        type: String(f.type ?? "text"),
+        required: Boolean(f.required),
+        regex: typeof f.regex === "string" && f.regex.length > 0 ? f.regex : undefined,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 router.post("/kyc/submit", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
-  const { level, fullName, dob, address, panNumber, aadhaarNumber, panDocUrl, aadhaarDocUrl, selfieUrl } = req.body ?? {};
-  const lvl = Number(level);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const lvl = Number(body.level);
   if (![1, 2, 3].includes(lvl)) { res.status(400).json({ error: "level must be 1, 2 or 3" }); return; }
 
-  // Per-level required fields
-  if (lvl >= 1) {
-    if (!fullName || !dob) { res.status(400).json({ error: "fullName and dob required" }); return; }
-    if (!panNumber || !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(panNumber).toUpperCase())) {
-      res.status(400).json({ error: "Valid PAN required (format: AAAAA1111A)" }); return;
-    }
+  // Load the admin-configured template for this level
+  const [setting] = await db.select().from(kycSettingsTable).where(eq(kycSettingsTable.level, lvl)).limit(1);
+  if (!setting) { res.status(400).json({ error: `KYC level ${lvl} is not configured` }); return; }
+  if (setting.enabled === false) { res.status(400).json({ error: `KYC level ${lvl} is currently disabled` }); return; }
+  const fields = parseFieldsConfig(setting.fields);
+  if (fields.length === 0) {
+    res.status(500).json({ error: `KYC level ${lvl} has no fields configured. Ask an admin to configure the template.` });
+    return;
   }
-  if (lvl >= 2) {
-    if (!aadhaarNumber || !/^\d{12}$/.test(String(aadhaarNumber).replace(/\s+/g, ""))) {
-      res.status(400).json({ error: "Valid 12-digit Aadhaar required" }); return;
+
+  // Build a normalized lookup of submitted values, accepting both raw keys and *Url aliases
+  const valueOf = (key: string): string | undefined => {
+    const direct = body[key];
+    if (direct != null && String(direct).trim() !== "") return String(direct).trim();
+    // Aliases
+    if (key === "panDoc" && body.panDocUrl) return String(body.panDocUrl).trim();
+    if (key === "aadhaarDoc" && body.aadhaarDocUrl) return String(body.aadhaarDocUrl).trim();
+    if (key === "selfie" && body.selfieUrl) return String(body.selfieUrl).trim();
+    return undefined;
+  };
+
+  // Validate each configured field
+  const recordValues: Record<string, string | null> = {
+    fullName: null, dob: null, address: null,
+    panNumber: null, aadhaarNumber: null,
+    panDocUrl: null, aadhaarDocUrl: null, selfieUrl: null,
+  };
+  const extraValues: Record<string, string> = {};
+
+  for (const f of fields) {
+    let v = valueOf(f.key);
+    if (v && (f.key === "panNumber" || f.type === "identity")) v = v.toUpperCase().replace(/\s+/g, "");
+    if (v && f.key === "aadhaarNumber") v = v.replace(/\s+/g, "");
+
+    if (f.required && !v) {
+      res.status(400).json({ error: `${f.label} is required` });
+      return;
     }
-    if (!panDocUrl || !aadhaarDocUrl) { res.status(400).json({ error: "PAN and Aadhaar document URLs required" }); return; }
-  }
-  if (lvl >= 3) {
-    if (!selfieUrl || !address) { res.status(400).json({ error: "Selfie and address required for L3" }); return; }
+    if (v && f.regex) {
+      let ok = false;
+      try { ok = new RegExp(f.regex).test(v); } catch { ok = true; }
+      if (!ok) { res.status(400).json({ error: `${f.label} format is invalid` }); return; }
+    }
+
+    if (v != null) {
+      const col = KYC_FIELD_TO_COLUMN[f.key];
+      if (col) {
+        recordValues[col] = v;
+      } else {
+        extraValues[f.key] = v;
+      }
+    }
   }
 
   // Block duplicate pending submission for same level
@@ -298,11 +377,18 @@ router.post("/kyc/submit", requireAuth, async (req, res): Promise<void> => {
   if (existing.length > 0) { res.status(409).json({ error: "You already have a pending submission for this level" }); return; }
 
   const [rec] = await db.insert(kycRecordsTable).values({
-    userId, level: lvl, status: "pending",
-    fullName: fullName ?? null, dob: dob ?? null, address: address ?? null,
-    panNumber: panNumber ? String(panNumber).toUpperCase() : null,
-    aadhaarNumber: aadhaarNumber ? String(aadhaarNumber).replace(/\s+/g, "") : null,
-    panDocUrl: panDocUrl ?? null, aadhaarDocUrl: aadhaarDocUrl ?? null, selfieUrl: selfieUrl ?? null,
+    userId,
+    level: lvl,
+    status: "pending",
+    fullName: recordValues.fullName,
+    dob: recordValues.dob,
+    address: recordValues.address,
+    panNumber: recordValues.panNumber,
+    aadhaarNumber: recordValues.aadhaarNumber,
+    panDocUrl: recordValues.panDocUrl,
+    aadhaarDocUrl: recordValues.aadhaarDocUrl,
+    selfieUrl: recordValues.selfieUrl,
+    extra: JSON.stringify(extraValues),
   }).returning();
   res.status(201).json(rec);
 });

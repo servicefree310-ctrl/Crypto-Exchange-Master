@@ -8,6 +8,7 @@ import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import UsersPage from "@/pages/users";
 import KycPage from "@/pages/kyc";
+import KycTemplatesPage from "@/pages/kyc-templates";
 import BanksPage from "@/pages/banks";
 import CoinsPage from "@/pages/coins";
 import NetworksPage from "@/pages/networks";
@@ -66,6 +67,7 @@ function Protected() {
         <Route path="/dashboard" component={DashboardPage} />
         <Route path="/users" component={UsersPage} />
         <Route path="/kyc" component={KycPage} />
+        <Route path="/kyc-templates" component={KycTemplatesPage} />
         <Route path="/banks" component={BanksPage} />
         <Route path="/coins" component={CoinsPage} />
         <Route path="/networks" component={NetworksPage} />
