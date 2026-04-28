@@ -282,6 +282,12 @@ export default function Trade() {
   const [bookAggregation, setBookAggregation] = useState<"0.01" | "0.1" | "1" | "10">("0.1");
   const [bottomTab, setBottomTab] = useState<"open" | "history">("open");
   const [fillsOrderId, setFillsOrderId] = useState<number | null>(null);
+  // "Recent Trades" panel toggle: market-wide tape (default) vs only this user's
+  // own fills for this pair. The market tape comes from the WebSocket feed
+  // (everyone's prints) — that's the standard exchange behaviour but it can
+  // confuse users who think they're seeing other people's orders. The "Mine"
+  // tab shows only their own filled trades for the current symbol.
+  const [tradeFeed, setTradeFeed] = useState<"market" | "mine">("market");
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     try {
       const v = window.localStorage.getItem(LAYOUT_KEY);
@@ -399,6 +405,26 @@ export default function Trade() {
     return [];
   }, [historyData]);
 
+  // ─── My Trades (per-symbol) ──────────────────
+  // /api/trades is server-scoped to the logged-in user (filters out bot orders
+  // via NOT EXISTS). Adding ?symbol=BTCINR also restricts to the active pair.
+  const compactSym = `${base}${quote}`;
+  const { data: myTradesData } = useQuery<any[]>({
+    queryKey: ["my-trades", compactSym],
+    queryFn: () => get(`/trades?symbol=${encodeURIComponent(compactSym)}&limit=50`),
+    enabled: !!user && tradeFeed === "mine",
+    refetchInterval: 10000,
+  });
+  const myTrades = useMemo(() => {
+    const rows = Array.isArray(myTradesData) ? myTradesData : [];
+    return rows.map((r) => ({
+      side: String(r.side || "").toLowerCase() as "buy" | "sell",
+      price: Number(r.price ?? 0),
+      qty: Number(r.qty ?? 0),
+      ts: r.createdAt ? new Date(r.createdAt).getTime() : Date.now(),
+    }));
+  }, [myTradesData]);
+
   // ─── Mutations ────────────────────────────
   const orderMutation = useMutation({
     mutationFn: (data: any) => post("/exchange/order", data),
@@ -410,6 +436,9 @@ export default function Trade() {
       setPctSlider([0]);
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["wallet"] });
+      // Refresh "Mine" tab too — the order may have filled instantly so a new
+      // trade row should appear in the user's per-pair fills.
+      qc.invalidateQueries({ queryKey: ["my-trades"] });
     },
     onError: (err: any) => toast.error(err?.message || "Failed to place order"),
   });
@@ -696,9 +725,42 @@ export default function Trade() {
           </div>
           {/* Recent trades */}
           <div className="w-1/2 lg:w-full lg:h-1/2 flex flex-col min-h-0">
-            <div className="px-3 py-2 flex items-center justify-between border-b border-border">
-              <span className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">Recent Trades</span>
-              <span className="text-[10px] text-muted-foreground">{trades.length} prints</span>
+            <div className="px-3 py-2 flex items-center justify-between border-b border-border gap-2">
+              {/* Market vs Mine toggle. "Market" = public tape (everyone's prints,
+                  standard exchange feature). "Mine" = only this user's filled
+                  trades for the current pair (server-scoped). */}
+              <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+                <button
+                  type="button"
+                  onClick={() => setTradeFeed("market")}
+                  className={cn(
+                    "px-2 py-0.5 rounded transition-colors",
+                    tradeFeed === "market"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  data-testid="recent-trades-tab-market"
+                >
+                  Market
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTradeFeed("mine")}
+                  disabled={!user}
+                  className={cn(
+                    "px-2 py-0.5 rounded transition-colors",
+                    tradeFeed === "mine"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground disabled:opacity-50",
+                  )}
+                  data-testid="recent-trades-tab-mine"
+                >
+                  Mine
+                </button>
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {tradeFeed === "market" ? `${trades.length} prints` : `${myTrades.length} fills`}
+              </span>
             </div>
             <div className="flex-1 overflow-auto px-2 py-1 text-xs font-mono">
               <div className="grid grid-cols-3 text-[10px] text-muted-foreground py-1 px-1 sticky top-0 bg-card/40 backdrop-blur z-10">
@@ -706,14 +768,21 @@ export default function Trade() {
                 <span className="text-right">Amount ({base})</span>
                 <span className="text-right">Time</span>
               </div>
-              {trades.map((t, i) => (
+              {(tradeFeed === "market" ? trades : myTrades).map((t, i) => (
                 <div key={i} className="grid grid-cols-3 py-[2px] px-1">
                   <span className={`tabular-nums ${t.side === "buy" ? "text-success" : "text-destructive"}`}>{fmtNum(t.price, quote === "INR" ? 2 : 4)}</span>
                   <span className="text-right tabular-nums">{fmtNum(t.qty, 4)}</span>
                   <span className="text-right text-muted-foreground">{new Date(t.ts).toLocaleTimeString([], { hour12: false })}</span>
                 </div>
               ))}
-              {trades.length === 0 && <div className="py-6 text-center text-muted-foreground text-xs">No trades yet</div>}
+              {tradeFeed === "market" && trades.length === 0 && (
+                <div className="py-6 text-center text-muted-foreground text-xs">No trades yet</div>
+              )}
+              {tradeFeed === "mine" && myTrades.length === 0 && (
+                <div className="py-6 text-center text-muted-foreground text-xs">
+                  {user ? "Aapne is pair par abhi tak koi trade nahi kiya." : "Login karke apni trades dekhein."}
+                </div>
+              )}
             </div>
           </div>
           </div>

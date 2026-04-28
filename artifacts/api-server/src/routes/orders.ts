@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
@@ -89,15 +89,33 @@ router.get("/orders", requireAuth, async (req, res): Promise<void> => {
 
 router.get("/trades", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
-  // tradesTable has no is_bot column; filter via the parent order. NOT EXISTS
-  // is faster than a subselect IN (...) because it short-circuits per row.
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+  // Optional symbol filter — accepts both "BTCUSDT" and "BTC/USDT" forms so
+  // mobile + web can share the same call. Resolve to pairId server-side.
+  const symbolRaw = String(req.query.symbol || "").toUpperCase().trim();
+  const conds: any[] = [
+    eq(tradesTable.userId, userId),
+    // tradesTable has no is_bot column; filter via the parent order. NOT EXISTS
+    // is faster than a subselect IN (...) because it short-circuits per row.
+    sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
+  ];
+  if (symbolRaw) {
+    // Match the pair regardless of whether the DB stores "BTCINR" or "BTC/INR".
+    // Strip slashes from BOTH sides at the SQL layer so we don't have to guess
+    // the quote-asset length (INR is 3 chars, USDT is 4 — heuristic splitting
+    // would mis-cleave 3-char quotes).
+    const symCompact = symbolRaw.replace(/\//g, "");
+    if (!/^[A-Z0-9]{2,20}$/.test(symCompact)) { res.json([]); return; }
+    const [p] = await db.select().from(pairsTable)
+      .where(sql`upper(replace(${pairsTable.symbol}, '/', '')) = ${symCompact}`)
+      .limit(1);
+    if (!p) { res.json([]); return; }
+    conds.push(eq(tradesTable.pairId, p.id));
+  }
   const rows = await db.select().from(tradesTable)
-    .where(and(
-      eq(tradesTable.userId, userId),
-      sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
-    ))
+    .where(and(...conds))
     .orderBy(desc(tradesTable.createdAt))
-    .limit(200);
+    .limit(limit);
   res.json(rows);
 });
 
