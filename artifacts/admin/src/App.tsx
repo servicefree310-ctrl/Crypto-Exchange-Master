@@ -40,6 +40,7 @@ import NotificationsBroadcastPage from "@/pages/notifications-broadcast";
 import SiteSettingsPage from "@/pages/site-settings";
 import RedisPage from "@/pages/redis";
 import BackendStatusPage from "@/pages/backend-status";
+import CodeReferencePage from "@/pages/code-reference";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -104,6 +105,7 @@ function Protected() {
         <Route path="/otp-providers" component={OtpProvidersPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/backend-status" component={BackendStatusPage} />
+        <Route path="/code-reference" component={CodeReferencePage} />
         <Route component={NotFound} />
       </Switch>
     </AdminLayout>

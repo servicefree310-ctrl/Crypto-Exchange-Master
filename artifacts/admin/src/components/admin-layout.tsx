@@ -6,7 +6,7 @@ import {
   PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
   KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp,
   Megaphone, Trophy, Database, Server, Search, Command as CommandIcon,
-  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, type LucideIcon,
+  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -103,6 +103,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/otp-providers", label: "OTP Providers", icon: KeyRound, roles: ["admin", "superadmin"] },
       { href: "/settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "superadmin"] },
       { href: "/backend-status", label: "Backend Status", icon: Server, roles: ["support", "admin", "superadmin"] },
+      { href: "/code-reference", label: "Code Reference", icon: Code2, roles: ["admin", "superadmin"] },
     ],
   },
 ];
