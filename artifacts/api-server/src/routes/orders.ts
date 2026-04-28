@@ -101,6 +101,92 @@ router.get("/trades", requireAuth, async (req, res): Promise<void> => {
   res.json(rows);
 });
 
+// Per-order fill breakdown — exposes every individual maker fill that
+// composed the user's order, so the UI can render a Pro-style "trades
+// inside this order" view (VWAP, total fee, per-fill price/qty).
+//
+// A single market or aggressive limit order can fill across many makers at
+// different prices; the matching engine writes one trades row per fill (see
+// matching-engine.ts ~L232). This endpoint pulls them back in chronological
+// order plus summary aggregates so the client doesn't have to recompute
+// VWAP / totals on every render.
+router.get("/orders/:id/fills", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const orderId = Number(req.params.id);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    res.status(400).json({ message: "Invalid order id" });
+    return;
+  }
+  // Scope to caller's own orders so a user can't probe another user's fills.
+  const [order] = await db.select().from(ordersTable)
+    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.userId, userId), eq(ordersTable.isBot, 0)))
+    .limit(1);
+  if (!order) { res.status(404).json({ message: "Order not found" }); return; }
+
+  const [pair] = await db.select().from(pairsTable).where(eq(pairsTable.id, order.pairId)).limit(1);
+  let baseSym = "";
+  let quoteSym = "";
+  if (pair) {
+    const cs = await db.select().from(coinsTable);
+    baseSym = cs.find(c => c.id === pair.baseCoinId)?.symbol ?? "";
+    quoteSym = cs.find(c => c.id === pair.quoteCoinId)?.symbol ?? "";
+  }
+
+  const fills = await db.select().from(tradesTable)
+    .where(eq(tradesTable.orderId, orderId))
+    .orderBy(tradesTable.createdAt);
+
+  // Aggregate so the client doesn't need to re-iterate just to render a header.
+  let totalQty = 0, totalQuote = 0, totalFee = 0;
+  for (const f of fills) {
+    const q = Number(f.qty);
+    const p = Number(f.price);
+    totalQty += q;
+    totalQuote += q * p;
+    totalFee += Number(f.fee || 0);
+  }
+  const vwap = totalQty > 0 ? totalQuote / totalQty : 0;
+
+  res.json({
+    order: {
+      id: order.id,
+      pairId: order.pairId,
+      symbol: pair?.symbol ?? "",
+      base: baseSym,
+      quote: quoteSym,
+      side: order.side,
+      type: order.type,
+      status: order.status,
+      price: Number(order.price ?? 0),
+      qty: Number(order.qty),
+      filledQty: Number(order.filledQty || 0),
+      avgPrice: Number(order.avgPrice || 0),
+      fee: Number(order.fee || 0),
+      feeCurrency: quoteSym,
+      createdAt: order.createdAt,
+    },
+    fills: fills.map(f => ({
+      id: f.id,
+      uid: f.uid,
+      side: f.side,
+      price: Number(f.price),
+      qty: Number(f.qty),
+      fee: Number(f.fee || 0),
+      feeCurrency: quoteSym,
+      createdAt: f.createdAt,
+    })),
+    summary: {
+      count: fills.length,
+      totalQty: Math.round(totalQty * 1e8) / 1e8,
+      totalQuote: Math.round(totalQuote * 1e8) / 1e8,
+      vwap: Math.round(vwap * 1e8) / 1e8,
+      totalFee: Math.round(totalFee * 1e8) / 1e8,
+      base: baseSym,
+      quote: quoteSym,
+    },
+  });
+});
+
 /**
  * Shared spot-order placement. Used by `/api/orders` (modern client / admin) and
  * `/api/exchange/order` (Bicrypto Flutter mobile/web bridge). All param values

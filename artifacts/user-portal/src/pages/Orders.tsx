@@ -13,11 +13,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { ListOrdered, RefreshCw, FileText, X } from "lucide-react";
+import { ListOrdered, RefreshCw, FileText, X, Layers } from "lucide-react";
 import { PageHeader } from "@/components/premium/PageHeader";
 import { SectionCard } from "@/components/premium/SectionCard";
 import { EmptyState } from "@/components/premium/EmptyState";
 import { StatusPill } from "@/components/premium/StatusPill";
+import { OrderFillsDialog } from "@/components/OrderFillsDialog";
 import { cn } from "@/lib/utils";
 
 type Order = {
@@ -43,6 +44,7 @@ type Order = {
 export default function Orders() {
   const queryClient = useQueryClient();
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [fillsOrderId, setFillsOrderId] = useState<number | null>(null);
 
   const { data: ordersData, isLoading, isFetching, refetch } = useQuery<unknown>({
     queryKey: ["orders"],
@@ -133,11 +135,22 @@ export default function Orders() {
               ) : (
                 orders.map((o) => {
                   const isOpen = String(o.status).toLowerCase() === "open";
+                  const openFills = () => setFillsOrderId(o.id);
                   return (
                     <tr
                       key={o.id}
-                      className="border-b border-border/40 hover:bg-muted/20 transition-colors"
+                      className="border-b border-border/40 hover:bg-muted/20 transition-colors cursor-pointer"
                       data-testid={`order-row-${o.id}`}
+                      onClick={openFills}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openFills();
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View fills for order ${o.id}`}
                     >
                       <td className="px-4 py-3 text-muted-foreground tabular-nums">
                         {new Date(o.createdAt).toLocaleString("en-IN", {
@@ -145,7 +158,12 @@ export default function Orders() {
                           timeStyle: "short",
                         })}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-foreground">{o.symbol}</td>
+                      <td className="px-4 py-3 font-semibold text-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          {o.symbol}
+                          <Layers className="w-3 h-3 text-muted-foreground/60" />
+                        </span>
+                      </td>
                       <td className="px-4 py-3 uppercase text-xs text-muted-foreground tracking-wide">
                         {o.type}
                       </td>
@@ -171,7 +189,10 @@ export default function Orders() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setConfirmId(o.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmId(o.id);
+                            }}
                             data-testid={`order-cancel-${o.id}`}
                             aria-label={`Cancel order ${o.id}`}
                             className="text-red-400 border-red-500/30 hover:bg-red-500/10"
@@ -191,6 +212,12 @@ export default function Orders() {
           </table>
         </div>
       </SectionCard>
+
+      <OrderFillsDialog
+        orderId={fillsOrderId}
+        open={fillsOrderId !== null}
+        onOpenChange={(o) => !o && setFillsOrderId(null)}
+      />
 
       <AlertDialog open={confirmId !== null} onOpenChange={(o) => !o && setConfirmId(null)}>
         <AlertDialogContent>

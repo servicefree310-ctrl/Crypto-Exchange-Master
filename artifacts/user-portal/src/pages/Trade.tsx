@@ -20,6 +20,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { PriceChart } from "@/components/PriceChart";
+import { OrderFillsDialog } from "@/components/OrderFillsDialog";
+import { cn } from "@/lib/utils";
 import {
   Star,
   ChevronDown,
@@ -279,6 +281,7 @@ export default function Trade() {
   const [reduceOnly, setReduceOnly] = useState(false);
   const [bookAggregation, setBookAggregation] = useState<"0.01" | "0.1" | "1" | "10">("0.1");
   const [bottomTab, setBottomTab] = useState<"open" | "history">("open");
+  const [fillsOrderId, setFillsOrderId] = useState<number | null>(null);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     try {
       const v = window.localStorage.getItem(LAYOUT_KEY);
@@ -515,10 +518,10 @@ export default function Trade() {
         )}
       </div>
       <TabsContent value="open" className="flex-1 m-0 overflow-auto">
-        <OrdersTable rows={orderRows} loading={!user} mode="open" onCancel={(id) => cancelMutation.mutate(id)} cancelingId={cancelMutation.variables as any} quotesForLabel={enabledQuotes} />
+        <OrdersTable rows={orderRows} loading={!user} mode="open" onCancel={(id) => cancelMutation.mutate(id)} cancelingId={cancelMutation.variables as any} quotesForLabel={enabledQuotes} onViewFills={(id) => setFillsOrderId(Number(id))} />
       </TabsContent>
       <TabsContent value="history" className="flex-1 m-0 overflow-auto">
-        <OrdersTable rows={historyRows} loading={!user} mode="history" quotesForLabel={enabledQuotes} />
+        <OrdersTable rows={historyRows} loading={!user} mode="history" quotesForLabel={enabledQuotes} onViewFills={(id) => setFillsOrderId(Number(id))} />
       </TabsContent>
     </Tabs>
   );
@@ -926,6 +929,12 @@ export default function Trade() {
           </div>
         )}
       </div>
+
+      <OrderFillsDialog
+        orderId={fillsOrderId}
+        open={fillsOrderId !== null}
+        onOpenChange={(o) => !o && setFillsOrderId(null)}
+      />
     </div>
   );
 }
@@ -989,6 +998,7 @@ function OrdersTable({
   onCancel,
   cancelingId,
   quotesForLabel = [],
+  onViewFills,
 }: {
   rows: any[];
   loading: boolean;
@@ -996,6 +1006,7 @@ function OrdersTable({
   onCancel?: (id: string | number) => void;
   cancelingId?: string | number;
   quotesForLabel?: string[];
+  onViewFills?: (id: string | number) => void;
 }) {
   if (loading) {
     return (
@@ -1051,8 +1062,29 @@ function OrdersTable({
             }
             return "—";
           })();
+          const handleRowClick = () => onViewFills?.(o.id);
           return (
-            <tr key={o.id} className="border-b border-border last:border-b-0 hover:bg-muted/15">
+            <tr
+              key={o.id}
+              className={cn(
+                "border-b border-border last:border-b-0 hover:bg-muted/15",
+                onViewFills && "cursor-pointer",
+              )}
+              onClick={onViewFills ? handleRowClick : undefined}
+              onKeyDown={
+                onViewFills
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleRowClick();
+                      }
+                    }
+                  : undefined
+              }
+              role={onViewFills ? "button" : undefined}
+              tabIndex={onViewFills ? 0 : undefined}
+              aria-label={onViewFills ? `View fills for order ${o.id}` : undefined}
+            >
               <td className="px-3 py-1.5 font-semibold whitespace-nowrap">{pairLabel}</td>
               <td className={`px-2 py-1.5 font-bold ${sideStr === "buy" ? "text-success" : "text-destructive"}`}>{sideStr.toUpperCase()}</td>
               <td className="px-2 py-1.5 capitalize text-muted-foreground">{String(o.type || "limit").toLowerCase()}</td>
