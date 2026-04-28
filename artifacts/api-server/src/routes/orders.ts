@@ -1,11 +1,11 @@
 import { Router, type IRouter } from "express";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable } from "@workspace/db";
+import { db, ordersTable, tradesTable, pairsTable, walletsTable, coinsTable, usersTable, settingsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { rZadd, rZrem, rPublish, rLpush, rSet } from "../lib/redis";
 import { tryMatch, getDepth, getRecentTrades } from "../lib/matching-engine";
-import { getSpotFeeRates } from "./fees";
+import { getSpotFeeRates, loadFeeSettings } from "./fees";
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────
 // Stricter than the historical placeSpotOrder() guard — we validate types &
@@ -371,6 +371,139 @@ export async function placeSpotOrder(opts: {
   }
   return { order: final, matched: matchRes.trades };
 }
+
+// ─── /orders/:id/invoice — printable tax invoice for a filled order ──────
+// Returns a self-contained JSON payload the user-portal renders into a
+// print-friendly invoice page (the user can then "Save as PDF" from the
+// browser print dialog). Only orders with at least one fill are eligible —
+// open / fully-cancelled orders have nothing to invoice.
+//
+// Fee breakdown: the stored `fee` includes GST baked in (matching engine
+// applies `baseRate * (1 + gstPct/100)`), so we back it out here so the
+// invoice can show "Trading fee" and "GST 18%" on separate lines as
+// required for Indian tax compliance.
+router.get("/orders/:id/invoice", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const orderId = Number(req.params.id);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    res.status(400).json({ message: "Invalid order id" });
+    return;
+  }
+
+  const [order] = await db.select().from(ordersTable)
+    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.userId, userId), eq(ordersTable.isBot, 0)))
+    .limit(1);
+  if (!order) { res.status(404).json({ message: "Order not found" }); return; }
+  if (Number(order.filledQty || 0) <= 0) {
+    res.status(400).json({ message: "No fills yet — invoice is generated only after at least one match." });
+    return;
+  }
+
+  const [pair] = await db.select().from(pairsTable).where(eq(pairsTable.id, order.pairId)).limit(1);
+  let baseSym = "", quoteSym = "";
+  if (pair) {
+    const cs = await db.select().from(coinsTable);
+    baseSym = cs.find(c => c.id === pair.baseCoinId)?.symbol ?? "";
+    quoteSym = cs.find(c => c.id === pair.quoteCoinId)?.symbol ?? "";
+  }
+
+  const fills = await db.select().from(tradesTable)
+    .where(eq(tradesTable.orderId, orderId))
+    .orderBy(tradesTable.createdAt);
+
+  // Aggregate exactly what's persisted on the order row — we don't recompute
+  // from the live fee/GST settings because those may have changed since the
+  // trade was executed and the invoice MUST match the wallet movements.
+  const grossFee = Number(order.fee || 0);                    // already includes GST
+  const tdsAmount = Number(order.tds || 0);
+  let totalQty = 0, totalQuote = 0;
+  for (const f of fills) {
+    totalQty += Number(f.qty);
+    totalQuote += Number(f.qty) * Number(f.price);
+  }
+  const vwap = totalQty > 0 ? totalQuote / totalQty : 0;
+
+  // Read GST % at the time of invoicing (best-effort — the historical rate
+  // isn't snapshotted on each fill yet). If it differs from the rate used
+  // at fill-time, the split shown on the invoice is approximate but the
+  // grand totals (gross fee + TDS + net) still match what was settled.
+  const feeSettings = await loadFeeSettings();
+  const gstPct = Number(feeSettings.spotGstPercent || 0);
+  const baseFee = gstPct > 0 ? grossFee / (1 + gstPct / 100) : grossFee;
+  const gstAmount = grossFee - baseFee;
+
+  // For SELL the user RECEIVES (notional - fee - tds).
+  // For BUY  the user PAYS    (notional + fee). TDS doesn't apply on buys.
+  const isSell = order.side === "sell";
+  const grandTotal = isSell ? (totalQuote - grossFee - tdsAmount) : (totalQuote + grossFee);
+
+  const [u] = await db.select({ name: usersTable.name, email: usersTable.email })
+    .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+
+  // Brand / company info — admin can override any of these from /admin/settings
+  // raw key editor. Defaults are placeholders that look plausible on a real
+  // tax invoice without leaking anything sensitive.
+  const settingsRows = await db.select().from(settingsTable);
+  const brandMap = new Map(settingsRows.map(r => [r.key, r.value]));
+  const brand = {
+    legalName: brandMap.get("brand.legal_name") || "Zebvix CryptoX Exchange Pvt. Ltd.",
+    tradingName: brandMap.get("brand.trading_name") || "CryptoX Exchange",
+    address: brandMap.get("brand.address") || "Mumbai, Maharashtra, India",
+    gstin: brandMap.get("brand.gstin") || "—",
+    pan: brandMap.get("brand.pan") || "—",
+    supportEmail: brandMap.get("brand.support_email") || "support@cryptox.in",
+    website: brandMap.get("brand.website") || "https://cryptox.in",
+  };
+
+  const invoiceNo = `INV-${String(order.id).padStart(8, "0")}`;
+  const lastFillAt = fills[fills.length - 1]?.createdAt ?? order.createdAt;
+
+  res.json({
+    invoiceNo,
+    issuedAt: lastFillAt,
+    currency: quoteSym,
+    brand,
+    customer: {
+      name: u?.name || "—",
+      email: u?.email || "—",
+      userId,
+    },
+    order: {
+      id: order.id,
+      symbol: pair?.symbol ?? "",
+      base: baseSym,
+      quote: quoteSym,
+      side: order.side,
+      type: order.type,
+      status: order.status,
+      qty: Number(order.qty),
+      filledQty: totalQty,
+      avgPrice: vwap,
+      placedAt: order.createdAt,
+    },
+    breakdown: {
+      grossNotional: +totalQuote.toFixed(8),
+      tradingFee: +baseFee.toFixed(8),
+      gstPercent: gstPct,
+      gstAmount: +gstAmount.toFixed(8),
+      totalFee: +grossFee.toFixed(8),
+      tdsPercent: totalQuote > 0 ? +((tdsAmount / totalQuote) * 100).toFixed(4) : 0,
+      tdsAmount: +tdsAmount.toFixed(8),
+      netAmount: +grandTotal.toFixed(8),
+      direction: isSell ? "credit" : "debit",
+    },
+    fills: fills.map(f => ({
+      id: f.id,
+      uid: f.uid,
+      price: Number(f.price),
+      qty: Number(f.qty),
+      subtotal: +(Number(f.qty) * Number(f.price)).toFixed(8),
+      fee: Number(f.fee || 0),
+      tds: Number(f.tds || 0),
+      executedAt: f.createdAt,
+    })),
+  });
+});
 
 router.post("/orders", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;

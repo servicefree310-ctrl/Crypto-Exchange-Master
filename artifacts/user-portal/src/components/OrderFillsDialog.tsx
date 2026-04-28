@@ -2,8 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { get } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/premium/StatusPill";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Layers, ArrowRight, Loader2 } from "lucide-react";
+import { Layers, ArrowRight, Loader2, FileText } from "lucide-react";
 
 type Fill = {
   id: number;
@@ -161,6 +162,27 @@ export function OrderFillsDialog({
                 />
               </div>
             </div>
+
+            {/* ── Invoice CTA — only when there's something to invoice ─ */}
+            {data.order.filledQty > 0 && (
+              <a
+                href={`${import.meta.env.BASE_URL}orders/${data.order.id}/invoice`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block"
+                data-testid="link-open-invoice"
+              >
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-center"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-2" />
+                  View tax invoice (fee, GST &amp; TDS breakdown)
+                </Button>
+              </a>
+            )}
 
             {/* ── Summary bar ─────────────────────────────── */}
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">

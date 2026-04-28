@@ -12,6 +12,7 @@ import Trade from "@/pages/Trade";
 import Futures from "@/pages/Futures";
 import Wallet from "@/pages/Wallet";
 import Orders from "@/pages/Orders";
+import Invoice from "@/pages/Invoice";
 import Portfolio from "@/pages/Portfolio";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -68,6 +69,9 @@ function App() {
                 
                 <Route path="/wallet">
                   {() => <RequireAuth><Wallet /></RequireAuth>}
+                </Route>
+                <Route path="/orders/:id/invoice">
+                  {() => <RequireAuth><Invoice /></RequireAuth>}
                 </Route>
                 <Route path="/orders">
                   {() => <RequireAuth><Orders /></RequireAuth>}
