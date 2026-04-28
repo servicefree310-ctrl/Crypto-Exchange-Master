@@ -1,8 +1,9 @@
-import { db, marketBotsTable, ordersTable, pairsTable, coinsTable, tradesTable, usersTable, walletsTable } from "@workspace/db";
+import { db, marketBotsTable, ordersTable, pairsTable, coinsTable, tradesTable, usersTable } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getCache } from "./price-service";
 import { rZadd, rZrem, rSet, rDel, rLpush, rPublish } from "./redis";
+import { tryMatch } from "./matching-engine";
 
 // Mirror an order to Redis ZSET orderbook (same shape used by /api/orders)
 async function bookAdd(symbol: string, o: any) {
@@ -58,60 +59,11 @@ function midPriceForPair(pair: any, coinsBySymbol: Map<string, any>): number {
   return bUsdt / qUsdt;
 }
 
-// Ensure the user has a spot wallet for the given coin, creating it on the
-// fly when missing. Used by bot-driven fills that credit base/quote coins
-// the user may never have held before.
-async function ensureSpotWallet(userId: number, coinId: number) {
-  const [w] = await db.select().from(walletsTable).where(and(
-    eq(walletsTable.userId, userId),
-    eq(walletsTable.coinId, coinId),
-    eq(walletsTable.walletType, "spot"),
-  )).limit(1);
-  if (w) return w;
-  const [c] = await db.insert(walletsTable).values({
-    userId, coinId, walletType: "spot", balance: "0", locked: "0",
-  }).returning();
-  return c;
-}
-
-// Settle a user order that the bot just filled at `tradePrice` for `fillQty`
-// units. Releases the funds the user locked at order placement and credits
-// the bought/sold side accordingly. Limit-buy refunds (orderPrice - tradePrice)
-// * fillQty when the bot fills below the limit price.
-async function settleUserFill(
-  order: any, pair: any, tradePrice: number, fillQty: number, orderPrice: number,
-) {
-  const userId = order.userId as number;
-  if (order.side === "buy") {
-    const lockedQuote = fillQty * orderPrice;
-    const spent = fillQty * tradePrice;
-    const refund = lockedQuote - spent; // 0 if tradePrice == orderPrice
-    const quote = await ensureSpotWallet(userId, pair.quoteCoinId);
-    await db.update(walletsTable).set({
-      locked: sql`${walletsTable.locked} - ${lockedQuote}`,
-      balance: refund > 0 ? sql`${walletsTable.balance} + ${refund}` : walletsTable.balance,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, quote.id));
-    const base = await ensureSpotWallet(userId, pair.baseCoinId);
-    await db.update(walletsTable).set({
-      balance: sql`${walletsTable.balance} + ${fillQty}`,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, base.id));
-  } else {
-    // SELL: locked base = fillQty (1:1), receive notional in quote.
-    const notional = fillQty * tradePrice;
-    const base = await ensureSpotWallet(userId, pair.baseCoinId);
-    await db.update(walletsTable).set({
-      locked: sql`${walletsTable.locked} - ${fillQty}`,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, base.id));
-    const quote = await ensureSpotWallet(userId, pair.quoteCoinId);
-    await db.update(walletsTable).set({
-      balance: sql`${walletsTable.balance} + ${notional}`,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, quote.id));
-  }
-}
+// Note: `settleUserFill` and `ensureSpotWallet` were removed — those helpers
+// only existed to support the synthetic mid-price fill path that bypassed
+// the matching engine. All user fills now go through `tryMatch`, which has
+// its own per-fill wallet settlement (with proper VIP-tier fees, GST/TDS,
+// and over-lock refunds for limit orders).
 
 async function runBotForPair(bot: any, uid: number) {
   const [pair] = await db.select().from(pairsTable).where(eq(pairsTable.id, bot.pairId));
@@ -149,49 +101,37 @@ async function runBotForPair(bot: any, uid: number) {
     }
   }
 
-  // 2) Match cross-able open orders against current mid (bot + user)
+  // 2) Re-match any open user orders that may now cross the live book.
+  //
+  // Previous behaviour synthetically marked user orders as `filled` at `mid`
+  // whenever the mid price crossed the order price — without checking that
+  // an actual maker existed in Redis. That created phantom fills (the user
+  // saw a fill at a price no real counter-party had quoted) and broke the
+  // "only fill from real orderbook liquidity" invariant.
+  //
+  // The correct behaviour is to route any potentially-crossing user order
+  // back through `tryMatch`, which only consumes resting maker orders that
+  // genuinely sit in the Redis ZSET. If there is no opposing depth, the
+  // order stays open — exactly as on a real exchange.
   if (bot.fillOnCross) {
-    const open = await db.select().from(ordersTable).where(and(eq(ordersTable.pairId, pair.id), eq(ordersTable.status, "open")));
-    for (const o of open) {
+    const openUser = await db.select().from(ordersTable).where(and(
+      eq(ordersTable.pairId, pair.id),
+      eq(ordersTable.status, "open"),
+      eq(ordersTable.isBot, 0),
+    ));
+    for (const o of openUser) {
       const px = Number(o.price);
-      const qty = Number(o.qty) - Number(o.filledQty);
-      if (qty <= 0) continue;
       const crosses = (o.side === "buy" && mid <= px) || (o.side === "sell" && mid >= px);
       if (!crosses) continue;
-      await db.update(ordersTable).set({
-        status: "filled",
-        filledQty: String((Number(o.filledQty) + qty).toFixed(8)),
-        avgPrice: String(mid.toFixed(8)),
-        updatedAt: new Date(),
-      }).where(eq(ordersTable.id, o.id));
-      // Settle wallets for real (non-bot) user fills. Bot orders are
-      // synthetic and never had funds locked on placement, so we only
-      // need to move real money for o.isBot === 0.
-      if (o.isBot === 0) {
-        try {
-          await settleUserFill(o, pair, mid, qty, px);
-        } catch (e: any) {
-          logger.error({ err: e?.message, orderId: o.id }, "bot: wallet settle failed");
-        }
-      }
-      const [trade] = await db.insert(tradesTable).values({
-        orderId: o.id, userId: o.userId, pairId: o.pairId, side: o.side,
-        price: String(mid.toFixed(8)), qty: String(qty.toFixed(8)),
-        fee: "0",
-      }).returning();
-      // Remove filled order from Redis book + publish trade tape so UI updates live
       try {
-        await bookRemove(pair.symbol, { ...o, status: "filled" } as any, "fill");
-        const tradePayload = JSON.stringify({
-          id: trade.id, pairId: o.pairId, side: o.side,
-          price: Number(mid.toFixed(8)), qty: Number(qty.toFixed(8)),
-          ts: Date.now(), bot: true,
-        });
-        await rLpush(`trades:${pair.symbol}`, tradePayload);
-        await rLpush(`trades:user:${o.userId}`, tradePayload);
-        await rPublish(`trades.${pair.symbol}`, JSON.parse(tradePayload));
+        // Look up VIP tier so fees match what placeSpotOrder would charge.
+        const [u] = await db.select({ vipTier: usersTable.vipTier })
+          .from(usersTable).where(eq(usersTable.id, o.userId)).limit(1);
+        // takerInBook=true → engine maintains the taker's ZSET/payload too,
+        // atomically with the maker write (no cross-module race window).
+        await tryMatch(o.id, { takerVipTier: Number(u?.vipTier ?? 0), takerInBook: true });
       } catch (e: any) {
-        logger.warn({ err: e?.message, orderId: o.id }, "bot: failed to publish fill");
+        logger.warn({ err: e?.message, orderId: o.id }, "bot: tryMatch failed");
       }
     }
   }
@@ -221,6 +161,17 @@ async function runBotForPair(bot: any, uid: number) {
     for (const o of inserted) {
       try { await bookAdd(pair.symbol, o); } catch (e: any) {
         logger.warn({ err: e?.message, orderId: o.id }, "bot: failed to add to redis book");
+      }
+      // Drive the new bot quote through the real matching engine so it
+      // consumes any resting user orders that cross. Without this step,
+      // user limit orders that cross the bot's freshly-placed quote would
+      // sit forever — the engine only runs on order placement, and bot
+      // placements that bypass `placeSpotOrder` were not triggering it.
+      // takerInBook=true → engine reconciles the bot quote's own ZSET state.
+      try {
+        await tryMatch(o.id, { takerInBook: true });
+      } catch (e: any) {
+        logger.warn({ err: e?.message, orderId: o.id }, "bot: tryMatch on new quote failed");
       }
     }
   }

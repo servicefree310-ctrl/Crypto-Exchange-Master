@@ -58,7 +58,16 @@ async function ensureWallet(tx: any, userId: number, coinId: number) {
   return locked;
 }
 
-export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: number }): Promise<{ trades: number; remainingQty: number; status: string }> {
+// `takerInBook` tells the engine that the taker order is already a resting
+// member of the Redis ZSET orderbook (true for bot-service paths that match
+// already-placed orders, false for placeSpotOrder which manages its own
+// post-match Redis reconciliation). When true, the engine maintains the
+// taker's ZSET/payload state inside the same FOR-UPDATE-locked transaction
+// as the maker update — this prevents a race where a concurrent placement
+// hitting the taker as a maker writes the new payload, and a separate post-
+// match reconciliation by the original caller then overwrites it with the
+// older snapshot.
+export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: number; takerInBook?: boolean }): Promise<{ trades: number; remainingQty: number; status: string }> {
   if (!engineEnabled) return { trades: 0, remainingQty: 0, status: "disabled" };
   const r = getRedis();
   if (!r) return { trades: 0, remainingQty: 0, status: "no-redis" };
@@ -282,7 +291,7 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           updatedAt: new Date(),
         }).where(eq(pairsTable.id, pair.id));
 
-        // Update Redis book
+        // Update Redis book — maker
         if (makerFinished) {
           await rZrem(`orderbook:${symbol}:${maker.side}`, String(maker.id));
           await rDel(`orderbook:${symbol}:order:${maker.id}`);
@@ -292,6 +301,24 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
             price: Number(maker.price), qty: Number(maker.qty), filledQty: newMakerFilled,
             status: "partial", ts: Date.now(),
           }), 86400);
+        }
+
+        // Update Redis book — taker (only when caller indicated the taker
+        // is already a resting member of the book). Doing this inside the
+        // same FOR-UPDATE-locked transaction as the maker write is what
+        // makes it race-free against concurrent placements that hit this
+        // taker as a maker — both writers serialize on the row lock.
+        if (opts?.takerInBook && taker.type === "limit") {
+          if (takerFinished) {
+            await rZrem(`orderbook:${symbol}:${taker.side}`, String(taker.id));
+            await rDel(`orderbook:${symbol}:order:${taker.id}`);
+          } else {
+            await rSet(`orderbook:${symbol}:order:${taker.id}`, JSON.stringify({
+              id: taker.id, userId: taker.userId, side: taker.side, type: taker.type,
+              price: Number(taker.price), qty: Number(taker.qty), filledQty: newTakerFilled,
+              status: "partial", ts: Date.now(),
+            }), 86400);
+          }
         }
 
         // Publish trade
