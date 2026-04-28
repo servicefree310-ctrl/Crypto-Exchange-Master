@@ -129,6 +129,13 @@ export async function placeSpotOrder(opts: {
     const e: any = new Error("qty must be positive"); e.code = 400; throw e;
   }
 
+  // Slippage cap for MARKET orders: a market buy will never sweep above
+  // lastPrice * (1 + MARKET_SLIPPAGE_PCT), and a market sell will never
+  // hit a bid below lastPrice * (1 - MARKET_SLIPPAGE_PCT). This protects
+  // users from manipulated thin books while still letting liquidity-rich
+  // markets fill instantly.
+  const MARKET_SLIPPAGE_PCT = 0.10;
+
   const created = await db.transaction(async (tx) => {
       const [pair] = await tx.select().from(pairsTable).where(eq(pairsTable.id, Number(pairId))).limit(1);
       if (!pair) { const e: any = new Error("Pair not found"); e.code = 404; throw e; }
@@ -139,28 +146,33 @@ export async function placeSpotOrder(opts: {
       const minQty = Number(pair.minQty);
       if (minQty > 0 && qtyNum < minQty) { const e: any = new Error(`Min qty is ${minQty}`); e.code = 400; throw e; }
 
-      // Determine effective price
+      const fees = await getSpotFeeRates(vipTier);
+      const isMarket = type === "market";
+      const feeRate = isMarket ? fees.taker : fees.maker;
+
+      // Determine the price stored on the order row.
+      //  - LIMIT  → the user's chosen price (matching engine respects it)
+      //  - MARKET → the slippage cap, also used as the engine's worst-acceptable
+      //             price so it never crosses past ±10% of lastPrice.
       let effPrice: number;
-      if (type === "market") {
-        effPrice = Number(pair.lastPrice);
-        if (!Number.isFinite(effPrice) || effPrice <= 0) { const e: any = new Error("Market price unavailable"); e.code = 400; throw e; }
+      if (isMarket) {
+        const lastPx = Number(pair.lastPrice);
+        if (!Number.isFinite(lastPx) || lastPx <= 0) { const e: any = new Error("Market price unavailable"); e.code = 400; throw e; }
+        effPrice = side === "buy"
+          ? lastPx * (1 + MARKET_SLIPPAGE_PCT)
+          : lastPx * (1 - MARKET_SLIPPAGE_PCT);
       } else {
         effPrice = Number(price);
         if (!Number.isFinite(effPrice) || effPrice <= 0) { const e: any = new Error("limit price required"); e.code = 400; throw e; }
       }
 
-      const fees = await getSpotFeeRates(vipTier);
-      const isMarket = type === "market";
-      const feeRate = isMarket ? fees.taker : fees.maker;
-      const tdsRate = fees.tds;
-
-      // Lock balances
+      // Lock balances against the WORST-CASE settlement.
+      //  - BUY MARKET : qty * cap * (1 + takerFee)         (refund on each better fill)
+      //  - BUY LIMIT  : qty * limitPrice                   (no upfront fee)
+      //  - SELL ANY   : qty (base coin)
       let baseW: any = null, quoteW: any = null;
-      const notional = effPrice * qtyNum;
-
       if (side === "buy") {
-        // Lock quote: notional + (taker fee on notional if market)
-        const lockQuote = notional * (isMarket ? (1 + feeRate) : 1);
+        const lockQuote = qtyNum * effPrice * (isMarket ? (1 + feeRate) : 1);
         quoteW = await ensureWallet(tx, userId, pair.quoteCoinId, "spot");
         const bal = Number(quoteW.balance);
         if (bal < lockQuote) { const e: any = new Error(`Insufficient quote balance (have ${bal.toFixed(8)}, need ${lockQuote.toFixed(8)})`); e.code = 400; throw e; }
@@ -170,7 +182,6 @@ export async function placeSpotOrder(opts: {
           updatedAt: new Date(),
         }).where(eq(walletsTable.id, quoteW.id));
       } else {
-        // Sell: lock base = qty
         baseW = await ensureWallet(tx, userId, pair.baseCoinId, "spot");
         const bal = Number(baseW.balance);
         if (bal < qtyNum) { const e: any = new Error(`Insufficient base balance (have ${bal.toFixed(8)}, need ${qtyNum.toFixed(8)})`); e.code = 400; throw e; }
@@ -184,75 +195,73 @@ export async function placeSpotOrder(opts: {
       const [o] = await tx.insert(ordersTable).values({
         userId, pairId: pair.id, side, type,
         price: String(effPrice), qty: String(qtyNum),
-        status: isMarket ? "open" : "open",
+        status: "open",
       }).returning();
-
-      // Market orders fill immediately at lastPrice
-      if (isMarket) {
-        const fee = notional * feeRate; // fee+GST in quote currency
-        const tds = side === "sell" ? notional * tdsRate : 0; // 1% TDS on sell
-        if (side === "buy") {
-          // Debit locked quote (notional+fee), credit base (qty)
-          const totalDebit = notional + fee;
-          await tx.update(walletsTable).set({
-            locked: sql`${walletsTable.locked} - ${totalDebit}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, quoteW.id));
-          const recvBase = await ensureWallet(tx, userId, pair.baseCoinId, "spot");
-          await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${qtyNum}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, recvBase.id));
-        } else {
-          // Sell: release locked base; credit quote (notional - fee - tds)
-          const credit = notional - fee - tds;
-          await tx.update(walletsTable).set({
-            locked: sql`${walletsTable.locked} - ${qtyNum}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, baseW.id));
-          const recvQuote = await ensureWallet(tx, userId, pair.quoteCoinId, "spot");
-          await tx.update(walletsTable).set({
-            balance: sql`${walletsTable.balance} + ${credit}`,
-            updatedAt: new Date(),
-          }).where(eq(walletsTable.id, recvQuote.id));
-        }
-
-        await tx.insert(tradesTable).values({
-          orderId: o.id, userId, pairId: pair.id, side,
-          price: String(effPrice), qty: String(qtyNum), fee: String(fee),
-        });
-        const [filled] = await tx.update(ordersTable).set({
-          status: "filled", filledQty: String(qtyNum), avgPrice: String(effPrice),
-          fee: String(fee), updatedAt: new Date(),
-        }).where(eq(ordersTable.id, o.id)).returning();
-        return { order: filled, pair, trade: { orderId: o.id, userId, pairId: pair.id, side, price: effPrice, qty: qtyNum, fee, id: 0 } };
-      }
-      return { order: o, pair, trade: null };
+      return { order: o, pair };
     });
-  const { order, pair, trade } = created as any;
-  if (order.status === "filled") {
-    await pushOrderToRedis(order, pair, "fill");
-    if (trade) await pushTradeToRedis(trade, pair);
-    return { order, matched: 0 };
+  const { order, pair } = created as any;
+
+  // LIMIT orders rest in the book; MARKET orders never do (they may not be
+  // fully filled inside the slippage cap, in which case the leftover is
+  // refunded below).
+  if (order.type !== "market") {
+    await pushOrderToRedis(order, pair, "new");
   }
-  // Add limit order to book then run matching against existing book
-  await pushOrderToRedis(order, pair, "new");
+
+  // Run the matching engine for both market and limit. The engine honours
+  // `order.price` as the worst-acceptable price for either side, so market
+  // orders stop sweeping past their slippage cap.
   const matchRes = await tryMatch(order.id, { takerVipTier: vipTier });
-  if (matchRes.trades > 0) {
-    const [refreshed] = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
-    if (refreshed && refreshed.status === "filled") {
-      await pushOrderToRedis(refreshed, pair, "fill");
-    } else if (refreshed) {
-      // Update redis member to reflect partial fill
-      await rSet(`orderbook:${pair.symbol}:order:${refreshed.id}`, JSON.stringify({
-        id: refreshed.id, userId: refreshed.userId, side: refreshed.side, type: refreshed.type,
-        price: Number(refreshed.price), qty: Number(refreshed.qty),
-        filledQty: Number(refreshed.filledQty ?? 0), status: refreshed.status, ts: Date.now(),
-      }), 86400);
+
+  // Refresh the order row to see what actually filled.
+  const [refreshed] = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
+  let final = refreshed ?? order;
+
+  // For MARKET orders: if there's leftover quantity (not enough liquidity
+  // within the slippage cap), cancel the rest and refund the unused lock so
+  // the user doesn't keep money frozen against a non-resting order.
+  if (final.type === "market" && final.status !== "filled") {
+    const remainingQty = Number(final.qty) - Number(final.filledQty ?? 0);
+    if (remainingQty > 1e-12) {
+      await db.transaction(async (tx) => {
+        const fees = await getSpotFeeRates(vipTier);
+        if (final.side === "buy") {
+          const refund = remainingQty * Number(final.price) * (1 + fees.taker);
+          const w = await ensureWallet(tx, userId, pair.quoteCoinId, "spot");
+          await tx.update(walletsTable).set({
+            balance: sql`${walletsTable.balance} + ${refund}`,
+            locked: sql`${walletsTable.locked} - ${refund}`,
+            updatedAt: new Date(),
+          }).where(eq(walletsTable.id, w.id));
+        } else {
+          const w = await ensureWallet(tx, userId, pair.baseCoinId, "spot");
+          await tx.update(walletsTable).set({
+            balance: sql`${walletsTable.balance} + ${remainingQty}`,
+            locked: sql`${walletsTable.locked} - ${remainingQty}`,
+            updatedAt: new Date(),
+          }).where(eq(walletsTable.id, w.id));
+        }
+        const newStatus = Number(final.filledQty ?? 0) > 0 ? "partial" : "cancelled";
+        const [u] = await tx.update(ordersTable).set({
+          status: newStatus,
+          updatedAt: new Date(),
+        }).where(eq(ordersTable.id, final.id)).returning();
+        final = u ?? final;
+      });
     }
-    return { order: refreshed ?? order, matched: matchRes.trades };
   }
-  return { order, matched: 0 };
+
+  if (final.status === "filled" || final.status === "cancelled" || final.status === "partial") {
+    await pushOrderToRedis(final, pair, "fill");
+  } else if (final.type !== "market") {
+    // Resting limit order with no/partial fill — keep redis member up to date.
+    await rSet(`orderbook:${pair.symbol}:order:${final.id}`, JSON.stringify({
+      id: final.id, userId: final.userId, side: final.side, type: final.type,
+      price: Number(final.price), qty: Number(final.qty),
+      filledQty: Number(final.filledQty ?? 0), status: final.status, ts: Date.now(),
+    }), 86400);
+  }
+  return { order: final, matched: matchRes.trades };
 }
 
 router.post("/orders", requireAuth, async (req, res): Promise<void> => {

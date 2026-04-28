@@ -22,7 +22,7 @@ export function resetEngineStats() {
   engineStats = { matchesAttempted: 0, tradesExecuted: 0, totalVolumeQuote: 0, lastMatchAt: 0, lastError: "", perSymbol: {} };
 }
 
-async function bestOpposite(symbol: string, side: "buy" | "sell", limitPrice: number, isMarket: boolean) {
+async function bestOpposite(symbol: string, side: "buy" | "sell", limitPrice: number, _isMarket: boolean) {
   const r = getRedis();
   if (!r) return null;
   // Buy taker hits SELL book (lowest ask). Sell taker hits BUY book (highest bid = most-negative score).
@@ -33,10 +33,13 @@ async function bestOpposite(symbol: string, side: "buy" | "sell", limitPrice: nu
   const oppId = Number(top[0]);
   const oppScore = Number(top[1]);
   const oppPrice = bookSide === "sell" ? oppScore : -oppScore;
-  if (!isMarket) {
-    if (side === "buy" && oppPrice > limitPrice) return null;
-    if (side === "sell" && oppPrice < limitPrice) return null;
-  }
+  // Always honour `limitPrice` as the worst-acceptable price.
+  // For LIMIT orders this is the user's chosen price.
+  // For MARKET orders the order's `price` column is set at placement to the
+  // ±10% slippage cap from the last traded price (see placeSpotOrder), so
+  // markets stop sweeping if the book is thin / manipulated past the cap.
+  if (side === "buy" && oppPrice > limitPrice) return null;
+  if (side === "sell" && oppPrice < limitPrice) return null;
   return { id: oppId, price: oppPrice };
 }
 
@@ -64,8 +67,10 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
   let finalStatus = "open";
   let finalRemaining = 0;
 
-  // Cap iterations to avoid infinite loops on weird data
-  for (let iter = 0; iter < 50; iter++) {
+  // Cap iterations to avoid infinite loops on weird data, but keep it
+  // generous so a single market or limit order can fully sweep many price
+  // levels of bot/maker liquidity in one placement.
+  for (let iter = 0; iter < 200; iter++) {
     engineStats.matchesAttempted++;
     let matchExecuted = false;
     let stop = false;
@@ -156,9 +161,16 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           // Maker SELL: locked base reduces by fillQty, receives quote (notional - makerFee).
           // For LIMIT taker, locked = remaining * limitPrice; effective spend = notional. Refund (limitPrice - tradePrice)*fillQty.
           if (!takerIsBot) {
-            const takerQuoteLocked = isMarket ? notional * (1 + takerFeeRate) : fillQty * limitPrice;
+            // Locked-per-fill is uniformly derived from the order's `price`
+            // column. For LIMIT this is the user's price; for MARKET we
+            // store the +10% slippage cap there at placement, so both
+            // paths share the same accounting and any over-lock is refunded
+            // immediately on each fill.
+            const takerQuoteLocked = isMarket
+              ? fillQty * limitPrice * (1 + takerFeeRate)
+              : fillQty * limitPrice;
             const takerSpend = notional + takerFee; // what we actually take from locked
-            const takerRefund = takerQuoteLocked - takerSpend; // could be 0 (market) or positive (limit at better price)
+            const takerRefund = takerQuoteLocked - takerSpend; // ≥0 by construction (limitPrice ≥ tradePrice)
             const tQuote = await ensureWallet(tx, taker.userId, pair.quoteCoinId);
             await tx.update(walletsTable).set({
               locked: sql`${walletsTable.locked} - ${takerQuoteLocked}`,
