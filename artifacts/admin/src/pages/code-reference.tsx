@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Code2, Copy, Check, FileCode2, Folder, FolderOpen, ChevronRight,
   Search, Loader2, FileText, Sparkles,
@@ -18,10 +19,20 @@ type FileNode = { type: "file"; name: string; path: string; size: number };
 type DirNode  = { type: "dir";  name: string; path: string; children: TreeNode[] };
 type TreeNode = FileNode | DirNode;
 
-type TreeResp = { root: string; label: string; tree: TreeNode[] };
-type FileResp = { root: string; path: string; size: number; content: string };
+type RootInfo = { key: string; label: string };
+type RootsResp = { roots: RootInfo[] };
+type TreeResp  = { root: string; label: string; tree: TreeNode[] };
+type FileResp  = { root: string; path: string; size: number; content: string };
 
-const ROOT_KEY = "admin";
+const DEFAULT_EXPANDED: Record<string, string[]> = {
+  admin:         ["src", "src/pages", "src/components"],
+  "user-portal": ["src", "src/pages", "src/components"],
+};
+
+const PREFERRED_FILE: Record<string, string[]> = {
+  admin:         ["src/App.tsx"],
+  "user-portal": ["src/App.tsx", "src/main.tsx"],
+};
 
 function langOf(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -48,7 +59,6 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-// Recursively filter the tree by a case-insensitive substring on file path.
 function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
   if (!q) return nodes;
   const needle = q.toLowerCase();
@@ -65,7 +75,6 @@ function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
   return out;
 }
 
-// Pre-compute every directory path so we can auto-expand when filtering.
 function collectDirPaths(nodes: TreeNode[]): string[] {
   const paths: string[] = [];
   const walk = (ns: TreeNode[]) => {
@@ -78,6 +87,18 @@ function collectDirPaths(nodes: TreeNode[]): string[] {
   };
   walk(nodes);
   return paths;
+}
+
+function flattenFiles(nodes: TreeNode[]): string[] {
+  const out: string[] = [];
+  const walk = (ns: TreeNode[]) => {
+    for (const n of ns) {
+      if (n.type === "file") out.push(n.path);
+      else walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
 }
 
 function TreeItem({
@@ -153,54 +174,63 @@ function TreeItem({
 
 export default function CodeReferencePage() {
   const { toast } = useToast();
+  const [rootKey, setRootKey] = useState<string>("admin");
   const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(["src", "src/pages", "src/components"]));
-  const [selected, setSelected] = useState<string | null>(null);
+
+  // Per-root state so switching roots doesn't lose your place.
+  const [expandedByRoot, setExpandedByRoot] = useState<Record<string, Set<string>>>({
+    admin:         new Set(DEFAULT_EXPANDED.admin),
+    "user-portal": new Set(DEFAULT_EXPANDED["user-portal"]),
+  });
+  const [selectedByRoot, setSelectedByRoot] = useState<Record<string, string | null>>({
+    admin: null,
+    "user-portal": null,
+  });
   const [copied, setCopied] = useState(false);
 
+  const expanded = expandedByRoot[rootKey] ?? new Set<string>();
+  const selected = selectedByRoot[rootKey] ?? null;
+
+  const setExpanded = (updater: (prev: Set<string>) => Set<string>) =>
+    setExpandedByRoot((prev) => ({ ...prev, [rootKey]: updater(prev[rootKey] ?? new Set()) }));
+  const setSelected = (path: string | null) =>
+    setSelectedByRoot((prev) => ({ ...prev, [rootKey]: path }));
+
+  const rootsQ = useQuery({
+    queryKey: ["admin-source-roots"],
+    queryFn: () => get<RootsResp>("/admin/source/roots"),
+    staleTime: 5 * 60_000,
+  });
+
   const treeQ = useQuery({
-    queryKey: ["admin-source-tree", ROOT_KEY],
-    queryFn: () => get<TreeResp>(`/admin/source/tree?root=${ROOT_KEY}`),
+    queryKey: ["admin-source-tree", rootKey],
+    queryFn: () => get<TreeResp>(`/admin/source/tree?root=${rootKey}`),
     staleTime: 60_000,
   });
 
   const fileQ = useQuery({
-    queryKey: ["admin-source-file", ROOT_KEY, selected],
+    queryKey: ["admin-source-file", rootKey, selected],
     queryFn: () =>
       get<FileResp>(
-        `/admin/source/file?root=${ROOT_KEY}&path=${encodeURIComponent(selected!)}`
+        `/admin/source/file?root=${rootKey}&path=${encodeURIComponent(selected!)}`
       ),
     enabled: !!selected,
     staleTime: 30_000,
   });
 
-  // Auto-select a sensible first file when the tree first loads.
+  // Auto-pick a sensible first file the first time a root's tree loads.
   useEffect(() => {
     if (selected || !treeQ.data?.tree) return;
-    const findFirstFile = (nodes: TreeNode[]): string | null => {
-      for (const n of nodes) {
-        if (n.type === "file") return n.path;
-        if (n.type === "dir") {
-          const f = findFirstFile(n.children);
-          if (f) return f;
-        }
-      }
-      return null;
-    };
-    // Prefer src/App.tsx if present.
-    const flat: string[] = [];
-    const walk = (ns: TreeNode[]) => {
-      for (const n of ns) {
-        if (n.type === "file") flat.push(n.path);
-        else walk(n.children);
-      }
-    };
-    walk(treeQ.data.tree);
-    const preferred = flat.find((p) => p === "src/App.tsx") ?? flat.find((p) => p.endsWith("/App.tsx")) ?? findFirstFile(treeQ.data.tree);
+    const flat = flattenFiles(treeQ.data.tree);
+    const preferred =
+      (PREFERRED_FILE[rootKey] ?? []).map((p) => flat.find((f) => f === p)).find(Boolean) ??
+      flat.find((p) => p.endsWith("/App.tsx")) ??
+      flat[0] ??
+      null;
     if (preferred) setSelected(preferred);
-  }, [treeQ.data, selected]);
+  }, [treeQ.data, selected, rootKey]);
 
-  // When the user types a search, auto-expand all dirs in the filtered view.
+  // When searching, auto-expand all visible dirs.
   const filteredTree = useMemo(() => {
     if (!treeQ.data?.tree) return [];
     return filterTree(treeQ.data.tree, query.trim());
@@ -214,6 +244,7 @@ export default function CodeReferencePage() {
       dirs.forEach((d) => next.add(d));
       return next;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, filteredTree]);
 
   const toggle = (p: string) =>
@@ -239,19 +270,44 @@ export default function CodeReferencePage() {
   const lineCount = fileQ.data?.content ? fileQ.data.content.split("\n").length : 0;
   const language = selected ? langOf(selected.split("/").pop() ?? "") : "";
 
+  // Stable list of roots: prefer server response, fall back to known set.
+  const roots: RootInfo[] = rootsQ.data?.roots?.length
+    ? rootsQ.data.roots
+    : [
+        { key: "admin",        label: "artifacts/admin" },
+        { key: "user-portal",  label: "artifacts/user-portal" },
+      ];
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Code Reference"
-        subtitle="Browse the admin panel's full source tree, just like in your editor."
+        subtitle="Browse the admin and user-portal source trees, just like in your editor."
         icon={Code2}
         actions={
           <Badge variant="outline" className="gap-1">
             <Sparkles className="h-3.5 w-3.5" />
-            {treeQ.data?.label ?? "artifacts/admin"}
+            {treeQ.data?.label ?? roots.find((r) => r.key === rootKey)?.label ?? rootKey}
           </Badge>
         }
       />
+
+      <Tabs
+        value={rootKey}
+        onValueChange={(v) => {
+          setQuery("");
+          setRootKey(v);
+        }}
+      >
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          {roots.map((r) => (
+            <TabsTrigger key={r.key} value={r.key} className="gap-2">
+              <Folder className="h-4 w-4 text-amber-500" />
+              {r.label.replace(/^artifacts\//, "")}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       <div className="grid grid-cols-12 gap-4">
         {/* ---------------- Left: tree ---------------- */}
@@ -301,11 +357,11 @@ export default function CodeReferencePage() {
         {/* ---------------- Right: viewer ---------------- */}
         <Card className="col-span-12 md:col-span-8 lg:col-span-9 p-0 overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b p-3">
-            <div className="min-w-0 flex items-center gap-2">
+            <div className="min-w-0 flex items-center gap-2 flex-wrap">
               <FileCode2 className="h-4 w-4 text-primary shrink-0" />
               <code className="text-sm font-medium truncate">
                 {selected
-                  ? `${treeQ.data?.label ?? "artifacts/admin"}/${selected}`
+                  ? `${treeQ.data?.label ?? rootKey}/${selected}`
                   : "Select a file from the tree"}
               </code>
               {selected && (

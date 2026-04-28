@@ -39,7 +39,8 @@ function repoSibling(dir: string): string {
 }
 
 const ROOTS: Record<string, { absPath: string; label: string }> = {
-  admin: { absPath: repoSibling("admin"), label: "artifacts/admin" },
+  admin:        { absPath: repoSibling("admin"),        label: "artifacts/admin" },
+  "user-portal": { absPath: repoSibling("user-portal"), label: "artifacts/user-portal" },
 };
 
 function resolveRoot(rootKey: string): string | null {
