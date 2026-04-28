@@ -10,8 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import {
   Code2, Copy, Check, FileCode2, Folder, FolderOpen, ChevronRight,
-  Search, Loader2, FileText, Sparkles,
+  Search, Loader2, FileText, Sparkles, Database, Table as TableIcon, Key,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,16 +27,40 @@ type RootsResp = { roots: RootInfo[] };
 type TreeResp  = { root: string; label: string; tree: TreeNode[] };
 type FileResp  = { root: string; path: string; size: number; content: string };
 
+type DbTablesResp = {
+  tables: Array<{ name: string; rowCount: number; sizeBytes: number }>;
+};
+type DbColumn = {
+  name: string; type: string; nullable: boolean; default: string | null; position: number;
+};
+type DbIndex = { name: string; def: string };
+type DbForeignKey = {
+  constraint: string; column: string; refTable: string;
+  refColumn: string; onUpdate: string; onDelete: string;
+};
+type DbTableResp = {
+  name: string;
+  columns: DbColumn[];
+  primaryKey: string[];
+  indexes: DbIndex[];
+  foreignKeys: DbForeignKey[];
+  sql: string;
+};
+
+const DB_TAB = "__db__";
+
 const DEFAULT_EXPANDED: Record<string, string[]> = {
   admin:         ["src", "src/pages", "src/components"],
   "user-portal": ["src", "src/pages", "src/components"],
   "api-server":  ["src", "src/routes", "src/middlewares"],
+  "lib/db":      ["src", "src/schema", "migrations"],
 };
 
 const PREFERRED_FILE: Record<string, string[]> = {
   admin:         ["src/App.tsx"],
   "user-portal": ["src/App.tsx", "src/main.tsx"],
   "api-server":  ["src/index.ts", "src/routes/index.ts"],
+  "lib/db":      ["src/index.ts", "src/schema/index.ts"],
 };
 
 function langOf(name: string): string {
@@ -59,6 +86,10 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function fmtNum(n: number): string {
+  return new Intl.NumberFormat("en-IN").format(n);
 }
 
 function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
@@ -174,41 +205,22 @@ function TreeItem({
   );
 }
 
-export default function CodeReferencePage() {
+// =================== File-explorer subview ===================
+
+function FileExplorer({
+  rootKey, label, onSelectChange,
+}: { rootKey: string; label: string; onSelectChange?: (p: string | null) => void }) {
   const { toast } = useToast();
-  const [rootKey, setRootKey] = useState<string>("admin");
   const [query, setQuery] = useState("");
-
-  // Per-root state so switching roots doesn't lose your place.
-  const [expandedByRoot, setExpandedByRoot] = useState<Record<string, Set<string>>>({
-    admin:         new Set(DEFAULT_EXPANDED.admin),
-    "user-portal": new Set(DEFAULT_EXPANDED["user-portal"]),
-    "api-server":  new Set(DEFAULT_EXPANDED["api-server"]),
-  });
-  const [selectedByRoot, setSelectedByRoot] = useState<Record<string, string | null>>({
-    admin:         null,
-    "user-portal": null,
-    "api-server":  null,
-  });
+  const [expanded, setExpanded] = useState<Set<string>>(
+    new Set(DEFAULT_EXPANDED[rootKey] ?? ["src"]),
+  );
+  const [selected, setSelected] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const expanded = expandedByRoot[rootKey] ?? new Set<string>();
-  const selected = selectedByRoot[rootKey] ?? null;
-
-  const setExpanded = (updater: (prev: Set<string>) => Set<string>) =>
-    setExpandedByRoot((prev) => ({ ...prev, [rootKey]: updater(prev[rootKey] ?? new Set()) }));
-  const setSelected = (path: string | null) =>
-    setSelectedByRoot((prev) => ({ ...prev, [rootKey]: path }));
-
-  const rootsQ = useQuery({
-    queryKey: ["admin-source-roots"],
-    queryFn: () => get<RootsResp>("/admin/source/roots"),
-    staleTime: 5 * 60_000,
-  });
 
   const treeQ = useQuery({
     queryKey: ["admin-source-tree", rootKey],
-    queryFn: () => get<TreeResp>(`/admin/source/tree?root=${rootKey}`),
+    queryFn: () => get<TreeResp>(`/admin/source/tree?root=${encodeURIComponent(rootKey)}`),
     staleTime: 60_000,
   });
 
@@ -216,13 +228,12 @@ export default function CodeReferencePage() {
     queryKey: ["admin-source-file", rootKey, selected],
     queryFn: () =>
       get<FileResp>(
-        `/admin/source/file?root=${rootKey}&path=${encodeURIComponent(selected!)}`
+        `/admin/source/file?root=${encodeURIComponent(rootKey)}&path=${encodeURIComponent(selected!)}`,
       ),
     enabled: !!selected,
     staleTime: 30_000,
   });
 
-  // Auto-pick a sensible first file the first time a root's tree loads.
   useEffect(() => {
     if (selected || !treeQ.data?.tree) return;
     const flat = flattenFiles(treeQ.data.tree);
@@ -234,7 +245,8 @@ export default function CodeReferencePage() {
     if (preferred) setSelected(preferred);
   }, [treeQ.data, selected, rootKey]);
 
-  // When searching, auto-expand all visible dirs.
+  useEffect(() => { onSelectChange?.(selected); }, [selected, onSelectChange]);
+
   const filteredTree = useMemo(() => {
     if (!treeQ.data?.tree) return [];
     return filterTree(treeQ.data.tree, query.trim());
@@ -248,7 +260,6 @@ export default function CodeReferencePage() {
       dirs.forEach((d) => next.add(d));
       return next;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, filteredTree]);
 
   const toggle = (p: string) =>
@@ -274,147 +285,388 @@ export default function CodeReferencePage() {
   const lineCount = fileQ.data?.content ? fileQ.data.content.split("\n").length : 0;
   const language = selected ? langOf(selected.split("/").pop() ?? "") : "";
 
-  // Stable list of roots: prefer server response, fall back to known set.
-  const roots: RootInfo[] = rootsQ.data?.roots?.length
+  return (
+    <div className="grid grid-cols-12 gap-4">
+      <Card className="col-span-12 md:col-span-4 lg:col-span-3 p-0 overflow-hidden">
+        <div className="p-3 border-b">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find file or folder…"
+              className="pl-7 h-8 text-sm"
+            />
+          </div>
+        </div>
+        <div className="max-h-[72vh] overflow-y-auto py-2">
+          {treeQ.isLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground text-sm gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading tree…
+            </div>
+          ) : treeQ.isError ? (
+            <div className="px-4 py-6 text-sm text-red-500">
+              Couldn't load source tree.
+            </div>
+          ) : filteredTree.length === 0 ? (
+            <EmptyState title="No matches" description="Try a different search term." icon={FileText} />
+          ) : (
+            filteredTree.map((n) => (
+              <TreeItem
+                key={n.path}
+                node={n}
+                depth={0}
+                expanded={expanded}
+                onToggle={toggle}
+                selected={selected}
+                onSelect={setSelected}
+              />
+            ))
+          )}
+        </div>
+      </Card>
+
+      <Card className="col-span-12 md:col-span-8 lg:col-span-9 p-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b p-3">
+          <div className="min-w-0 flex items-center gap-2 flex-wrap">
+            <FileCode2 className="h-4 w-4 text-primary shrink-0" />
+            <code className="text-sm font-medium truncate">
+              {selected ? `${label}/${selected}` : "Select a file from the tree"}
+            </code>
+            {selected && (
+              <>
+                <Badge variant="outline">{language}</Badge>
+                {fileQ.data && (
+                  <>
+                    <Badge variant="secondary">{lineCount} lines</Badge>
+                    <Badge variant="secondary">{fmtBytes(fileQ.data.size)}</Badge>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          <Button
+            size="sm" variant="outline"
+            onClick={onCopy}
+            disabled={!fileQ.data?.content}
+          >
+            {copied ? <><Check className="h-4 w-4 mr-2" /> Copied</> : <><Copy className="h-4 w-4 mr-2" /> Copy code</>}
+          </Button>
+        </div>
+
+        <div className="bg-zinc-950">
+          {!selected ? (
+            <div className="p-12 text-center text-sm text-muted-foreground">
+              Pick any file on the left to view its full source.
+            </div>
+          ) : fileQ.isLoading ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading file…
+            </div>
+          ) : fileQ.isError ? (
+            <div className="p-6 text-sm text-red-400">
+              Failed to load this file ({(fileQ.error as any)?.message ?? "error"}).
+            </div>
+          ) : (
+            <pre className="overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-100 font-mono max-h-[72vh]">
+              <code>{fileQ.data?.content}</code>
+            </pre>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// =================== Database explorer subview ===================
+
+function DatabaseExplorer() {
+  const { toast } = useToast();
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const tablesQ = useQuery({
+    queryKey: ["admin-source-db-tables"],
+    queryFn: () => get<DbTablesResp>("/admin/source/db/tables"),
+    staleTime: 30_000,
+  });
+
+  const tableQ = useQuery({
+    queryKey: ["admin-source-db-table", selected],
+    queryFn: () =>
+      get<DbTableResp>(`/admin/source/db/table?name=${encodeURIComponent(selected!)}`),
+    enabled: !!selected,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (selected || !tablesQ.data?.tables?.length) return;
+    const preferred =
+      tablesQ.data.tables.find((t) => t.name === "users") ??
+      tablesQ.data.tables[0];
+    if (preferred) setSelected(preferred.name);
+  }, [tablesQ.data, selected]);
+
+  const filteredTables = useMemo(() => {
+    const list = tablesQ.data?.tables ?? [];
+    if (!query.trim()) return list;
+    const needle = query.toLowerCase();
+    return list.filter((t) => t.name.toLowerCase().includes(needle));
+  }, [tablesQ.data, query]);
+
+  const onCopy = async () => {
+    if (!tableQ.data?.sql) return;
+    try {
+      await navigator.clipboard.writeText(tableQ.data.sql);
+      setCopied(true);
+      toast({ title: "Copied", description: tableQ.data.name });
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast({ title: "Copy failed", variant: "destructive" });
+    }
+  };
+
+  const pkSet = new Set(tableQ.data?.primaryKey ?? []);
+  const fkByColumn = new Map<string, DbForeignKey>();
+  for (const fk of tableQ.data?.foreignKeys ?? []) fkByColumn.set(fk.column, fk);
+
+  return (
+    <div className="grid grid-cols-12 gap-4">
+      {/* ------------- Left: table list ------------- */}
+      <Card className="col-span-12 md:col-span-4 lg:col-span-3 p-0 overflow-hidden">
+        <div className="p-3 border-b">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find table…"
+              className="pl-7 h-8 text-sm"
+            />
+          </div>
+        </div>
+        <div className="max-h-[72vh] overflow-y-auto py-2">
+          {tablesQ.isLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground text-sm gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading tables…
+            </div>
+          ) : tablesQ.isError ? (
+            <div className="px-4 py-6 text-sm text-red-500">
+              Couldn't load database tables.
+            </div>
+          ) : filteredTables.length === 0 ? (
+            <EmptyState title="No tables" description="Try a different search term." icon={TableIcon} />
+          ) : (
+            filteredTables.map((t) => {
+              const isActive = selected === t.name;
+              return (
+                <button
+                  key={t.name}
+                  type="button"
+                  onClick={() => setSelected(t.name)}
+                  className={cn(
+                    "w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm rounded-sm hover:bg-muted/60 transition-colors",
+                    isActive && "bg-primary/10 text-primary",
+                  )}
+                >
+                  <TableIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  <span className="truncate flex-1">{t.name}</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                    {fmtNum(t.rowCount)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </Card>
+
+      {/* ------------- Right: table details + SQL ------------- */}
+      <Card className="col-span-12 md:col-span-8 lg:col-span-9 p-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b p-3">
+          <div className="min-w-0 flex items-center gap-2 flex-wrap">
+            <Database className="h-4 w-4 text-primary shrink-0" />
+            <code className="text-sm font-medium truncate">
+              {selected ? `public.${selected}` : "Select a table from the list"}
+            </code>
+            {tableQ.data && (
+              <>
+                <Badge variant="outline">{tableQ.data.columns.length} columns</Badge>
+                {tableQ.data.indexes.length > 0 && (
+                  <Badge variant="secondary">{tableQ.data.indexes.length} indexes</Badge>
+                )}
+                {tableQ.data.foreignKeys.length > 0 && (
+                  <Badge variant="secondary">{tableQ.data.foreignKeys.length} FKs</Badge>
+                )}
+              </>
+            )}
+          </div>
+          <Button
+            size="sm" variant="outline"
+            onClick={onCopy}
+            disabled={!tableQ.data?.sql}
+          >
+            {copied ? <><Check className="h-4 w-4 mr-2" /> Copied</> : <><Copy className="h-4 w-4 mr-2" /> Copy SQL</>}
+          </Button>
+        </div>
+
+        {!selected ? (
+          <div className="p-12 text-center text-sm text-muted-foreground">
+            Pick any table on the left to view its columns, indexes, and full CREATE TABLE SQL.
+          </div>
+        ) : tableQ.isLoading ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading table…
+          </div>
+        ) : tableQ.isError ? (
+          <div className="p-6 text-sm text-red-400">
+            Failed to load this table ({(tableQ.error as any)?.message ?? "error"}).
+          </div>
+        ) : tableQ.data ? (
+          <div className="space-y-0">
+            {/* Column table */}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[40px]"></TableHead>
+                    <TableHead>Column</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Nullable</TableHead>
+                    <TableHead>Default</TableHead>
+                    <TableHead>References</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tableQ.data.columns.map((c) => {
+                    const isPk = pkSet.has(c.name);
+                    const fk = fkByColumn.get(c.name);
+                    return (
+                      <TableRow key={c.name}>
+                        <TableCell>
+                          {isPk && <Key className="h-3.5 w-3.5 text-amber-500" />}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{c.name}</TableCell>
+                        <TableCell className="font-mono text-xs">{c.type}</TableCell>
+                        <TableCell>
+                          {c.nullable ? (
+                            <Badge variant="outline">NULL</Badge>
+                          ) : (
+                            <Badge>NOT NULL</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground truncate max-w-[200px]">
+                          {c.default ?? "—"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {fk ? `${fk.refTable}.${fk.refColumn}` : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Indexes */}
+            {tableQ.data.indexes.length > 0 && (
+              <div className="border-t p-4">
+                <div className="text-xs uppercase tracking-wide font-semibold text-muted-foreground mb-2">
+                  Indexes
+                </div>
+                <ul className="space-y-1 font-mono text-xs">
+                  {tableQ.data.indexes.map((i) => (
+                    <li key={i.name} className="break-all">
+                      <span className="text-amber-500 mr-2">{i.name}</span>
+                      <span className="text-muted-foreground">{i.def}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Generated SQL */}
+            <div className="border-t bg-zinc-950">
+              <div className="px-4 py-2 border-b border-zinc-800 text-xs uppercase tracking-wide font-semibold text-zinc-400">
+                Full CREATE TABLE
+              </div>
+              <pre className="overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-100 font-mono max-h-[60vh]">
+                <code>{tableQ.data.sql}</code>
+              </pre>
+            </div>
+          </div>
+        ) : null}
+      </Card>
+    </div>
+  );
+}
+
+// =================== Top-level page ===================
+
+export default function CodeReferencePage() {
+  const [rootKey, setRootKey] = useState<string>("admin");
+
+  const rootsQ = useQuery({
+    queryKey: ["admin-source-roots"],
+    queryFn: () => get<RootsResp>("/admin/source/roots"),
+    staleTime: 5 * 60_000,
+  });
+
+  const fileRoots: RootInfo[] = rootsQ.data?.roots?.length
     ? rootsQ.data.roots
     : [
         { key: "admin",        label: "artifacts/admin" },
         { key: "user-portal",  label: "artifacts/user-portal" },
         { key: "api-server",   label: "artifacts/api-server" },
+        { key: "lib/db",       label: "lib/db" },
       ];
+
+  const isDb = rootKey === DB_TAB;
+  const activeFileRoot = fileRoots.find((r) => r.key === rootKey);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Code Reference"
-        subtitle="Browse the admin, user-portal, and api-server source trees, just like in your editor."
+        subtitle="Browse the admin, user-portal, api-server, lib/db source trees and live database tables."
         icon={Code2}
         actions={
           <Badge variant="outline" className="gap-1">
             <Sparkles className="h-3.5 w-3.5" />
-            {treeQ.data?.label ?? roots.find((r) => r.key === rootKey)?.label ?? rootKey}
+            {isDb ? "Live database" : (activeFileRoot?.label ?? rootKey)}
           </Badge>
         }
       />
 
-      <Tabs
-        value={rootKey}
-        onValueChange={(v) => {
-          setQuery("");
-          setRootKey(v);
-        }}
-      >
-        <TabsList className="grid w-full grid-cols-3 max-w-xl">
-          {roots.map((r) => (
+      <Tabs value={rootKey} onValueChange={(v) => setRootKey(v)}>
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 max-w-3xl">
+          {fileRoots.map((r) => (
             <TabsTrigger key={r.key} value={r.key} className="gap-2">
               <Folder className="h-4 w-4 text-amber-500" />
               {r.label.replace(/^artifacts\//, "")}
             </TabsTrigger>
           ))}
+          <TabsTrigger value={DB_TAB} className="gap-2">
+            <Database className="h-4 w-4 text-sky-500" />
+            database
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      <div className="grid grid-cols-12 gap-4">
-        {/* ---------------- Left: tree ---------------- */}
-        <Card className="col-span-12 md:col-span-4 lg:col-span-3 p-0 overflow-hidden">
-          <div className="p-3 border-b">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Find file or folder…"
-                className="pl-7 h-8 text-sm"
-              />
-            </div>
-          </div>
-          <div className="max-h-[72vh] overflow-y-auto py-2">
-            {treeQ.isLoading ? (
-              <div className="flex items-center justify-center py-10 text-muted-foreground text-sm gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading tree…
-              </div>
-            ) : treeQ.isError ? (
-              <div className="px-4 py-6 text-sm text-red-500">
-                Couldn't load source tree.
-              </div>
-            ) : filteredTree.length === 0 ? (
-              <EmptyState
-                title="No matches"
-                description="Try a different search term."
-                icon={FileText}
-              />
-            ) : (
-              filteredTree.map((n) => (
-                <TreeItem
-                  key={n.path}
-                  node={n}
-                  depth={0}
-                  expanded={expanded}
-                  onToggle={toggle}
-                  selected={selected}
-                  onSelect={setSelected}
-                />
-              ))
-            )}
-          </div>
-        </Card>
-
-        {/* ---------------- Right: viewer ---------------- */}
-        <Card className="col-span-12 md:col-span-8 lg:col-span-9 p-0 overflow-hidden">
-          <div className="flex items-center justify-between gap-3 border-b p-3">
-            <div className="min-w-0 flex items-center gap-2 flex-wrap">
-              <FileCode2 className="h-4 w-4 text-primary shrink-0" />
-              <code className="text-sm font-medium truncate">
-                {selected
-                  ? `${treeQ.data?.label ?? rootKey}/${selected}`
-                  : "Select a file from the tree"}
-              </code>
-              {selected && (
-                <>
-                  <Badge variant="outline">{language}</Badge>
-                  {fileQ.data && (
-                    <>
-                      <Badge variant="secondary">{lineCount} lines</Badge>
-                      <Badge variant="secondary">{fmtBytes(fileQ.data.size)}</Badge>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onCopy}
-              disabled={!fileQ.data?.content}
-            >
-              {copied ? (
-                <><Check className="h-4 w-4 mr-2" /> Copied</>
-              ) : (
-                <><Copy className="h-4 w-4 mr-2" /> Copy code</>
-              )}
-            </Button>
-          </div>
-
-          <div className="bg-zinc-950">
-            {!selected ? (
-              <div className="p-12 text-center text-sm text-muted-foreground">
-                Pick any file on the left to view its full source.
-              </div>
-            ) : fileQ.isLoading ? (
-              <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading file…
-              </div>
-            ) : fileQ.isError ? (
-              <div className="p-6 text-sm text-red-400">
-                Failed to load this file ({(fileQ.error as any)?.message ?? "error"}).
-              </div>
-            ) : (
-              <pre className="overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-100 font-mono max-h-[72vh]">
-                <code>{fileQ.data?.content}</code>
-              </pre>
-            )}
-          </div>
-        </Card>
+      {/*
+        Render every FileExplorer (and the DatabaseExplorer) mounted at all times,
+        and just hide the inactive ones. This preserves each tab's internal state
+        (selected file, expanded folders, search query) across tab switches —
+        unmounting would blow that away.
+      */}
+      {fileRoots.map((r) => (
+        <div key={r.key} hidden={rootKey !== r.key}>
+          <FileExplorer rootKey={r.key} label={r.label} />
+        </div>
+      ))}
+      <div hidden={!isDb}>
+        <DatabaseExplorer />
       </div>
     </div>
   );

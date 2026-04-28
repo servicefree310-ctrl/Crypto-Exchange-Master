@@ -1,6 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { sql } from "drizzle-orm";
+import { db } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 
 // Security-locked source-code browser.
@@ -32,16 +34,17 @@ const BINARY_EXT = new Set([
   ".pdf", ".jar", ".class", ".so", ".dylib", ".dll", ".exe",
 ]);
 
-// api-server runs with cwd = artifacts/api-server (per its dev script),
-// so `../<x>` resolves to siblings under artifacts/.
-function repoSibling(dir: string): string {
-  return path.resolve(process.cwd(), "..", dir);
+// api-server runs with cwd = artifacts/api-server (per its dev script).
+// Repo root is two directories up.
+function repoPath(relFromRepoRoot: string): string {
+  return path.resolve(process.cwd(), "..", "..", relFromRepoRoot);
 }
 
 const ROOTS: Record<string, { absPath: string; label: string }> = {
-  admin:         { absPath: repoSibling("admin"),         label: "artifacts/admin" },
-  "user-portal": { absPath: repoSibling("user-portal"),   label: "artifacts/user-portal" },
-  "api-server":  { absPath: repoSibling("api-server"),    label: "artifacts/api-server" },
+  admin:         { absPath: repoPath("artifacts/admin"),       label: "artifacts/admin" },
+  "user-portal": { absPath: repoPath("artifacts/user-portal"), label: "artifacts/user-portal" },
+  "api-server":  { absPath: repoPath("artifacts/api-server"),  label: "artifacts/api-server" },
+  "lib/db":      { absPath: repoPath("lib/db"),                label: "lib/db" },
 };
 
 function resolveRoot(rootKey: string): string | null {
@@ -103,6 +106,246 @@ router.get("/admin/source/roots", (_req: Request, res: Response) => {
   res.json({
     roots: Object.entries(ROOTS).map(([key, r]) => ({ key, label: r.label })),
   });
+});
+
+// ---------- Live database introspection ----------
+
+router.get("/admin/source/db/tables", async (_req: Request, res: Response) => {
+  try {
+    const result: any = await db.execute(sql`
+      SELECT
+        t.table_name AS name,
+        COALESCE(s.n_live_tup, 0)::bigint AS row_count,
+        pg_total_relation_size(quote_ident(t.table_name))::bigint AS size_bytes
+      FROM information_schema.tables t
+      LEFT JOIN pg_stat_user_tables s
+        ON s.schemaname = 'public' AND s.relname = t.table_name
+      WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+      ORDER BY t.table_name
+    `);
+    const rows: Array<{ name: string; row_count: string | number; size_bytes: string | number }> =
+      Array.isArray((result as any).rows) ? (result as any).rows : (result as any);
+    res.json({
+      tables: rows.map((r) => ({
+        name: r.name,
+        rowCount: Number(r.row_count ?? 0),
+        sizeBytes: Number(r.size_bytes ?? 0),
+      })),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: "tables_failed", message: e?.message ?? "" });
+  }
+});
+
+function isSafeIdent(s: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(s);
+}
+
+function pgTypeFromInfoSchema(row: {
+  data_type: string;
+  udt_name: string;
+  character_maximum_length: number | null;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+}): string {
+  const dt = row.data_type.toUpperCase();
+  if (dt === "ARRAY") {
+    // udt_name for arrays is the element type prefixed with "_" (e.g. "_text").
+    const elem = (row.udt_name || "").replace(/^_/, "").toUpperCase() || "TEXT";
+    return `${elem}[]`;
+  }
+  if (dt === "CHARACTER VARYING") {
+    return row.character_maximum_length
+      ? `VARCHAR(${row.character_maximum_length})`
+      : "VARCHAR";
+  }
+  if (dt === "CHARACTER") {
+    return row.character_maximum_length
+      ? `CHAR(${row.character_maximum_length})`
+      : "CHAR";
+  }
+  if (dt === "NUMERIC" && row.numeric_precision != null) {
+    return row.numeric_scale != null
+      ? `NUMERIC(${row.numeric_precision},${row.numeric_scale})`
+      : `NUMERIC(${row.numeric_precision})`;
+  }
+  if (dt === "TIMESTAMP WITHOUT TIME ZONE") return "TIMESTAMP";
+  if (dt === "TIMESTAMP WITH TIME ZONE") return "TIMESTAMPTZ";
+  if (dt === "USER-DEFINED") return row.udt_name.toUpperCase();
+  return dt;
+}
+
+router.get("/admin/source/db/table", async (req: Request, res: Response) => {
+  const name = String(req.query.name ?? "");
+  if (!isSafeIdent(name)) {
+    res.status(400).json({ error: "invalid_name" });
+    return;
+  }
+
+  try {
+    // Confirm table exists. Schema-qualify so search_path doesn't matter and
+    // use to_regclass so a missing table returns NULL instead of throwing.
+    const qualified = `public.${name}`;
+    const exists: any = await db.execute(sql`
+      SELECT to_regclass(${qualified}) AS oid
+    `);
+    const existsRows = Array.isArray(exists.rows) ? exists.rows : exists;
+    if (!existsRows.length || existsRows[0].oid == null) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const colsR: any = await db.execute(sql`
+      SELECT
+        column_name, data_type, udt_name, is_nullable,
+        column_default, character_maximum_length,
+        numeric_precision, numeric_scale, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${name}
+      ORDER BY ordinal_position
+    `);
+    const cols = Array.isArray(colsR.rows) ? colsR.rows : colsR;
+
+    // Primary key columns, ordered by their position in the index key
+    // (not by attnum) so composite PKs reconstruct correctly.
+    const pkR: any = await db.execute(sql`
+      SELECT a.attname AS column_name, k.ord
+      FROM pg_index i
+      JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+      WHERE i.indrelid = to_regclass(${qualified}) AND i.indisprimary
+      ORDER BY k.ord
+    `);
+    const pkCols: string[] = (Array.isArray(pkR.rows) ? pkR.rows : pkR).map(
+      (r: any) => r.column_name,
+    );
+
+    // Index DDL (skip the primary key auto-index, we render it inline).
+    const idxR: any = await db.execute(sql`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = ${name}
+      ORDER BY indexname
+    `);
+    const indexes: Array<{ name: string; def: string }> = (
+      Array.isArray(idxR.rows) ? idxR.rows : idxR
+    )
+      .filter((r: any) => !r.indexname.endsWith("_pkey"))
+      .map((r: any) => ({ name: r.indexname, def: r.indexdef }));
+
+    // Foreign keys (one row per local column, ordered by position within the
+    // constraint so composite FKs render in the right order).
+    const fkR: any = await db.execute(sql`
+      SELECT
+        tc.constraint_name,
+        kcu.column_name,
+        kcu.ordinal_position AS col_pos,
+        ccu.table_name  AS ref_table,
+        ccu.column_name AS ref_column,
+        rc.update_rule, rc.delete_rule
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+       AND tc.table_schema   = kcu.table_schema
+      JOIN information_schema.referential_constraints rc
+        ON rc.constraint_name = tc.constraint_name
+       AND rc.constraint_schema = tc.table_schema
+      JOIN information_schema.key_column_usage ccu
+        ON ccu.constraint_name = rc.unique_constraint_name
+       AND ccu.constraint_schema = rc.unique_constraint_schema
+       AND ccu.position_in_unique_constraint = kcu.position_in_unique_constraint
+      WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+        AND tc.table_name = ${name}
+      ORDER BY tc.constraint_name, kcu.ordinal_position
+    `);
+    const fkRows: Array<any> = Array.isArray(fkR.rows) ? fkR.rows : fkR;
+
+    // Group FK rows by constraint name so composite FKs become a single clause.
+    type FkGrouped = {
+      constraint: string;
+      columns: string[];
+      refTable: string;
+      refColumns: string[];
+      onUpdate: string;
+      onDelete: string;
+    };
+    const fkMap = new Map<string, FkGrouped>();
+    for (const r of fkRows) {
+      let g = fkMap.get(r.constraint_name);
+      if (!g) {
+        g = {
+          constraint: r.constraint_name,
+          columns: [],
+          refTable: r.ref_table,
+          refColumns: [],
+          onUpdate: r.update_rule,
+          onDelete: r.delete_rule,
+        };
+        fkMap.set(r.constraint_name, g);
+      }
+      g.columns.push(r.column_name);
+      g.refColumns.push(r.ref_column);
+    }
+    const foreignKeysGrouped = Array.from(fkMap.values());
+
+    // Flat list (one row per local column) for the API column-references map.
+    const foreignKeysFlat = fkRows.map((r) => ({
+      constraint: r.constraint_name,
+      column: r.column_name,
+      refTable: r.ref_table,
+      refColumn: r.ref_column,
+      onUpdate: r.update_rule,
+      onDelete: r.delete_rule,
+    }));
+
+    // Reconstruct a faithful CREATE TABLE statement.
+    const colLines: string[] = cols.map((c: any) => {
+      const type = pgTypeFromInfoSchema(c);
+      const parts = [`  "${c.column_name}" ${type}`];
+      if (c.is_nullable === "NO") parts.push("NOT NULL");
+      if (c.column_default) parts.push(`DEFAULT ${c.column_default}`);
+      return parts.join(" ");
+    });
+
+    const tableLines: string[] = [...colLines];
+    if (pkCols.length) {
+      tableLines.push(
+        `  PRIMARY KEY (${pkCols.map((c) => `"${c}"`).join(", ")})`,
+      );
+    }
+    for (const fk of foreignKeysGrouped) {
+      tableLines.push(
+        `  CONSTRAINT "${fk.constraint}" ` +
+          `FOREIGN KEY (${fk.columns.map((c) => `"${c}"`).join(", ")}) ` +
+          `REFERENCES "${fk.refTable}" ` +
+          `(${fk.refColumns.map((c) => `"${c}"`).join(", ")}) ` +
+          `ON UPDATE ${fk.onUpdate} ON DELETE ${fk.onDelete}`,
+      );
+    }
+
+    const createTable =
+      `CREATE TABLE "${name}" (\n` + tableLines.join(",\n") + `\n);`;
+    const createIndexes = indexes.map((i) => `${i.def};`).join("\n");
+    const fullSql = [createTable, createIndexes].filter(Boolean).join("\n\n");
+
+    res.json({
+      name,
+      columns: cols.map((c: any) => ({
+        name: c.column_name,
+        type: pgTypeFromInfoSchema(c),
+        nullable: c.is_nullable === "YES",
+        default: c.column_default ?? null,
+        position: Number(c.ordinal_position),
+      })),
+      primaryKey: pkCols,
+      indexes,
+      foreignKeys: foreignKeysFlat,
+      sql: fullSql,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: "table_failed", message: e?.message ?? "" });
+  }
 });
 
 router.get("/admin/source/tree", async (req: Request, res: Response) => {
