@@ -1,605 +1,360 @@
-import { useState } from "react";
-import { PageHeader } from "@/components/premium/PageHeader";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
-import {
-  Code2, Copy, Check, Server, LayoutDashboard, Globe, Database,
-  FileCode2, Sparkles,
-} from "lucide-react";
-
-type Snippet = {
-  id: "api" | "admin" | "user" | "sql";
-  label: string;
-  icon: typeof Server;
-  filePath: string;
-  language: "typescript" | "tsx" | "sql";
-  description: string;
-  code: string;
-};
-
-const API_CODE = String.raw`// artifacts/api-server/src/routes/announcements.ts
-//
-// Full Express + Drizzle API for "announcements".
-// - Public GET (cached 30s)
-// - Admin CRUD (cookie-session, requireRole)
-// Mount in routes/index.ts:
-//   app.use("/api/content/announcements", announcementsPublic);
-//   app.use("/api/admin/announcements", announcementsAdmin);
-
-import { Router, type Request, type Response } from "express";
-import { eq, and, desc } from "drizzle-orm";
-import { z } from "zod";
-import { db } from "../db";
-import { announcementsTable } from "@workspace/db/schema";
-import { requireRole } from "../middlewares/auth";
-import { cachePublic, invalidate } from "../lib/cache";
-
-// ---------- Validation ----------
-const upsertSchema = z.object({
-  title: z.string().min(1).max(200),
-  body: z.string().min(1),
-  kind: z.enum(["info", "success", "warning", "danger"]).default("info"),
-  isPinned: z.boolean().default(false),
-  isActive: z.boolean().default(true),
-  ctaLabel: z.string().max(60).optional().nullable(),
-  ctaUrl: z.string().url().optional().nullable(),
-  publishedAt: z.coerce.date().optional().nullable(),
-  expiresAt: z.coerce.date().optional().nullable(),
-});
-
-// ---------- Public router (read-only, cached) ----------
-export const announcementsPublic = Router();
-
-announcementsPublic.get("/", cachePublic(30), async (_req, res) => {
-  const now = new Date();
-  const rows = await db
-    .select()
-    .from(announcementsTable)
-    .where(eq(announcementsTable.isActive, true))
-    .orderBy(desc(announcementsTable.isPinned), desc(announcementsTable.publishedAt));
-
-  // Filter out expired/scheduled in JS to keep the SQL simple.
-  const visible = rows.filter((r) => {
-    if (r.publishedAt && r.publishedAt > now) return false;
-    if (r.expiresAt && r.expiresAt < now) return false;
-    return true;
-  });
-
-  res.json({ items: visible });
-});
-
-// ---------- Admin router (CRUD, role-gated) ----------
-export const announcementsAdmin = Router();
-announcementsAdmin.use(requireRole("admin", "superadmin"));
-
-announcementsAdmin.get("/", async (_req, res) => {
-  const rows = await db
-    .select()
-    .from(announcementsTable)
-    .orderBy(desc(announcementsTable.createdAt));
-  res.json({ items: rows });
-});
-
-announcementsAdmin.post("/", async (req: Request, res: Response) => {
-  const data = upsertSchema.parse(req.body);
-  const [row] = await db.insert(announcementsTable).values(data).returning();
-  await invalidate("content:announcements");
-  res.status(201).json(row);
-});
-
-announcementsAdmin.patch("/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  const data = upsertSchema.partial().parse(req.body);
-  const [row] = await db
-    .update(announcementsTable)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(announcementsTable.id, id))
-    .returning();
-  if (!row) return res.status(404).json({ error: "not_found" });
-  await invalidate("content:announcements");
-  res.json(row);
-});
-
-announcementsAdmin.delete("/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  await db.delete(announcementsTable).where(eq(announcementsTable.id, id));
-  await invalidate("content:announcements");
-  res.json({ ok: true });
-});
-`;
-
-const ADMIN_CODE = String.raw`// artifacts/admin/src/pages/announcements-cms.tsx
-//
-// Full admin CMS page: list + create/edit dialog + delete confirm.
-// Uses tanstack-query, the project "premium" UI kit, and the API above.
-
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post, patch, del } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { get } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/premium/PageHeader";
 import { EmptyState } from "@/components/premium/EmptyState";
-import { StatusPill } from "@/components/premium/StatusPill";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { Bell, Plus, Pencil, Trash2 } from "lucide-react";
+  Code2, Copy, Check, FileCode2, Folder, FolderOpen, ChevronRight,
+  Search, Loader2, FileText, Sparkles,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-type Announcement = {
-  id: number;
-  title: string;
-  body: string;
-  kind: "info" | "success" | "warning" | "danger";
-  isPinned: boolean;
-  isActive: boolean;
-  ctaLabel?: string | null;
-  ctaUrl?: string | null;
-  publishedAt?: string | null;
-  expiresAt?: string | null;
-};
+type FileNode = { type: "file"; name: string; path: string; size: number };
+type DirNode  = { type: "dir";  name: string; path: string; children: TreeNode[] };
+type TreeNode = FileNode | DirNode;
 
-type FormState = Partial<Announcement>;
+type TreeResp = { root: string; label: string; tree: TreeNode[] };
+type FileResp = { root: string; path: string; size: number; content: string };
 
-const EMPTY: FormState = {
-  title: "",
-  body: "",
-  kind: "info",
-  isPinned: false,
-  isActive: true,
-};
+const ROOT_KEY = "admin";
 
-export default function AnnouncementsCmsPage() {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(EMPTY);
-  const editing = typeof form.id === "number";
+function langOf(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "tsx": return "tsx";
+    case "ts":  return "typescript";
+    case "jsx": return "jsx";
+    case "js":  case "mjs": case "cjs": return "javascript";
+    case "json": return "json";
+    case "css":  return "css";
+    case "scss": return "scss";
+    case "html": return "html";
+    case "md":   return "markdown";
+    case "sql":  return "sql";
+    case "yml":  case "yaml": return "yaml";
+    case "sh":   return "bash";
+    default:     return ext || "text";
+  }
+}
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["admin", "announcements"],
-    queryFn: () => get<{ items: Announcement[] }>("/admin/announcements"),
-  });
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
 
-  const save = useMutation({
-    mutationFn: (payload: FormState) =>
-      editing
-        ? patch<Announcement>(\`/admin/announcements/\${form.id}\`, payload)
-        : post<Announcement>("/admin/announcements", payload),
-    onSuccess: () => {
-      toast({ title: editing ? "Updated" : "Created", description: form.title });
-      setOpen(false);
-      setForm(EMPTY);
-      qc.invalidateQueries({ queryKey: ["admin", "announcements"] });
-    },
-    onError: (e: any) =>
-      toast({ title: "Save failed", description: e?.message ?? "—", variant: "destructive" }),
-  });
+// Recursively filter the tree by a case-insensitive substring on file path.
+function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
+  if (!q) return nodes;
+  const needle = q.toLowerCase();
+  const out: TreeNode[] = [];
+  for (const n of nodes) {
+    if (n.type === "file") {
+      if (n.path.toLowerCase().includes(needle)) out.push(n);
+    } else {
+      const kept = filterTree(n.children, needle);
+      if (kept.length > 0) out.push({ ...n, children: kept });
+      else if (n.path.toLowerCase().includes(needle)) out.push(n);
+    }
+  }
+  return out;
+}
 
-  const remove = useMutation({
-    mutationFn: (id: number) => del(\`/admin/announcements/\${id}\`),
-    onSuccess: () => {
-      toast({ title: "Deleted" });
-      qc.invalidateQueries({ queryKey: ["admin", "announcements"] });
-    },
-  });
+// Pre-compute every directory path so we can auto-expand when filtering.
+function collectDirPaths(nodes: TreeNode[]): string[] {
+  const paths: string[] = [];
+  const walk = (ns: TreeNode[]) => {
+    for (const n of ns) {
+      if (n.type === "dir") {
+        paths.push(n.path);
+        walk(n.children);
+      }
+    }
+  };
+  walk(nodes);
+  return paths;
+}
 
-  const startNew = () => { setForm(EMPTY); setOpen(true); };
-  const startEdit = (row: Announcement) => { setForm(row); setOpen(true); };
+function TreeItem({
+  node, depth, expanded, onToggle, selected, onSelect,
+}: {
+  node: TreeNode;
+  depth: number;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
+  selected: string | null;
+  onSelect: (path: string) => void;
+}) {
+  const indent = { paddingLeft: 8 + depth * 14 };
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Announcements"
-        subtitle="Pinned banners and platform-wide notices for users."
-        icon={Bell}
-        actions={
-          <Button onClick={startNew}><Plus className="h-4 w-4 mr-2" /> New announcement</Button>
-        }
-      />
-
-      <Card className="p-0 overflow-hidden">
-        {isLoading ? (
-          <div className="p-10 text-center text-sm text-muted-foreground">Loading…</div>
-        ) : !data?.items?.length ? (
-          <EmptyState title="No announcements yet" description="Create the first one." />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">
-                    {row.isPinned && <Badge className="mr-2">Pinned</Badge>}
-                    {row.title}
-                  </TableCell>
-                  <TableCell><Badge variant="outline">{row.kind}</Badge></TableCell>
-                  <TableCell>
-                    <StatusPill status={row.isActive ? "success" : "muted"}>
-                      {row.isActive ? "Live" : "Draft"}
-                    </StatusPill>
-                  </TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button size="sm" variant="ghost" onClick={() => startEdit(row)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm" variant="ghost"
-                      onClick={() => confirm("Delete?") && remove.mutate(row.id)}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+  if (node.type === "file") {
+    const isActive = selected === node.path;
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect(node.path)}
+        style={indent}
+        className={cn(
+          "w-full text-left flex items-center gap-2 py-1 pr-2 text-sm rounded-sm hover:bg-muted/60 transition-colors",
+          isActive && "bg-primary/10 text-primary"
         )}
-      </Card>
+      >
+        <FileCode2 className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        <span className="truncate">{node.name}</span>
+      </button>
+    );
+  }
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{editing ? "Edit announcement" : "New announcement"}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Title</Label>
-              <Input
-                value={form.title ?? ""}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Body</Label>
-              <Textarea
-                rows={5}
-                value={form.body ?? ""}
-                onChange={(e) => setForm({ ...form, body: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <label className="flex items-center justify-between rounded-md border p-3">
-                <span className="text-sm">Pinned</span>
-                <Switch
-                  checked={!!form.isPinned}
-                  onCheckedChange={(v) => setForm({ ...form, isPinned: v })}
-                />
-              </label>
-              <label className="flex items-center justify-between rounded-md border p-3">
-                <span className="text-sm">Active</span>
-                <Switch
-                  checked={!!form.isActive}
-                  onCheckedChange={(v) => setForm({ ...form, isActive: v })}
-                />
-              </label>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
-              {save.isPending ? "Saving…" : editing ? "Save changes" : "Publish"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+  const isOpen = expanded.has(node.path);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onToggle(node.path)}
+        style={indent}
+        className="w-full text-left flex items-center gap-1 py-1 pr-2 text-sm rounded-sm hover:bg-muted/60 transition-colors font-medium"
+      >
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform",
+            isOpen && "rotate-90"
+          )}
+        />
+        {isOpen ? (
+          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        ) : (
+          <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        )}
+        <span className="truncate">{node.name}</span>
+      </button>
+      {isOpen && (
+        <div>
+          {node.children.map((c) => (
+            <TreeItem
+              key={c.path}
+              node={c}
+              depth={depth + 1}
+              expanded={expanded}
+              onToggle={onToggle}
+              selected={selected}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
-`;
 
-const USER_CODE = String.raw`// artifacts/user-portal/src/pages/Announcements.tsx
-//
-// Public user-portal page that renders announcements from the API.
-// - Hinglish copy, dark theme, uses the same API base ("/api/content/...").
-// - Pinned items float to the top, show a CTA button when present.
+export default function CodeReferencePage() {
+  const { toast } = useToast();
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(["src", "src/pages", "src/components"]));
+  const [selected, setSelected] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-import { useQuery } from "@tanstack/react-query";
-import { get } from "@/lib/api";
-import AppShell from "@/components/layout/AppShell";
-import { Bell, Pin, ExternalLink } from "lucide-react";
-
-type Announcement = {
-  id: number;
-  title: string;
-  body: string;
-  kind: "info" | "success" | "warning" | "danger";
-  isPinned: boolean;
-  ctaLabel?: string | null;
-  ctaUrl?: string | null;
-  publishedAt?: string | null;
-};
-
-const KIND_STYLES: Record<Announcement["kind"], string> = {
-  info:    "border-sky-500/30 bg-sky-500/5",
-  success: "border-emerald-500/30 bg-emerald-500/5",
-  warning: "border-amber-500/30 bg-amber-500/5",
-  danger:  "border-rose-500/30 bg-rose-500/5",
-};
-
-function fmtDate(s?: string | null) {
-  if (!s) return "";
-  return new Date(s).toLocaleDateString("en-IN", {
-    day: "2-digit", month: "short", year: "numeric",
+  const treeQ = useQuery({
+    queryKey: ["admin-source-tree", ROOT_KEY],
+    queryFn: () => get<TreeResp>(`/admin/source/tree?root=${ROOT_KEY}`),
+    staleTime: 60_000,
   });
-}
 
-export default function AnnouncementsPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["public", "announcements"],
-    queryFn: () => get<{ items: Announcement[] }>("/content/announcements"),
+  const fileQ = useQuery({
+    queryKey: ["admin-source-file", ROOT_KEY, selected],
+    queryFn: () =>
+      get<FileResp>(
+        `/admin/source/file?root=${ROOT_KEY}&path=${encodeURIComponent(selected!)}`
+      ),
+    enabled: !!selected,
     staleTime: 30_000,
   });
 
-  return (
-    <AppShell>
-      <div className="container mx-auto px-4 py-10 max-w-3xl">
-        <header className="mb-8 flex items-center gap-3">
-          <Bell className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-semibold">Announcements</h1>
-            <p className="text-sm text-muted-foreground">
-              Latest updates from the Zebvix team.
-            </p>
-          </div>
-        </header>
+  // Auto-select a sensible first file when the tree first loads.
+  useEffect(() => {
+    if (selected || !treeQ.data?.tree) return;
+    const findFirstFile = (nodes: TreeNode[]): string | null => {
+      for (const n of nodes) {
+        if (n.type === "file") return n.path;
+        if (n.type === "dir") {
+          const f = findFirstFile(n.children);
+          if (f) return f;
+        }
+      }
+      return null;
+    };
+    // Prefer src/App.tsx if present.
+    const flat: string[] = [];
+    const walk = (ns: TreeNode[]) => {
+      for (const n of ns) {
+        if (n.type === "file") flat.push(n.path);
+        else walk(n.children);
+      }
+    };
+    walk(treeQ.data.tree);
+    const preferred = flat.find((p) => p === "src/App.tsx") ?? flat.find((p) => p.endsWith("/App.tsx")) ?? findFirstFile(treeQ.data.tree);
+    if (preferred) setSelected(preferred);
+  }, [treeQ.data, selected]);
 
-        {isLoading ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : !data?.items?.length ? (
-          <div className="rounded-xl border p-10 text-center text-muted-foreground">
-            Abhi koi announcement nahi hai. Baad mein check karein.
-          </div>
-        ) : (
-          <ul className="space-y-4">
-            {data.items.map((a) => (
-              <li
-                key={a.id}
-                className={\`rounded-xl border p-5 \${KIND_STYLES[a.kind]}\`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-lg font-semibold">
-                    {a.isPinned && (
-                      <Pin className="inline h-4 w-4 mr-2 text-primary" />
-                    )}
-                    {a.title}
-                  </h3>
-                  {a.publishedAt && (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {fmtDate(a.publishedAt)}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed">
-                  {a.body}
-                </p>
-                {a.ctaUrl && (
-                  <a
-                    href={a.ctaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                  >
-                    {a.ctaLabel ?? "Learn more"}
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </AppShell>
-  );
-}
-`;
+  // When the user types a search, auto-expand all dirs in the filtered view.
+  const filteredTree = useMemo(() => {
+    if (!treeQ.data?.tree) return [];
+    return filterTree(treeQ.data.tree, query.trim());
+  }, [treeQ.data, query]);
 
-const SQL_CODE = String.raw`-- lib/db/migrations/004_cms.sql
---
--- Full SQL definition for the "announcements" table used by the API and admin
--- shown in the other tabs. Idempotent (safe to re-run).
--- Apply via:  psql "$DATABASE_URL" -f lib/db/migrations/004_cms.sql
+  useEffect(() => {
+    if (!query.trim()) return;
+    const dirs = collectDirPaths(filteredTree);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      dirs.forEach((d) => next.add(d));
+      return next;
+    });
+  }, [query, filteredTree]);
 
-CREATE TABLE IF NOT EXISTS announcements (
-  id            SERIAL PRIMARY KEY,
-  title         VARCHAR(200) NOT NULL,
-  body          TEXT         NOT NULL,
-  kind          VARCHAR(16)  NOT NULL DEFAULT 'info'
-                CHECK (kind IN ('info', 'success', 'warning', 'danger')),
-  is_pinned     BOOLEAN      NOT NULL DEFAULT FALSE,
-  is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
-  cta_label     VARCHAR(60),
-  cta_url       TEXT,
-  published_at  TIMESTAMPTZ  DEFAULT NOW(),
-  expires_at    TIMESTAMPTZ,
-  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
--- Public list query: WHERE is_active AND (expires_at IS NULL OR expires_at > NOW())
--- ORDER BY is_pinned DESC, published_at DESC
-CREATE INDEX IF NOT EXISTS idx_announcements_active_published
-  ON announcements (is_active, is_pinned DESC, published_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_announcements_expires_at
-  ON announcements (expires_at)
-  WHERE expires_at IS NOT NULL;
-
--- Auto-bump updated_at on every row update.
-CREATE OR REPLACE FUNCTION touch_announcements_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at := NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_announcements_updated_at ON announcements;
-CREATE TRIGGER trg_announcements_updated_at
-  BEFORE UPDATE ON announcements
-  FOR EACH ROW
-  EXECUTE FUNCTION touch_announcements_updated_at();
-
--- Optional seed (one row, idempotent on title).
-INSERT INTO announcements (title, body, kind, is_pinned, is_active, cta_label, cta_url)
-VALUES (
-  'Zebvix is live!',
-  'Welcome to Zebvix. Spot, futures, earn — sab kuch ek jagah.',
-  'success',
-  TRUE,
-  TRUE,
-  'Start trading',
-  'https://zebvix.example/trade'
-)
-ON CONFLICT DO NOTHING;
-`;
-
-const SNIPPETS: Snippet[] = [
-  {
-    id: "api",
-    label: "API endpoint",
-    icon: Server,
-    filePath: "artifacts/api-server/src/routes/announcements.ts",
-    language: "typescript",
-    description:
-      "Express + Drizzle router with public read (cached) and admin CRUD (role-gated). Drop-in pattern used across the api-server.",
-    code: API_CODE,
-  },
-  {
-    id: "admin",
-    label: "Admin page",
-    icon: LayoutDashboard,
-    filePath: "artifacts/admin/src/pages/announcements-cms.tsx",
-    language: "tsx",
-    description:
-      "Full admin CMS page (list + create/edit dialog + delete) using tanstack-query and the project's premium UI kit.",
-    code: ADMIN_CODE,
-  },
-  {
-    id: "user",
-    label: "User-portal page",
-    icon: Globe,
-    filePath: "artifacts/user-portal/src/pages/Announcements.tsx",
-    language: "tsx",
-    description:
-      "Public user-portal page rendering the same data via the cached /content/* endpoint. Hinglish copy and dark theme.",
-    code: USER_CODE,
-  },
-  {
-    id: "sql",
-    label: "SQL table",
-    icon: Database,
-    filePath: "lib/db/migrations/004_cms.sql",
-    language: "sql",
-    description:
-      "Idempotent CREATE TABLE for `announcements`, indexes, and an updated_at trigger. Runs cleanly with `psql -f`.",
-    code: SQL_CODE,
-  },
-];
-
-function Snippet({ s }: { s: Snippet }) {
-  const { toast } = useToast();
-  const [copied, setCopied] = useState(false);
+  const toggle = (p: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
 
   const onCopy = async () => {
+    if (!fileQ.data?.content) return;
     try {
-      await navigator.clipboard.writeText(s.code);
+      await navigator.clipboard.writeText(fileQ.data.content);
       setCopied(true);
-      toast({ title: "Copied", description: s.filePath });
+      toast({ title: "Copied", description: fileQ.data.path });
       setTimeout(() => setCopied(false), 1600);
     } catch {
       toast({ title: "Copy failed", variant: "destructive" });
     }
   };
 
-  const lineCount = s.code.split("\n").length;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <FileCode2 className="h-4 w-4 text-primary" />
-            <code className="text-sm font-medium">{s.filePath}</code>
-            <Badge variant="outline" className="ml-1">{s.language}</Badge>
-            <Badge variant="secondary">{lineCount} lines</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">{s.description}</p>
-        </div>
-        <Button size="sm" variant="outline" onClick={onCopy}>
-          {copied ? (
-            <><Check className="h-4 w-4 mr-2" /> Copied</>
-          ) : (
-            <><Copy className="h-4 w-4 mr-2" /> Copy code</>
-          )}
-        </Button>
-      </div>
-
-      <Card className="p-0 overflow-hidden border bg-zinc-950">
-        <pre className="overflow-x-auto p-4 text-[12.5px] leading-relaxed text-zinc-100 font-mono max-h-[640px]">
-          <code>{s.code}</code>
-        </pre>
-      </Card>
-    </div>
-  );
-}
-
-export default function CodeReferencePage() {
-  const [tab, setTab] = useState<Snippet["id"]>("api");
+  const lineCount = fileQ.data?.content ? fileQ.data.content.split("\n").length : 0;
+  const language = selected ? langOf(selected.split("/").pop() ?? "") : "";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Code Reference"
-        subtitle="Copy-paste templates for an API endpoint, admin page, user-portal page, and SQL table."
+        subtitle="Browse the admin panel's full source tree, just like in your editor."
         icon={Code2}
         actions={
           <Badge variant="outline" className="gap-1">
-            <Sparkles className="h-3.5 w-3.5" /> Templates
+            <Sparkles className="h-3.5 w-3.5" />
+            {treeQ.data?.label ?? "artifacts/admin"}
           </Badge>
         }
       />
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Snippet["id"])}>
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
-          {SNIPPETS.map((s) => {
-            const Icon = s.icon;
-            return (
-              <TabsTrigger key={s.id} value={s.id} className="gap-2">
-                <Icon className="h-4 w-4" />
-                {s.label}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
+      <div className="grid grid-cols-12 gap-4">
+        {/* ---------------- Left: tree ---------------- */}
+        <Card className="col-span-12 md:col-span-4 lg:col-span-3 p-0 overflow-hidden">
+          <div className="p-3 border-b">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find file or folder…"
+                className="pl-7 h-8 text-sm"
+              />
+            </div>
+          </div>
+          <div className="max-h-[72vh] overflow-y-auto py-2">
+            {treeQ.isLoading ? (
+              <div className="flex items-center justify-center py-10 text-muted-foreground text-sm gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading tree…
+              </div>
+            ) : treeQ.isError ? (
+              <div className="px-4 py-6 text-sm text-red-500">
+                Couldn't load source tree.
+              </div>
+            ) : filteredTree.length === 0 ? (
+              <EmptyState
+                title="No matches"
+                description="Try a different search term."
+                icon={FileText}
+              />
+            ) : (
+              filteredTree.map((n) => (
+                <TreeItem
+                  key={n.path}
+                  node={n}
+                  depth={0}
+                  expanded={expanded}
+                  onToggle={toggle}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+              ))
+            )}
+          </div>
+        </Card>
 
-        {SNIPPETS.map((s) => (
-          <TabsContent key={s.id} value={s.id} className="mt-6">
-            <Snippet s={s} />
-          </TabsContent>
-        ))}
-      </Tabs>
+        {/* ---------------- Right: viewer ---------------- */}
+        <Card className="col-span-12 md:col-span-8 lg:col-span-9 p-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b p-3">
+            <div className="min-w-0 flex items-center gap-2">
+              <FileCode2 className="h-4 w-4 text-primary shrink-0" />
+              <code className="text-sm font-medium truncate">
+                {selected
+                  ? `${treeQ.data?.label ?? "artifacts/admin"}/${selected}`
+                  : "Select a file from the tree"}
+              </code>
+              {selected && (
+                <>
+                  <Badge variant="outline">{language}</Badge>
+                  {fileQ.data && (
+                    <>
+                      <Badge variant="secondary">{lineCount} lines</Badge>
+                      <Badge variant="secondary">{fmtBytes(fileQ.data.size)}</Badge>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onCopy}
+              disabled={!fileQ.data?.content}
+            >
+              {copied ? (
+                <><Check className="h-4 w-4 mr-2" /> Copied</>
+              ) : (
+                <><Copy className="h-4 w-4 mr-2" /> Copy code</>
+              )}
+            </Button>
+          </div>
+
+          <div className="bg-zinc-950">
+            {!selected ? (
+              <div className="p-12 text-center text-sm text-muted-foreground">
+                Pick any file on the left to view its full source.
+              </div>
+            ) : fileQ.isLoading ? (
+              <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading file…
+              </div>
+            ) : fileQ.isError ? (
+              <div className="p-6 text-sm text-red-400">
+                Failed to load this file ({(fileQ.error as any)?.message ?? "error"}).
+              </div>
+            ) : (
+              <pre className="overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-100 font-mono max-h-[72vh]">
+                <code>{fileQ.data?.content}</code>
+              </pre>
+            )}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

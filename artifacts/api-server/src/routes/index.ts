@@ -21,6 +21,7 @@ import supportUserRouter from "./support-user";
 import bicryptoRouter from "./bicrypto";
 import contentRouter from "./content";
 import adminContentRouter from "./admin-content";
+import adminSourceRouter from "./admin-source";
 
 const router: IRouter = Router();
 
@@ -55,5 +56,6 @@ router.use(supportUserRouter);
 router.use("/admin", redisAdminRouter);
 router.use(contentRouter);
 router.use(adminContentRouter);
+router.use(adminSourceRouter);
 
 export default router;
