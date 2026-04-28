@@ -32,13 +32,25 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
+// Roles that belong to the admin panel — they MUST NOT be allowed to use
+// the user-portal. If such a session is detected we silently log them out.
+const STAFF_ROLES = new Set(["admin", "superadmin", "support"]);
+const isStaff = (u: { role?: string } | null | undefined) =>
+  !!u?.role && STAFF_ROLES.has(String(u.role).toLowerCase());
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     get("/auth/me")
-      .then((data: any) => {
+      .then(async (data: any) => {
+        if (isStaff(data?.user)) {
+          // Admin/staff session leaked into the user-portal tab. Kill it.
+          try { await post("/auth/logout"); } catch { /* noop */ }
+          setUser(null);
+          return;
+        }
         setUser(data.user);
       })
       .catch(() => {
@@ -51,6 +63,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (data: any) => {
     const res: any = await post("/auth/login", data);
+    if (isStaff(res?.user)) {
+      // Don't keep the staff session alive in the user-portal cookie jar.
+      try { await post("/auth/logout"); } catch { /* noop */ }
+      setUser(null);
+      throw new Error("Admin accounts cannot sign in here. Please use the admin panel.");
+    }
     setUser(res.user);
   };
 
@@ -60,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await post("/auth/logout");
+    try { await post("/auth/logout"); } catch { /* noop */ }
     setUser(null);
   };
 

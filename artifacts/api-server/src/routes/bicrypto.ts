@@ -286,7 +286,16 @@ r.post("/auth/logout", async (req, res) => {
   if (sid) {
     try { await db.delete(sessionsTable).where(eq(sessionsTable.token, sid)); } catch {}
   }
+  // The React user-portal uses /auth/login (auth.ts) which sets a separate
+  // `cx_session` cookie backed by the same `sessions` table. Destroy that
+  // row + clear the cookie too, otherwise the next /auth/me re-authenticates
+  // the user and "logout" appears to do nothing.
+  const cxSid = cookies?.["cx_session"];
+  if (cxSid) {
+    try { await db.delete(sessionsTable).where(eq(sessionsTable.token, cxSid)); } catch {}
+  }
   clearAuthCookies(res);
+  res.clearCookie("cx_session", { path: "/" });
   // Also clear the legacy admin SESSION cookie for compatibility.
   res.clearCookie("session", { path: "/" });
   res.json({ message: "Logged out" });
