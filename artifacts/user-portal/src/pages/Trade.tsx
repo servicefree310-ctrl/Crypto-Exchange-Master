@@ -130,8 +130,10 @@ function AssetIcon({ symbol, size = 9 }: { symbol: string; size?: 6 | 7 | 8 | 9 
 
 // ──────────────────────────────────────────────────────────────────
 // Symbol switcher (popover with live search across tickers)
+// Only shows pairs that are ENABLED on the server (active + tradingEnabled
+// + both coins listed). The set comes from /api/pairs.
 // ──────────────────────────────────────────────────────────────────
-function SymbolSwitcher({ current }: { current: string }) {
+function SymbolSwitcher({ current, enabledPairSet }: { current: string; enabledPairSet: Set<string> }) {
   const tickers = useTickers();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -139,11 +141,13 @@ function SymbolSwitcher({ current }: { current: string }) {
   const { favs } = useFavorites();
 
   const list = useMemo(() => {
-    const all = Object.values(tickers).sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0));
+    const all = Object.values(tickers)
+      .filter((t) => enabledPairSet.size === 0 || enabledPairSet.has(t.symbol))
+      .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0));
     const trimmed = search.trim().toLowerCase();
     if (!trimmed) return all;
     return all.filter((t) => t.symbol.toLowerCase().includes(trimmed));
-  }, [tickers, search]);
+  }, [tickers, search, enabledPairSet]);
 
   const favList = useMemo(() => list.filter((t) => favs.has(t.symbol)), [list, favs]);
   const otherList = useMemo(() => list.filter((t) => !favs.has(t.symbol)), [list, favs]);
@@ -298,12 +302,40 @@ export default function Trade() {
   const quoteVol = ticker?.quoteVolume || 0;
   const flash = useFlashOnChange(lastPx);
 
+  // ─── Active pairs (server-filtered: status=active + tradingEnabled
+  //     + both coins listed). Used to filter the SymbolSwitcher and to
+  //     normalize compact pair labels in the orders table without any
+  //     hardcoded quote-coin list. ────────────────────────────────────
+  const { data: pairsData } = useQuery<any[]>({
+    queryKey: ["pairs", "active"],
+    queryFn: () => get("/pairs"),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const enabledPairSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of pairsData || []) {
+      const b = p?.baseSymbol; const q = p?.quoteSymbol;
+      if (b && q) s.add(`${b}/${q}`);
+    }
+    return s;
+  }, [pairsData]);
+  const enabledQuotes = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of pairsData || []) if (p?.quoteSymbol) s.add(String(p.quoteSymbol));
+    // Sort longest-first so "USDT" matches before "USD" (if both ever exist).
+    return Array.from(s).sort((a, b) => b.length - a.length);
+  }, [pairsData]);
+
   // ─── Wallet + balances ────────────────────────────
+  // 5s polling + window-focus refetch keeps the buy/sell "Available"
+  // strip live without us needing to invalidate from every interaction.
   const { data: walletData } = useQuery<any>({
     queryKey: ["wallet"],
     queryFn: () => get("/finance/wallet"),
     enabled: !!user,
-    refetchInterval: 10000,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
   const wallets: any[] = useMemo(() => {
     if (!walletData) return [];
@@ -324,6 +356,14 @@ export default function Trade() {
   const quoteBal = findWallet(quote);
   const availBuy = availOf(quoteBal);
   const availSell = availOf(baseBal);
+
+  // Refresh wallet, orders and history the instant the user switches pair
+  // so the right "Available" / orderbook depth / open orders show up
+  // without waiting for the next polling tick.
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: ["wallet"] });
+    qc.invalidateQueries({ queryKey: ["orders"] });
+  }, [symbol, qc]);
 
   // ─── Orders ────────────────────────────
   const { data: openOrders } = useQuery<any>({
@@ -475,10 +515,10 @@ export default function Trade() {
         )}
       </div>
       <TabsContent value="open" className="flex-1 m-0 overflow-auto">
-        <OrdersTable rows={orderRows} loading={!user} mode="open" onCancel={(id) => cancelMutation.mutate(id)} cancelingId={cancelMutation.variables as any} />
+        <OrdersTable rows={orderRows} loading={!user} mode="open" onCancel={(id) => cancelMutation.mutate(id)} cancelingId={cancelMutation.variables as any} quotesForLabel={enabledQuotes} />
       </TabsContent>
       <TabsContent value="history" className="flex-1 m-0 overflow-auto">
-        <OrdersTable rows={historyRows} loading={!user} mode="history" />
+        <OrdersTable rows={historyRows} loading={!user} mode="history" quotesForLabel={enabledQuotes} />
       </TabsContent>
     </Tabs>
   );
@@ -496,7 +536,7 @@ export default function Trade() {
           >
             <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
           </button>
-          <SymbolSwitcher current={symbol} />
+          <SymbolSwitcher current={symbol} enabledPairSet={enabledPairSet} />
 
           <div className="h-8 w-px bg-border flex-shrink-0" />
 
@@ -948,12 +988,14 @@ function OrdersTable({
   mode,
   onCancel,
   cancelingId,
+  quotesForLabel = [],
 }: {
   rows: any[];
   loading: boolean;
   mode: "open" | "history";
   onCancel?: (id: string | number) => void;
   cancelingId?: string | number;
+  quotesForLabel?: string[];
 }) {
   if (loading) {
     return (
@@ -994,14 +1036,13 @@ function OrdersTable({
           const status = String(o.status || "OPEN").toUpperCase();
           // Pair label — API returns `symbol` (either "BTC/USDT" or "BTCUSDT").
           // Older payloads may carry `currency`+`pair` instead. Normalize to BASE/QUOTE.
+          // Quote suffix list comes from /api/pairs (no hardcoded coins).
           const pairLabel = (() => {
             const sym = String(o.symbol ?? "").trim();
             if (sym.includes("/")) return sym;
             if (o.currency && o.pair) return `${o.currency}/${o.pair}`;
-            // Try splitting compact form against common quote suffixes.
             if (sym) {
-              const QUOTES = ["USDT", "USDC", "BUSD", "INR", "BTC", "ETH", "ZBX"];
-              for (const q of QUOTES) {
+              for (const q of quotesForLabel) {
                 if (sym.endsWith(q) && sym.length > q.length) {
                   return `${sym.slice(0, -q.length)}/${q}`;
                 }

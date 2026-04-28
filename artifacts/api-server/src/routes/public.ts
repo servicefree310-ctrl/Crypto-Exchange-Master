@@ -36,8 +36,29 @@ router.get("/networks", async (req, res): Promise<void> => {
 });
 
 router.get("/pairs", async (_req, res): Promise<void> => {
-  const rows = await db.select().from(pairsTable).where(eq(pairsTable.status, "active")).orderBy(pairsTable.symbol);
-  res.json(rows);
+  // Only active + trading-enabled pairs whose BOTH coins are listed+active.
+  // We enrich each row with baseSymbol/quoteSymbol so the UI can build a
+  // canonical "BASE/QUOTE" set without a second round-trip to /coins.
+  const [pairs, coins] = await Promise.all([
+    db.select().from(pairsTable).where(and(
+      eq(pairsTable.status, "active"),
+      eq(pairsTable.tradingEnabled, true),
+    )).orderBy(pairsTable.symbol),
+    db.select({ id: coinsTable.id, symbol: coinsTable.symbol, isListed: coinsTable.isListed, status: coinsTable.status })
+      .from(coinsTable),
+  ]);
+  const coinById = new Map(coins.map((c: any) => [c.id, c]));
+  const out = pairs
+    .map((p: any) => {
+      const b = coinById.get(p.baseCoinId);
+      const q = coinById.get(p.quoteCoinId);
+      if (!b || !q) return null;
+      if (!b.isListed || b.status !== "active") return null;
+      if (!q.isListed || q.status !== "active") return null;
+      return { ...p, baseSymbol: b.symbol, quoteSymbol: q.symbol };
+    })
+    .filter(Boolean);
+  res.json(out);
 });
 
 router.get("/legal/:slug", async (req, res): Promise<void> => {
