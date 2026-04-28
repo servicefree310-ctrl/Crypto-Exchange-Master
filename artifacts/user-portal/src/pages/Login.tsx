@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type AuthChallenge } from "@/lib/auth";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
+import { get } from "@/lib/api";
+import { VerifyChallenge } from "@/components/auth/VerifyChallenge";
 import {
   Eye,
   EyeOff,
@@ -33,7 +35,7 @@ function detectIdentifier(v: string): "email" | "phone" | "unknown" {
 }
 
 export default function Login() {
-  const { login, user } = useAuth();
+  const { login, user, setUser } = useAuth();
   const [, setLocation] = useLocation();
 
   // Controlled fields — keeps "Demo Fill" button rock-solid and avoids the
@@ -50,6 +52,9 @@ export default function Login() {
   }>({});
   const [capsLock, setCapsLock] = useState(false);
   const firstRef = useRef<HTMLInputElement | null>(null);
+  // Multi-factor: when admin policy or user prefs require it, the server
+  // returns a challenge instead of a session — we render the verify panel.
+  const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
 
   const idKind = useMemo(() => detectIdentifier(identifier), [identifier]);
 
@@ -82,7 +87,12 @@ export default function Login() {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      await login({ email: identifier.trim(), password });
+      const result = await login({ email: identifier.trim(), password });
+      if (result.kind === "challenge") {
+        // Server requires extra factors (admin policy or per-user prefs).
+        setChallenge(result.challenge);
+        return;
+      }
       toast.success("Welcome back!", {
         description: "You're now signed in to Zebvix.",
       });
@@ -97,6 +107,16 @@ export default function Login() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const onChallengeSuccess = async () => {
+    // Hydrate the auth context with the freshly-issued session, then redirect.
+    try {
+      const me: any = await get("/auth/me");
+      if (me?.user) setUser(me.user);
+    } catch { /* ignore — RequireAuth guard will catch it */ }
+    toast.success("Verified — welcome back!");
+    setLocation("/");
   };
 
   const fillDemo = () => {
@@ -140,6 +160,15 @@ export default function Login() {
           {/* Form column */}
           <div className="flex-1 flex items-center justify-center py-10">
             <div className="w-full max-w-md">
+              {challenge ? (
+                <VerifyChallenge
+                  challenge={challenge}
+                  loginRecipients={{ email: identifier.includes("@") ? identifier.trim() : null, phone: !identifier.includes("@") ? identifier.trim() : null }}
+                  onSuccess={onChallengeSuccess}
+                  onCancel={() => { setChallenge(null); setServerError(null); }}
+                />
+              ) : (
+              <>
               <div className="mb-7">
                 <Badge
                   variant="outline"
@@ -373,6 +402,8 @@ export default function Login() {
                   Create an account
                 </Link>
               </p>
+              </>
+              )}
             </div>
           </div>
 

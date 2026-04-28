@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type AuthChallenge } from "@/lib/auth";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
+import { get } from "@/lib/api";
+import { VerifyChallenge } from "@/components/auth/VerifyChallenge";
 import {
   Eye,
   EyeOff,
@@ -101,8 +103,9 @@ const BAR_COLOR = [
 /* ─── Component ─────────────────────────────────────────────────────── */
 
 export default function Signup() {
-  const { signup, user } = useAuth();
+  const { signup, user, setUser } = useAuth();
   const [, setLocation] = useLocation();
+  const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
 
   const refFromUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -189,7 +192,12 @@ export default function Signup() {
       if (data.referralCode.trim()) {
         payload.referralCode = data.referralCode.trim().toUpperCase();
       }
-      await signup(payload);
+      const result = await signup(payload);
+      if (result.kind === "challenge") {
+        // Admin requires OTP verification at signup before issuing a session.
+        setChallenge(result.challenge);
+        return;
+      }
       toast.success("Welcome to Zebvix!", {
         description:
           "Your account is ready. Complete KYC to unlock INR deposits.",
@@ -245,6 +253,27 @@ export default function Signup() {
 
           <div className="flex-1 flex items-center justify-center py-10">
             <div className="w-full max-w-md">
+              {challenge ? (
+                <VerifyChallenge
+                  challenge={challenge}
+                  loginRecipients={{
+                    email: form.getValues("email")?.trim() || null,
+                    phone: form.getValues("phone")?.trim() || null,
+                  }}
+                  onSuccess={async () => {
+                    try {
+                      const me: any = await get("/auth/me");
+                      if (me?.user) setUser(me.user);
+                    } catch { /* ignore — guard catches it */ }
+                    toast.success("Welcome to Zebvix!", {
+                      description: "Account verified. Complete KYC to unlock INR deposits.",
+                    });
+                    setLocation("/");
+                  }}
+                  onCancel={() => { setChallenge(null); setServerError(null); }}
+                />
+              ) : (
+              <>
               <div className="mb-7">
                 <Badge
                   variant="outline"
@@ -677,6 +706,8 @@ export default function Signup() {
                   Sign in
                 </Link>
               </p>
+              </>
+              )}
             </div>
           </div>
 

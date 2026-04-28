@@ -7,13 +7,14 @@ import {
   TrendingUp, Activity, ExternalLink, Save, X, Award, Gift, AlertCircle, Loader2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { get, put } from "@/lib/api";
+import { get, put, patch } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 
 type ProfileResp = {
@@ -65,7 +66,15 @@ export default function Profile() {
     retry: false,
   });
 
-  const securityQ = useQuery<{ twoFaEnabled: boolean; activeSessions: number }>({
+  const securityQ = useQuery<{
+    twoFaEnabled: boolean;
+    activeSessions: number;
+    loginEmailOtpEnabled?: boolean;
+    loginPhoneOtpEnabled?: boolean;
+    emailVerified?: boolean;
+    phoneVerified?: boolean;
+    hasPhone?: boolean;
+  }>({
     queryKey: ["/security/me"],
     queryFn: () => get("/security/me"),
     retry: false,
@@ -271,6 +280,9 @@ export default function Profile() {
         />
       </div>
 
+      {/* ──────── Login Preferences ──────── */}
+      <LoginPrefsCard sec={securityQ.data} onSaved={() => securityQ.refetch()} />
+
       {/* ──────── Two-col layout: actions + referral ──────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Quick actions */}
@@ -434,5 +446,91 @@ function ActionCard({
         </div>
       </Card>
     </Link>
+  );
+}
+
+function LoginPrefsCard({
+  sec,
+  onSaved,
+}: {
+  sec?: {
+    twoFaEnabled: boolean;
+    loginEmailOtpEnabled?: boolean;
+    loginPhoneOtpEnabled?: boolean;
+    emailVerified?: boolean;
+    phoneVerified?: boolean;
+    hasPhone?: boolean;
+  };
+  onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const m = useMutation({
+    mutationFn: (body: { loginEmailOtpEnabled?: boolean; loginPhoneOtpEnabled?: boolean }) =>
+      patch("/security/login-prefs", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/security/me"] });
+      onSaved();
+      toast({ title: "Login preferences updated" });
+    },
+    onError: (e: any) =>
+      toast({ title: "Couldn't update", description: e?.data?.error || e?.message, variant: "destructive" }),
+  });
+
+  const emailOn = !!sec?.loginEmailOtpEnabled;
+  const phoneOn = !!sec?.loginPhoneOtpEnabled;
+  const phoneAllowed = !!sec?.hasPhone && !!sec?.phoneVerified;
+
+  return (
+    <Card className="p-5 border-border/60" data-testid="card-login-prefs">
+      <div className="flex items-center gap-2 mb-1">
+        <Shield className="h-4 w-4 text-amber-400" />
+        <h3 className="font-semibold">Login preferences</h3>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Add extra checks every time you sign in. The platform may also enforce some of these — those will always run, regardless of your choice here.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="rounded-lg border border-border/60 bg-muted/10 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm">Email OTP at login</span>
+            </div>
+            <Switch
+              checked={emailOn}
+              disabled={m.isPending || !sec?.emailVerified}
+              onCheckedChange={(v) => m.mutate({ loginEmailOtpEnabled: v })}
+              data-testid="switch-login-email-otp"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+            {sec?.emailVerified
+              ? "We'll email you a 6-digit code on every sign-in."
+              : "Verify your email first to enable this."}
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border/60 bg-muted/10 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm">Phone OTP at login</span>
+            </div>
+            <Switch
+              checked={phoneOn}
+              disabled={m.isPending || !phoneAllowed}
+              onCheckedChange={(v) => m.mutate({ loginPhoneOtpEnabled: v })}
+              data-testid="switch-login-phone-otp"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+            {phoneAllowed
+              ? "We'll SMS you a 6-digit code on every sign-in."
+              : "Add and verify a phone number first to enable this."}
+          </p>
+        </div>
+      </div>
+      <div className="text-[11px] text-muted-foreground mt-3">
+        2FA: <span className={sec?.twoFaEnabled ? "text-emerald-400 font-semibold" : ""}>{sec?.twoFaEnabled ? "Enabled" : "Off"}</span> — manage from Settings → Security.
+      </div>
+    </Card>
   );
 }

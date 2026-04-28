@@ -15,6 +15,10 @@ export const usersTable = pgTable("users", {
   referredBy: integer("referred_by"),
   status: text("status").notNull().default("active"),
   twoFaEnabled: boolean("two_fa_enabled").notNull().default(false),
+  // Per-user opt-in for an extra OTP factor at login (in addition to admin
+  // global enforcement). Effective requirement = admin_setting OR user_pref.
+  loginEmailOtpEnabled: boolean("login_email_otp_enabled").notNull().default(false),
+  loginPhoneOtpEnabled: boolean("login_phone_otp_enabled").notNull().default(false),
   uid: text("uid").notNull().unique(),
   avatarUrl: text("avatar_url"),
   emailVerified: boolean("email_verified").notNull().default(false),

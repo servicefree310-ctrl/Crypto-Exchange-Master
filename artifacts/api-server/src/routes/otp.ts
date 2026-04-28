@@ -20,13 +20,24 @@ function hashCode(code: string): string {
 const VALID_CHANNELS = new Set(["sms", "email"]);
 const VALID_PURPOSES = new Set(["signup", "login", "withdraw", "kyc", "2fa", "reset"]);
 
-router.post("/otp/send", async (req, res): Promise<void> => {
-  const { channel, purpose, recipient } = req.body ?? {};
-  if (!VALID_CHANNELS.has(channel)) { res.status(400).json({ error: "channel must be sms|email" }); return; }
-  if (!VALID_PURPOSES.has(purpose)) { res.status(400).json({ error: "invalid purpose" }); return; }
-  if (!recipient || String(recipient).length < 5) { res.status(400).json({ error: "recipient required" }); return; }
+// Core OTP dispatch — exported so other routes (e.g. /auth/challenge/send)
+// can server-drive an OTP without re-running through the HTTP layer. All
+// rate-limit, cooldown, and dev-mode behaviour lives here so calling it
+// from anywhere yields identical semantics.
+export async function dispatchOtp(opts: {
+  channel: "email" | "sms";
+  purpose: string;
+  recipient: string;
+  log?: { warn: (...a: any[]) => void };
+}): Promise<
+  | { ok: true; otpId: number; expiresInSec: number; delivered: boolean; devCode?: string; message: string }
+  | { ok: false; status: number; error: string }
+> {
+  const { channel, purpose, recipient } = opts;
+  if (!VALID_CHANNELS.has(channel)) return { ok: false, status: 400, error: "channel must be sms|email" };
+  if (!VALID_PURPOSES.has(purpose)) return { ok: false, status: 400, error: "invalid purpose" };
+  if (!recipient || String(recipient).length < 5) return { ok: false, status: 400, error: "recipient required" };
 
-  // Cooldown: don't allow re-send for same recipient/purpose within 30s
   const sinceCutoff = new Date(Date.now() - RESEND_COOLDOWN_S * 1000);
   const recent = await db
     .select({ id: otpCodesTable.id, createdAt: otpCodesTable.createdAt })
@@ -36,11 +47,9 @@ router.post("/otp/send", async (req, res): Promise<void> => {
     .limit(1);
   if (recent.length > 0) {
     const ageS = Math.ceil((Date.now() - new Date(recent[0].createdAt).getTime()) / 1000);
-    res.status(429).json({ error: `Wait ${RESEND_COOLDOWN_S - ageS}s before resending` });
-    return;
+    return { ok: false, status: 429, error: `Wait ${RESEND_COOLDOWN_S - ageS}s before resending` };
   }
 
-  // Resolve user (optional)
   let userId: number | null = null;
   if (channel === "email") {
     const [u] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, String(recipient))).limit(1);
@@ -56,7 +65,6 @@ router.post("/otp/send", async (req, res): Promise<void> => {
     userId, channel, purpose, recipient: String(recipient), code: hashCode(code), expiresAt,
   }).returning();
 
-  // Look up active provider for this channel — if none, treat as dev mode
   const [provider] = await db.select().from(otpProvidersTable)
     .where(and(eq(otpProvidersTable.channel, channel), eq(otpProvidersTable.isActive, true)))
     .limit(1);
@@ -64,25 +72,30 @@ router.post("/otp/send", async (req, res): Promise<void> => {
   const isDev = process.env.NODE_ENV !== "production";
   const hasProvider = !!provider;
 
-  // TODO Phase 6: integrate msg91/twilio/sendgrid via provider config; for now we just log
-  if (!hasProvider) {
-    // Log so dev/admin can see it; never expose in prod response unless dev mode.
-    // We log at warn so it stands out — running without an OTP provider is a
-    // dev-only configuration. Code is redacted in prod (info-only fields).
-    req.log.warn(
+  if (!hasProvider && opts.log) {
+    opts.log.warn(
       { channel, recipient, purpose, devCode: isDev ? code : undefined },
       "OTP delivered via stdout — no provider configured",
     );
   }
 
-  res.json({
+  return {
+    ok: true,
     otpId: row.id,
     expiresInSec: OTP_TTL_MIN * 60,
-    delivered: hasProvider ? true : false,
-    // Only expose code when there's no provider AND we're in dev — useful for testing without SMS gateway
+    delivered: hasProvider,
     devCode: !hasProvider && isDev ? code : undefined,
     message: hasProvider ? `Code sent via ${provider.provider}` : "No SMS/Email provider configured — code logged on server",
-  });
+  };
+}
+
+router.post("/otp/send", async (req, res): Promise<void> => {
+  const { channel, purpose, recipient } = req.body ?? {};
+  const r = await dispatchOtp({ channel, purpose, recipient, log: req.log });
+  if (!r.ok) { res.status(r.status).json({ error: r.error }); return; }
+  const { ok, ...payload } = r;
+  void ok;
+  res.json(payload);
 });
 
 router.post("/otp/verify", async (req, res): Promise<void> => {

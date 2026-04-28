@@ -14,6 +14,8 @@ type User = {
   referredBy?: number | null;
   status?: string;
   twoFaEnabled?: boolean;
+  loginEmailOtpEnabled?: boolean;
+  loginPhoneOtpEnabled?: boolean;
   uid?: string;
   avatarUrl?: string | null;
   emailVerified?: boolean;
@@ -22,12 +24,31 @@ type User = {
   createdAt?: string;
 };
 
+// Returned by /auth/login or /auth/register when admin policy / user prefs
+// require additional verification (email OTP, phone OTP, 2FA). The caller
+// must complete the matching /auth/{login|register}/verify endpoint to
+// actually receive a session cookie.
+export type AuthChallenge = {
+  token: string;
+  purpose: "login" | "signup";
+  requires: { email: boolean; phone: boolean; twofa: boolean };
+  maskedEmail: string | null;
+  maskedPhone: string | null;
+  email?: string;     // present for signup so the OTP /send call can use it
+  phone?: string | null;
+};
+
+export type AuthResult =
+  | { kind: "ok"; user: User }
+  | { kind: "challenge"; challenge: AuthChallenge };
+
 type AuthContextType = {
   user: User | null;
   loading: boolean;
-  login: (data: any) => Promise<void>;
-  signup: (data: any) => Promise<void>;
+  login: (data: any) => Promise<AuthResult>;
+  signup: (data: any) => Promise<AuthResult>;
   logout: () => Promise<void>;
+  setUser: (u: User | null) => void;
 };
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -61,8 +82,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
-  const login = async (data: any) => {
+  const login = async (data: any): Promise<AuthResult> => {
     const res: any = await post("/auth/login", data);
+    if (res?.challenge) {
+      return { kind: "challenge", challenge: res.challenge as AuthChallenge };
+    }
     if (isStaff(res?.user)) {
       // Don't keep the staff session alive in the user-portal cookie jar.
       try { await post("/auth/logout"); } catch { /* noop */ }
@@ -70,11 +94,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Admin accounts cannot sign in here. Please use the admin panel.");
     }
     setUser(res.user);
+    return { kind: "ok", user: res.user };
   };
 
-  const signup = async (data: any) => {
+  const signup = async (data: any): Promise<AuthResult> => {
     const res: any = await post("/auth/register", data);
+    if (res?.challenge) {
+      return { kind: "challenge", challenge: res.challenge as AuthChallenge };
+    }
     setUser(res.user);
+    return { kind: "ok", user: res.user };
   };
 
   const logout = async () => {
@@ -83,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

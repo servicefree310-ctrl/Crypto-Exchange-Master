@@ -10,9 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import {
   IndianRupee, Percent, TrendingUp, Users, Crown, Plus, Trash2, RotateCcw, Settings2, Database,
-  Search, Save, Sparkles,
+  Search, Save, Sparkles, ShieldCheck, Mail, Phone,
 } from "lucide-react";
 
 type Setting = { key: string; value: string };
@@ -117,6 +118,7 @@ export default function SettingsPage() {
         <TabsList>
           <TabsTrigger value="rates">Rates & Fees</TabsTrigger>
           <TabsTrigger value="vip">VIP Schedule</TabsTrigger>
+          <TabsTrigger value="auth">Authentication</TabsTrigger>
           <TabsTrigger value="raw">Raw Settings ({stats.total})</TabsTrigger>
         </TabsList>
 
@@ -191,6 +193,10 @@ export default function SettingsPage() {
 
         <TabsContent value="vip" className="mt-4">
           <VipTierEditor data={data} save={save} />
+        </TabsContent>
+
+        <TabsContent value="auth" className="space-y-4 mt-4">
+          <AuthPolicyEditor settingsMap={settingsMap} save={save} />
         </TabsContent>
 
         <TabsContent value="raw" className="space-y-4 mt-4">
@@ -386,6 +392,56 @@ function VipTierEditor({ data, save }: { data: Setting[]; save: any }) {
           <Plus className="w-3.5 h-3.5 mr-1" /> Add Tier
         </Button>
         {dirty && <span className="text-xs text-amber-400 font-semibold flex items-center gap-1"><Sparkles className="w-3 h-3" />Unsaved changes — click "Save Schedule" to apply</span>}
+      </div>
+    </div>
+  );
+}
+
+const AUTH_TOGGLES: { key: string; label: string; desc: string; icon: any }[] = [
+  { key: "auth.signup_email_otp", label: "Email OTP at sign-up", desc: "Force every new user to verify their email with a one-time code before the account is activated.", icon: Mail },
+  { key: "auth.signup_phone_otp", label: "Phone OTP at sign-up", desc: "Force every new user to verify their phone number with an SMS one-time code before activation.", icon: Phone },
+  { key: "auth.login_email_otp",  label: "Email OTP at login", desc: "Require an email OTP on every login, in addition to password. Applies to all users.", icon: Mail },
+  { key: "auth.login_phone_otp",  label: "Phone OTP at login", desc: "Require an SMS OTP on every login, in addition to password. Applies to all users with a verified phone.", icon: Phone },
+];
+
+function AuthPolicyEditor({ settingsMap, save }: { settingsMap: Record<string, string>; save: any }) {
+  const isOn = (k: string) => (settingsMap[k] || "off").toLowerCase() === "on";
+  return (
+    <div className="premium-card rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <ShieldCheck className="w-4 h-4 text-amber-300" />
+        <Label className="text-base font-semibold">Authentication Policy</Label>
+      </div>
+      <div className="text-xs text-muted-foreground mb-4">
+        Platform-wide OTP requirements for sign-up and login. When a toggle is on, users must complete that step on the same page — no skipping. Individual users can also opt-in to extra factors from their Profile, but they cannot turn off anything you mandate here.
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {AUTH_TOGGLES.map((t) => {
+          const Icon = t.icon;
+          const on = isOn(t.key);
+          return (
+            <div key={t.key} className="rounded-lg border border-border/60 bg-muted/10 p-4 hover:border-amber-500/30 transition-colors">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5"><Icon className="w-4 h-4 text-amber-300" /></div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label className="text-sm font-semibold">{t.label}</Label>
+                    <Switch
+                      checked={on}
+                      disabled={save.isPending}
+                      onCheckedChange={(v) => save.mutate({ key: t.key, value: v ? "on" : "off" })}
+                      data-testid={`switch-${t.key}`}
+                    />
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1 leading-snug">{t.desc}</div>
+                  <div className="text-[10px] mt-2 font-mono text-muted-foreground/70">
+                    {t.key} = <span className={on ? "text-emerald-400" : "text-muted-foreground"}>{on ? "on" : "off"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
