@@ -209,6 +209,7 @@ export default function Wallet() {
     items: (WalletItem & { usdPrice?: number; usdValue?: number })[];
     totals?: { usd: number; inr: number; count: number; nonZero: number };
     inrRate?: number;
+    fees?: { today: { usd: number; inr: number }; total: { usd: number; inr: number } };
   }>({
     queryKey: ["wallets"],
     queryFn: () => get("/finance/wallet?perPage=200"),
@@ -216,7 +217,7 @@ export default function Wallet() {
     refetchInterval: 7_000,
     refetchOnWindowFocus: true,
   });
-  const pnlQ = useQuery<{ today: number; yesterday: number; pnl: number; pnlPct?: number; inrRate?: number }>({
+  const pnlQ = useQuery<{ today: number; yesterday: number; pnl: number; pnlPct?: number; inrRate?: number; fees?: { today: { usd: number; inr: number }; total: { usd: number; inr: number } } }>({
     queryKey: ["wallet-pnl"],
     queryFn: () => get("/finance/wallet?pnl=true"),
     enabled: !!user,
@@ -398,6 +399,35 @@ export default function Wallet() {
             <BreakdownChip label="Fiat (INR)" value={mask(fmtInr(sumByCurrency(items, "INR")))} icon={<Building2 className="h-3.5 w-3.5" />} />
             <BreakdownChip label="Assets" value={String(aggregated.filter(a => a.free + a.locked > 0).length)} icon={<WalletIcon className="h-3.5 w-3.5" />} />
           </div>
+
+          {/* Trading-fee summary — server-aggregated across spot + futures,
+             converted to USD/INR with the same live ticker cache. */}
+          {(() => {
+            const fees = walletQ.data?.fees ?? pnlQ.data?.fees;
+            if (!fees) return null;
+            return (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-border bg-muted/30 p-3" data-testid="card-fee-today">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Fees paid today</div>
+                  <div className="mt-1 text-lg font-semibold font-mono">
+                    {mask(fmtUsd(fees.today.usd))}
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    ≈ {mask(fmtInr(fees.today.inr))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/30 p-3" data-testid="card-fee-total">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Fees paid total</div>
+                  <div className="mt-1 text-lg font-semibold font-mono">
+                    {mask(fmtUsd(fees.total.usd))}
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    ≈ {mask(fmtInr(fees.total.inr))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* ─── Asset tabs + search + hide-zero ───────────────────── */}

@@ -9,7 +9,7 @@ import {
   db, usersTable, loginLogsTable, walletsTable, coinsTable, pairsTable, sessionsTable, otpCodesTable,
   networksTable, cryptoWithdrawalsTable, inrWithdrawalsTable, bankAccountsTable,
   cryptoDepositsTable, inrDepositsTable,
-  ordersTable, tradesTable,
+  ordersTable, tradesTable, futuresTradesTable,
 } from "@workspace/db";
 import {
   hashPassword, verifyPassword, generateReferralCode, generateUid,
@@ -652,8 +652,9 @@ r.get("/finance/wallet", bicryptoAuth, async (req: any, res): Promise<void> => {
     } catch { /* redis offline → fall back to today=yesterday, pnl=0 */ }
     const pnl = Math.round((today - yesterday) * 100) / 100;
     const pnlPct = yesterday > 0 ? Math.round((pnl / yesterday) * 10000) / 100 : 0;
+    const fees = await getUserFees(userId);
     res.json({
-      today, yesterday, pnl, pnlPct, inrRate,
+      today, yesterday, pnl, pnlPct, inrRate, fees,
       chart: Array.from({ length: 28 }, (_, i) => ({ t: Date.now() - (27 - i) * 86400000, v: today })),
     });
     return;
@@ -686,16 +687,86 @@ r.get("/finance/wallet", bicryptoAuth, async (req: any, res): Promise<void> => {
 
   const start = (page - 1) * perPage;
   const slice = items.slice(start, start + perPage);
+  const fees = await getUserFees(userId);
   res.json({
     items: slice,
     totals: { usd: totalUsd, inr: totalInr, count: items.length, nonZero: items.filter(i => (i.balance || 0) + (i.inOrder || 0) > 0).length },
     inrRate,
+    fees,
     pagination: { total: items.length, page, perPage, totalPages: Math.ceil(items.length / perPage) },
   });
 });
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+}
+
+// Aggregate the user's spot + futures trading fees and convert into both USD
+// and INR using the same live ticker cache as the wallet valuation. Today's
+// window is "since UTC midnight" so a single-day reset is predictable across
+// time zones — same convention as the daily PnL snapshot above.
+//
+// Spot fee is in the QUOTE coin of the trade's pair. For futures the user can
+// be either the taker or the maker on a given fill, so we sum both columns
+// gated by their respective user_id.
+async function getUserFees(userId: number): Promise<{
+  today: { usd: number; inr: number };
+  total: { usd: number; inr: number };
+}> {
+  const startOfToday = new Date();
+  startOfToday.setUTCHours(0, 0, 0, 0);
+  const inrRate = getInrRate() || 84;
+  const ticks = getCache();
+
+  let totalUsd = 0;
+  let todayUsd = 0;
+
+  try {
+    const spot = await db.execute(sql`
+      SELECT c.symbol AS quote_symbol,
+             COALESCE(SUM(t.fee::numeric), 0)::text AS total,
+             COALESCE(SUM(CASE WHEN t.created_at >= ${startOfToday} THEN t.fee::numeric ELSE 0 END), 0)::text AS today
+      FROM ${tradesTable} t
+      JOIN ${ordersTable} o ON o.id = t.order_id
+      JOIN ${pairsTable} p ON p.id = t.pair_id
+      JOIN ${coinsTable} c ON c.id = p.quote_coin_id
+      WHERE t.user_id = ${userId} AND o.is_bot = 0
+      GROUP BY c.symbol
+    `);
+    for (const r of (spot.rows as any[])) {
+      const sym = String(r.quote_symbol || "").toUpperCase();
+      const px = usdPriceFor(sym, ticks, inrRate);
+      totalUsd += Number(r.total) * px;
+      todayUsd += Number(r.today) * px;
+    }
+  } catch { /* trades empty or schema mismatch — leave fees at 0 */ }
+
+  try {
+    const fut = await db.execute(sql`
+      SELECT c.symbol AS quote_symbol,
+             COALESCE(SUM(CASE WHEN ft.taker_user_id = ${userId} THEN ft.taker_fee::numeric ELSE 0 END), 0)
+           + COALESCE(SUM(CASE WHEN ft.maker_user_id = ${userId} THEN ft.maker_fee::numeric ELSE 0 END), 0)::numeric AS total,
+             COALESCE(SUM(CASE WHEN ft.created_at >= ${startOfToday} AND ft.taker_user_id = ${userId} THEN ft.taker_fee::numeric ELSE 0 END), 0)
+           + COALESCE(SUM(CASE WHEN ft.created_at >= ${startOfToday} AND ft.maker_user_id = ${userId} THEN ft.maker_fee::numeric ELSE 0 END), 0)::numeric AS today
+      FROM ${futuresTradesTable} ft
+      JOIN ${pairsTable} p ON p.id = ft.pair_id
+      JOIN ${coinsTable} c ON c.id = p.quote_coin_id
+      WHERE ft.taker_user_id = ${userId} OR ft.maker_user_id = ${userId}
+      GROUP BY c.symbol
+    `);
+    for (const r of (fut.rows as any[])) {
+      const sym = String(r.quote_symbol || "").toUpperCase();
+      const px = usdPriceFor(sym, ticks, inrRate);
+      totalUsd += Number(r.total) * px;
+      todayUsd += Number(r.today) * px;
+    }
+  } catch { /* futures trades absent — leave fees at 0 */ }
+
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    today: { usd: r2(todayUsd), inr: r2(todayUsd * inrRate) },
+    total: { usd: r2(totalUsd), inr: r2(totalUsd * inrRate) },
+  };
 }
 
 async function sumUsd(userId: number): Promise<number> {
