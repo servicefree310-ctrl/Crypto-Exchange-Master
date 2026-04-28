@@ -39,7 +39,44 @@ router.get("/wallets", requireAuth, async (req, res): Promise<void> => {
     .from(walletsTable)
     .innerJoin(coinsTable, eq(walletsTable.coinId, coinsTable.id))
     .where(eq(walletsTable.userId, userId));
-  res.json(rows);
+
+  // Server-side live valuation so the Portfolio page doesn't depend on the
+  // browser having every WS ticker subscribed (which it usually doesn't).
+  const { getCache, getInrRate } = await import("../lib/price-service");
+  const ticks: any[] = getCache();
+  const inrRate = getInrRate() || 84;
+  const priceFor = (sym: string): number => {
+    const s = (sym || "").toUpperCase();
+    if (s === "USDT" || s === "USDC" || s === "USD" || s === "BUSD" || s === "DAI") return 1;
+    if (s === "INR") return inrRate > 0 ? 1 / inrRate : 0;
+    const t = ticks.find((tk: any) => String(tk.symbol).toUpperCase() === s);
+    return t?.usdt ? Number(t.usdt) : 0;
+  };
+
+  // IMPORTANT: keep the response shape as a flat array — existing consumers
+  // like Earn.tsx do `walletQ.data.find(...)` and would break on an object.
+  // We just enrich each row with the new live valuation fields.
+  const enriched = rows.map((w) => {
+    const bal = Number(w.balance) + Number(w.locked);
+    const usdPrice = priceFor(w.coinSymbol);
+    const usdValue = bal * usdPrice;
+    return {
+      ...w,
+      // Keep `balance` and `locked` as the original strings so Earn.tsx's
+      // `Number(spot?.balance)` math is unchanged. New numeric helpers below.
+      balanceNum: Number(w.balance),
+      lockedNum: Number(w.locked),
+      // Convenience aliases (Wallet.tsx-style).
+      currency: w.coinSymbol,
+      inOrder: Number(w.locked),
+      type: w.walletType.toUpperCase(),
+      usdPrice,
+      usdValue: Math.round(usdValue * 1e6) / 1e6,
+      inrValue: Math.round(usdValue * inrRate * 100) / 100,
+    };
+  });
+
+  res.json(enriched);
 });
 
 // ─── Banks (with single-verified-bank rule) ───────────────────────────────────

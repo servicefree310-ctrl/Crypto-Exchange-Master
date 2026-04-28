@@ -16,8 +16,9 @@ import {
   readSessionCookie, getUserBySession,
 } from "../lib/auth";
 import { signJwt, verifyJwt, newCsrfToken, newSessionId, powHash } from "../lib/jwt";
-import { getCache } from "../lib/price-service";
+import { getCache, getInrRate } from "../lib/price-service";
 import { getHistory as getPriceHistory } from "../lib/price-history";
+import { rGet, rSet } from "../lib/redis";
 import { randomBytes, createHash } from "node:crypto";
 import { consumeVerifiedOtp } from "./otp";
 import { placeSpotOrder, cancelSpotOrderById } from "./orders";
@@ -611,16 +612,46 @@ function walletToBicrypto(w: any, coin: any) {
   };
 }
 
+// Per-symbol USD price using the live price-service cache.
+// Stable currencies map to 1; INR uses live inr_usdt_rate; everything else
+// reads from the same tick cache the WS broadcasts.
+function usdPriceFor(symbol: string, ticks: any[], inrRate: number): number {
+  const s = (symbol || "").toUpperCase();
+  if (s === "USDT" || s === "USDC" || s === "USD" || s === "BUSD" || s === "DAI") return 1;
+  if (s === "INR") return inrRate > 0 ? 1 / inrRate : 0;
+  const t = ticks.find((tk: any) => String(tk.symbol).toUpperCase() === s);
+  return t?.usdt ? Number(t.usdt) : 0;
+}
+
 r.get("/finance/wallet", bicryptoAuth, async (req: any, res): Promise<void> => {
-  // PnL summary mode
+  const userId = req.bcUser.id;
+  const inrRate = getInrRate() || 84;
+
+  // PnL summary mode — uses a daily Redis snapshot of the user's USD value
+  // (key TTL 8 days) so the 24h change is real, not a hard-coded 0.
   if (req.query.pnl === "true") {
-    const today = await sumUsd(req.bcUser.id);
-    res.json({ today, yesterday: today, pnl: 0, chart: Array.from({ length: 28 }, (_, i) => ({ t: Date.now() - (27 - i) * 86400000, v: today })) });
+    const today = await sumUsd(userId);
+    const yKey = `pnl:snap:${userId}:${ymd(new Date(Date.now() - 86400000))}`;
+    const tKey = `pnl:snap:${userId}:${ymd(new Date())}`;
+    let yesterday = today;
+    try {
+      const ySnap = await rGet(yKey);
+      if (ySnap !== null) yesterday = Number(ySnap) || today;
+      // Seed today's snapshot once per UTC day so tomorrow can compare.
+      const tSnap = await rGet(tKey);
+      if (tSnap === null) await rSet(tKey, String(today), 8 * 86400);
+    } catch { /* redis offline → fall back to today=yesterday, pnl=0 */ }
+    const pnl = Math.round((today - yesterday) * 100) / 100;
+    const pnlPct = yesterday > 0 ? Math.round((pnl / yesterday) * 10000) / 100 : 0;
+    res.json({
+      today, yesterday, pnl, pnlPct, inrRate,
+      chart: Array.from({ length: 28 }, (_, i) => ({ t: Date.now() - (27 - i) * 86400000, v: today })),
+    });
     return;
   }
+
   const page = Math.max(1, Number(req.query.page) || 1);
   const perPage = Math.min(200, Math.max(1, Number(req.query.perPage) || 100));
-  const userId = req.bcUser.id;
 
   const wallets = await db.select().from(walletsTable).where(eq(walletsTable.userId, userId));
   const coinIds = Array.from(new Set(wallets.map(w => w.coinId)));
@@ -628,15 +659,35 @@ r.get("/finance/wallet", bicryptoAuth, async (req: any, res): Promise<void> => {
     ? await db.select().from(coinsTable).where(or(...coinIds.map(id => eq(coinsTable.id, id)))!)
     : [];
   const coinById = new Map(coins.map(c => [c.id, c]));
+  const ticks = getCache();
 
-  const items = wallets.map(w => walletToBicrypto(w, coinById.get(w.coinId)));
+  // Enrich each wallet with server-side live valuation so the client doesn't
+  // need to subscribe to every ticker just to render its own balance.
+  const items = wallets.map(w => {
+    const c = coinById.get(w.coinId);
+    const base = walletToBicrypto(w, c);
+    const sym = (c?.symbol || base.currency || "").toUpperCase();
+    const px = usdPriceFor(sym, ticks, inrRate);
+    const usdValue = (Number(base.balance) + Number(base.inOrder)) * px;
+    return { ...base, usdPrice: px, usdValue: Math.round(usdValue * 1e6) / 1e6 };
+  });
+
+  const totalUsd = Math.round(items.reduce((acc, it) => acc + (it.usdValue || 0), 0) * 100) / 100;
+  const totalInr = Math.round(totalUsd * inrRate * 100) / 100;
+
   const start = (page - 1) * perPage;
   const slice = items.slice(start, start + perPage);
   res.json({
     items: slice,
+    totals: { usd: totalUsd, inr: totalInr, count: items.length, nonZero: items.filter(i => (i.balance || 0) + (i.inOrder || 0) > 0).length },
+    inrRate,
     pagination: { total: items.length, page, perPage, totalPages: Math.ceil(items.length / perPage) },
   });
 });
+
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+}
 
 async function sumUsd(userId: number): Promise<number> {
   const wallets = await db.select().from(walletsTable).where(eq(walletsTable.userId, userId));
@@ -644,15 +695,13 @@ async function sumUsd(userId: number): Promise<number> {
   const coinIds = Array.from(new Set(wallets.map(w => w.coinId)));
   const coins = await db.select().from(coinsTable).where(or(...coinIds.map(id => eq(coinsTable.id, id)))!);
   const ticks = getCache();
+  const inrRate = getInrRate() || 84;
   let total = 0;
   for (const w of wallets) {
     const c = coins.find(x => x.id === w.coinId);
     if (!c) continue;
     const bal = Number(w.balance) + Number(w.locked);
-    if (c.symbol === "USDT" || c.symbol === "USD") { total += bal; continue; }
-    if (c.symbol === "INR") { total += bal / 83; continue; }
-    const t = ticks.find((tk: any) => tk.symbol === c.symbol);
-    if (t?.usdt) total += bal * Number(t.usdt);
+    total += bal * usdPriceFor(c.symbol, ticks, inrRate);
   }
   return Math.round(total * 100) / 100;
 }

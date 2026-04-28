@@ -88,7 +88,7 @@ function fmtUsd(n: number): string {
 }
 function fmtInr(n: number): string {
   if (!isFinite(n) || n === 0) return "₹0.00";
-  return "₹" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function shortHash(s?: string | null): string {
   if (!s) return "—";
@@ -203,22 +203,45 @@ export default function Wallet() {
   const [transferOpen, setTransferOpen] = useState<{ currency?: string } | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────
-  const walletQ = useQuery<{ items: WalletItem[] }>({
+  // Server now returns per-item `usdValue` + aggregated totals + live inrRate,
+  // so balances stay accurate even when no WS ticker is subscribed.
+  const walletQ = useQuery<{
+    items: (WalletItem & { usdPrice?: number; usdValue?: number })[];
+    totals?: { usd: number; inr: number; count: number; nonZero: number };
+    inrRate?: number;
+  }>({
     queryKey: ["wallets"],
     queryFn: () => get("/finance/wallet?perPage=200"),
     enabled: !!user,
-    refetchInterval: 15_000,
+    refetchInterval: 7_000,
+    refetchOnWindowFocus: true,
   });
-  const pnlQ = useQuery<{ today: number; yesterday: number; pnl: number }>({
+  const pnlQ = useQuery<{ today: number; yesterday: number; pnl: number; pnlPct?: number; inrRate?: number }>({
     queryKey: ["wallet-pnl"],
     queryFn: () => get("/finance/wallet?pnl=true"),
     enabled: !!user,
     refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 
-  const usdOf = useUsdPriceLookup();
+  const usdOfLive = useUsdPriceLookup();
+  const serverInrRate = walletQ.data?.inrRate ?? pnlQ.data?.inrRate ?? 83;
 
   const items: WalletItem[] = walletQ.data?.items ?? [];
+
+  // Prefer the server-computed price per coin (always populated even when no
+  // WS subscription is active); fall back to the live ticker hook for any
+  // coin the server didn't have in its cache yet.
+  const priceFromServer = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items) {
+      const sym = it.currency?.toUpperCase();
+      const px = (it as any).usdPrice;
+      if (sym && Number.isFinite(px) && px > 0) map.set(sym, Number(px));
+    }
+    return map;
+  }, [items]);
+  const usdOf = (sym: string): number => priceFromServer.get(sym.toUpperCase()) ?? usdOfLive(sym);
 
   // Aggregate by currency for the "All" overview (sum of all wallet types)
   const aggregated = useMemo(() => {
@@ -234,12 +257,15 @@ export default function Wallet() {
     return [...map.values()];
   }, [items]);
 
+  // Prefer the server's authoritative aggregate; fall back to client-side
+  // sum if the server didn't supply one (older API or partial response).
   const totalUsd = useMemo(() => {
+    if (typeof walletQ.data?.totals?.usd === "number") return walletQ.data.totals.usd;
     let t = 0;
     for (const a of aggregated) t += (a.free + a.locked) * usdOf(a.currency);
     return Math.round(t * 100) / 100;
-  }, [aggregated, usdOf]);
-  const totalInr = totalUsd * 83;
+  }, [walletQ.data, aggregated]);
+  const totalInr = walletQ.data?.totals?.inr ?? totalUsd * serverInrRate;
 
   // Build display rows
   const displayRows = useMemo(() => {
