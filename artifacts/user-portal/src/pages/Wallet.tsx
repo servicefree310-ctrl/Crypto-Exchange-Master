@@ -909,23 +909,30 @@ function DepositDialog({
   const [network, setNetwork] = useState("TRC20");
   const [copied, setCopied] = useState(false);
 
-  // Distinct currencies the user already has, plus a sane default list
-  const currencies = useMemo(() => {
-    const set = new Set<string>();
-    for (const w of allItems) {
-      if (type === "FIAT" ? w.type === "FIAT" : w.type !== "FIAT") set.add(w.currency.toUpperCase());
-    }
-    if (type === "FIAT") { set.add("INR"); }
-    else { ["USDT", "BTC", "ETH", "BNB", "SOL"].forEach(c => set.add(c)); }
-    return [...set].sort();
-  }, [allItems, type]);
+  // Source of truth for enabled coins: server already filters by isListed.
+  // We additionally filter to only those with >=1 deposit-enabled active network
+  // by asking /finance/currency/spot?action=deposit which trims accordingly.
+  const enabledQ = useQuery<{ currency: string; name?: string; networks: string[] }[]>({
+    queryKey: ["enabled-coins", type === "FIAT" ? "fiat" : "spot", "deposit"],
+    queryFn: () => get(`/finance/currency/${type === "FIAT" ? "fiat" : "spot"}?action=deposit`),
+    enabled: open,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => { if (!currencies.includes(currency)) setCurrency(currencies[0] || "USDT"); }, [currencies, currency]);
+  const currencies = useMemo(() => {
+    const enabled = (enabledQ.data ?? []).map(c => c.currency.toUpperCase());
+    if (type === "FIAT") return enabled.includes("INR") ? ["INR"] : enabled;
+    return enabled.filter(c => c !== "INR").sort();
+  }, [enabledQ.data, type]);
+
+  useEffect(() => {
+    if (currencies.length > 0 && !currencies.includes(currency)) setCurrency(currencies[0]);
+  }, [currencies, currency]);
 
   const detailsQ = useQuery<{ networks?: { chain: string; address: string; minWithdraw?: number; fee?: number }[] }>({
     queryKey: ["deposit-details", type, currency],
-    queryFn: () => get(`/finance/currency/${type === "FIAT" ? "fiat" : "spot"}/${currency}`),
-    enabled: open && type !== "FIAT",
+    queryFn: () => get(`/finance/currency/${type === "FIAT" ? "fiat" : "spot"}/${currency}?action=deposit`),
+    enabled: open && type !== "FIAT" && !!currency,
     retry: 1,
     // Pin the deposit address for the lifetime of the dialog session so the
     // displayed address doesn't churn on window-focus/stale refetches.
@@ -1075,24 +1082,33 @@ function WithdrawDialog({
   const [bankId, setBankId] = useState<string>("");
   const [showAddBank, setShowAddBank] = useState(false);
 
-  // Crypto currencies present in user's SPOT wallet
+  // Source of truth for withdraw-enabled coins (server filters isListed +
+  // active networks with withdrawEnabled). Falls back gracefully if request fails.
+  const enabledQ = useQuery<{ currency: string; networks: string[] }[]>({
+    queryKey: ["enabled-coins", "spot", "withdraw"],
+    queryFn: () => get(`/finance/currency/spot?action=withdraw`),
+    enabled: open && mode === "CRYPTO",
+    staleTime: 60_000,
+  });
+
   const cryptoCurrencies = useMemo(() => {
-    const set = new Set<string>();
-    for (const w of allItems) {
-      if (w.type === "SPOT" && w.currency.toUpperCase() !== "INR") set.add(w.currency.toUpperCase());
-    }
-    if (set.size === 0) ["USDT", "BTC", "ETH"].forEach(c => set.add(c));
-    return [...set].sort();
-  }, [allItems]);
+    const enabled = (enabledQ.data ?? [])
+      .map(c => c.currency.toUpperCase())
+      .filter(c => c !== "INR");
+    return enabled.sort();
+  }, [enabledQ.data]);
 
   useEffect(() => {
-    if (mode === "CRYPTO" && !cryptoCurrencies.includes(currency)) setCurrency(cryptoCurrencies[0] || "USDT");
+    if (mode !== "CRYPTO") return;
+    if (cryptoCurrencies.length > 0 && !cryptoCurrencies.includes(currency)) {
+      setCurrency(cryptoCurrencies[0]);
+    }
   }, [cryptoCurrencies, currency, mode]);
 
   const detailsQ = useQuery<{ networks?: { chain: string; fee: number; minWithdraw: number }[] }>({
     queryKey: ["withdraw-details", currency],
-    queryFn: () => get(`/finance/currency/spot/${currency}`),
-    enabled: open && mode === "CRYPTO",
+    queryFn: () => get(`/finance/currency/spot/${currency}?action=withdraw`),
+    enabled: open && mode === "CRYPTO" && !!currency,
     retry: 1,
   });
   const networks = detailsQ.data?.networks ?? [];

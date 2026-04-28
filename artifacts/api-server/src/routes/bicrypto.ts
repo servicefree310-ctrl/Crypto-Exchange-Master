@@ -886,38 +886,128 @@ r.get("/finance/transaction/stats", bicryptoAuth, (_req, res) => res.json({
 r.get("/finance/transaction/:id", bicryptoAuth, (req, res) =>
   res.status(404).json({ message: `Transaction ${req.params.id} not found` }));
 
-// Currency listings
+// ─── Currency listings (only enabled coins / networks) ──────────────────
+// Stable, per-user deterministic deposit address (matches public.ts logic
+// for placeholder/non-EVM chains). Used only for the listing endpoint —
+// /api/deposit-address is the canonical mint-an-EVM-address route.
+function detAddr(userId: number | null, chain: string): { address: string; memo: string | null } {
+  const seed = createHash("sha256").update(`cx:${userId ?? 0}:${chain}`).digest("hex");
+  const c = chain.toLowerCase();
+  if (c.includes("btc") || c === "bitcoin") return { address: "bc1q" + seed.slice(0, 38), memo: null };
+  if (c.includes("trc")) return { address: "T" + Buffer.from(seed.slice(0, 30), "hex").toString("base64").replace(/[+/=]/g, "").slice(0, 33), memo: null };
+  if (c.includes("sol")) return { address: Buffer.from(seed.slice(0, 32), "hex").toString("base64").replace(/[+/=]/g, "").slice(0, 44), memo: null };
+  if (c.includes("xrp") || c.includes("ripple")) return { address: "r" + seed.slice(0, 33), memo: String(parseInt(seed.slice(0, 8), 16)) };
+  return { address: "0x" + seed.slice(0, 40), memo: null };
+}
+
+// Coin is enabled when listed AND status='active'
+function isCoinEnabled(c: { isListed: boolean; status: string }): boolean {
+  return c.isListed === true && c.status === "active";
+}
+
 r.get("/finance/currency", async (req, res): Promise<void> => {
   const action = String(req.query.action || "deposit");
   const walletType = walletTypeIn(String(req.query.walletType || "SPOT"));
   const coins = await db.select().from(coinsTable);
   const items = coins
+    .filter(isCoinEnabled)
     .filter(c => walletType === "inr" ? c.symbol === "INR" : c.symbol !== "INR")
     .map(c => ({
       id: String(c.id), currency: c.symbol, name: c.name, icon: c.logoUrl,
-      precision: c.decimals ?? 8, status: c.status === "active",
+      precision: c.decimals ?? 8, status: true,
       action,
     }));
   res.json(items);
 });
+
 r.get("/finance/currency/:type", async (req, res): Promise<void> => {
   const walletType = walletTypeIn(req.params.type);
+  const action = String(req.query.action || "deposit").toLowerCase();
   const coins = await db.select().from(coinsTable);
-  const items = coins
-    .filter(c => walletType === "inr" ? c.symbol === "INR" : c.symbol !== "INR")
-    .map(c => ({ currency: c.symbol, name: c.name, icon: c.logoUrl, networks: ["TRC20", "ERC20", "BEP20"], status: true }));
+  const eligible = coins
+    .filter(isCoinEnabled)
+    .filter(c => walletType === "inr" ? c.symbol === "INR" : c.symbol !== "INR");
+
+  // Pull all networks once and group by coinId for efficiency
+  const allNets = await db.select().from(networksTable).where(eq(networksTable.status, "active"));
+  const byCoin = new Map<number, typeof allNets>();
+  for (const n of allNets) {
+    if (action === "withdraw" && !n.withdrawEnabled) continue;
+    if (action !== "withdraw" && !n.depositEnabled) continue;
+    const arr = byCoin.get(n.coinId) ?? [];
+    arr.push(n);
+    byCoin.set(n.coinId, arr);
+  }
+
+  const items = eligible
+    .map(c => {
+      const nets = byCoin.get(c.id) ?? [];
+      // For non-INR crypto, hide a coin if it has zero usable networks
+      if (c.symbol !== "INR" && nets.length === 0) return null;
+      return {
+        currency: c.symbol, name: c.name, icon: c.logoUrl,
+        networks: nets.map(n => n.chain),
+        status: true,
+      };
+    })
+    .filter(Boolean);
   res.json(items);
 });
-r.get("/finance/currency/:type/:currency", async (req, res): Promise<void> => {
+
+r.get("/finance/currency/:type/:currency", async (req: any, res): Promise<void> => {
   const sym = String(req.params.currency).toUpperCase();
+  const action = String(req.query.action || "deposit").toLowerCase();
   const [c] = await db.select().from(coinsTable).where(eq(coinsTable.symbol, sym)).limit(1);
-  if (!c) { res.status(404).json({ message: "Not found" }); return; }
+  if (!c || !isCoinEnabled(c)) { res.status(404).json({ message: "Not found" }); return; }
+
+  // INR has no on-chain networks
+  if (sym === "INR") {
+    res.json({ currency: c.symbol, name: c.name, icon: c.logoUrl, networks: [], status: true });
+    return;
+  }
+
+  // Try to identify the user (best-effort) so we can return a stable per-user address
+  let userId: number | null = null;
+  try {
+    const bearer = readBearer(req);
+    if (bearer) {
+      const claims = verifyJwt(bearer);
+      const idStr = claims?.sub?.id;
+      if (idStr != null && Number.isFinite(Number(idStr))) userId = Number(idStr);
+    }
+    if (userId == null) {
+      const sid = req.cookies?.[SESSION_COOKIE];
+      if (sid) {
+        const u = await getUserBySession(sid);
+        if (u) userId = u.id;
+      }
+    }
+  } catch { /* anonymous fallback */ }
+
+  const nets = await db.select().from(networksTable).where(
+    and(eq(networksTable.coinId, c.id), eq(networksTable.status, "active")),
+  );
+  const filtered = nets.filter(n =>
+    action === "withdraw" ? n.withdrawEnabled : n.depositEnabled,
+  );
+
   res.json({
     currency: c.symbol, name: c.name, icon: c.logoUrl,
-    networks: [
-      { chain: "TRC20", fee: 1, minWithdraw: 10, address: "T" + randomBytes(16).toString("hex") },
-      { chain: "ERC20", fee: 5, minWithdraw: 30, address: "0x" + randomBytes(20).toString("hex") },
-    ],
+    networks: filtered.map(n => {
+      const a = detAddr(userId, n.chain);
+      return {
+        id: n.id,
+        chain: n.chain,
+        name: n.name,
+        fee: Number(n.withdrawFee),
+        minWithdraw: Number(n.minWithdraw),
+        minDeposit: Number(n.minDeposit),
+        confirmations: n.confirmations,
+        memoRequired: n.memoRequired,
+        address: a.address,
+        memo: a.memo,
+      };
+    }),
     status: true,
   });
 });
