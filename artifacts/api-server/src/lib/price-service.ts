@@ -22,6 +22,10 @@ function jitterTick(t: Tick): Tick {
   return { ...t, usdt, inr: usdt * inrRate };
 }
 export function getCache(): Tick[] { return Array.from(cache.values()).map(jitterTick); }
+// Raw (non-jittered) tick lookup — for internal services that need the real
+// authoritative external price (e.g. market-maker bot pricing). UI and WS
+// boundaries should keep using `getCache()` so the price-flash animation works.
+export function getRawTick(symbol: string): Tick | undefined { return cache.get(symbol); }
 export function getInrRate(): number { return inrRate; }
 export function subscribe(fn: (ticks: Tick[]) => void): () => void {
   subscribers.add(fn);

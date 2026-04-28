@@ -1,7 +1,7 @@
 import { db, marketBotsTable, ordersTable, pairsTable, coinsTable, tradesTable, usersTable } from "@workspace/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { getCache } from "./price-service";
+import { getRawTick } from "./price-service";
 import { rZadd, rZrem, rSet, rDel, rLpush, rPublish } from "./redis";
 import { tryMatch } from "./matching-engine";
 
@@ -46,16 +46,23 @@ async function getBotUserId(): Promise<number | null> {
   return botUserId;
 }
 
-function midPriceForPair(pair: any, coinsBySymbol: Map<string, any>): number {
-  const base = coinsBySymbol.get(pair._baseSymbol);
-  const quote = coinsBySymbol.get(pair._quoteSymbol);
-  if (!base || !quote) return Number(pair.lastPrice ?? 0);
-  const c = getCache();
-  const bTick = c.find(t => t.symbol === pair._baseSymbol);
-  const qTick = c.find(t => t.symbol === pair._quoteSymbol);
-  const bUsdt = bTick?.usdt ?? Number(base.currentPrice ?? 0);
-  const qUsdt = qTick?.usdt ?? Number(quote.currentPrice ?? 1);
-  if (bUsdt <= 0 || qUsdt <= 0) return Number(pair.lastPrice ?? 0);
+// Bot pricing MUST come from the external feed (CoinGecko/Binance via
+// price-service), never from `pair.lastPrice` — `pair.lastPrice` is written
+// by the matching engine on every fill and can drift far from the true
+// market when local trades happen at off-feed prices. Using it as the bot's
+// reference would feed the bot's own (potentially stale) state back into its
+// own quote pricing, defeating the whole point of an external price source.
+//
+// We also read the RAW (non-jittered) cache: jitter is a UI-only ±0.03%
+// random walk added at the WS broadcast boundary so the price-flash
+// animation fires. Letting jitter into bot pricing would randomly push
+// borderline quotes onto the wrong side of the true external mid.
+function midPriceForPair(pair: any): number {
+  const bTick = getRawTick(pair._baseSymbol);
+  const qTick = getRawTick(pair._quoteSymbol);
+  const bUsdt = Number(bTick?.usdt ?? 0);
+  const qUsdt = Number(qTick?.usdt ?? 0);
+  if (bUsdt <= 0 || qUsdt <= 0) return 0; // no external price → bot will skip this tick
   return bUsdt / qUsdt;
 }
 
@@ -73,10 +80,9 @@ async function runBotForPair(bot: any, uid: number) {
   if (!baseCoin || !quoteCoin) return;
 
   const enriched = { ...pair, _baseSymbol: baseCoin.symbol, _quoteSymbol: quoteCoin.symbol };
-  const coinsBySymbol = new Map([[baseCoin.symbol, baseCoin], [quoteCoin.symbol, quoteCoin]]);
-  const mid = midPriceForPair(enriched, coinsBySymbol);
+  const mid = midPriceForPair(enriched);
   if (!(mid > 0)) {
-    await db.update(marketBotsTable).set({ status: "no_price", lastError: "mid price unavailable", lastRunAt: new Date() }).where(eq(marketBotsTable.id, bot.id));
+    await db.update(marketBotsTable).set({ status: "no_price", lastError: "external price unavailable", lastRunAt: new Date() }).where(eq(marketBotsTable.id, bot.id));
     return;
   }
 
@@ -99,6 +105,43 @@ async function runBotForPair(bot: any, uid: number) {
         logger.warn({ err: e?.message, orderId: s.id }, "bot: failed to remove stale from redis");
       }
     }
+  }
+
+  // 1b) Cancel WRONG-SIDE bot orders relative to the current external mid.
+  //
+  // Bot quotes are placed around `mid` at tick T1, but external price moves
+  // between ticks. By tick T2 a previously-correct quote can end up on the
+  // wrong side of the new mid — e.g. a bot BUY at 100 placed when mid was
+  // 99.5, but mid is now 99.0 → that BUY is sitting ABOVE the external
+  // price, violating the "buy < external < sell" invariant the user wants.
+  // Worse, if not cancelled, a new bot SELL placed below it would cross
+  // and bot would trade with itself at a phantom price.
+  //
+  // We cancel ANY bot quote that is now on the wrong side of mid; step 3
+  // will repopulate the level around the new mid in this same tick.
+  const liveBot = await db.select().from(ordersTable).where(and(
+    eq(ordersTable.botId, bot.id),
+    eq(ordersTable.status, "open"),
+  ));
+  const wrongSide = liveBot.filter(o => {
+    const px = Number(o.price);
+    if (o.side === "buy")  return px >= mid; // buy must sit strictly BELOW mid
+    if (o.side === "sell") return px <= mid; // sell must sit strictly ABOVE mid
+    return false;
+  });
+  if (wrongSide.length) {
+    const ids = wrongSide.map(o => o.id);
+    await db.update(ordersTable).set({ status: "cancelled", updatedAt: new Date() }).where(and(
+      eq(ordersTable.botId, bot.id),
+      eq(ordersTable.status, "open"),
+      inArray(ordersTable.id, ids),
+    ));
+    for (const o of wrongSide) {
+      try { await bookRemove(pair.symbol, o as any, "cancel"); } catch (e: any) {
+        logger.warn({ err: e?.message, orderId: o.id }, "bot: failed to remove wrong-side from redis");
+      }
+    }
+    logger.info({ botId: bot.id, symbol: pair.symbol, count: wrongSide.length, mid }, "bot: cancelled wrong-side quotes");
   }
 
   // 2) Re-match any open user orders that may now cross the live book.
