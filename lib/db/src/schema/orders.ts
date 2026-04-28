@@ -34,6 +34,9 @@ export const tradesTable = pgTable("trades", {
   price: numeric("price", { precision: 28, scale: 8 }).notNull(),
   qty: numeric("qty", { precision: 28, scale: 8 }).notNull(),
   fee: numeric("fee", { precision: 28, scale: 8 }).notNull().default("0"),
+  // 1 % TDS (or whatever rate the admin sets in `tds.percent`) deducted on
+  // the seller's quote proceeds for this fill. Always 0 on the buy-side row.
+  tds: numeric("tds", { precision: 28, scale: 8 }).notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

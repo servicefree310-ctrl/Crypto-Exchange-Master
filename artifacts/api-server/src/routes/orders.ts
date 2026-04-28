@@ -180,7 +180,9 @@ router.get("/orders/:id/fills", requireAuth, async (req, res): Promise<void> => 
       filledQty: Number(order.filledQty || 0),
       avgPrice: Number(order.avgPrice || 0),
       fee: Number(order.fee || 0),
+      tds: Number(order.tds || 0),
       feeCurrency: quoteSym,
+      tdsCurrency: quoteSym,
       createdAt: order.createdAt,
     },
     fills: fills.map(f => ({
@@ -190,7 +192,9 @@ router.get("/orders/:id/fills", requireAuth, async (req, res): Promise<void> => 
       price: Number(f.price),
       qty: Number(f.qty),
       fee: Number(f.fee || 0),
+      tds: Number(f.tds || 0),
       feeCurrency: quoteSym,
+      tdsCurrency: quoteSym,
       createdAt: f.createdAt,
     })),
     summary: {

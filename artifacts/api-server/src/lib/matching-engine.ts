@@ -238,14 +238,17 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           }
         }
 
-        // Insert trades (one row per side for accounting clarity? Use single row with taker side)
+        // Insert trades (one row per side for accounting clarity? Use single row with taker side).
+        // TDS only applies on the SELL side — the buy-side row stays at 0.
         const [trade] = await tx.insert(tradesTable).values({
           orderId: taker.id, userId: taker.userId, pairId: pair.id,
-          side: taker.side, price: String(tradePrice), qty: String(fillQty), fee: String(takerFee),
+          side: taker.side, price: String(tradePrice), qty: String(fillQty),
+          fee: String(takerFee), tds: String(takerTds),
         }).returning();
         await tx.insert(tradesTable).values({
           orderId: maker.id, userId: maker.userId, pairId: pair.id,
-          side: maker.side, price: String(tradePrice), qty: String(fillQty), fee: String(makerFee),
+          side: maker.side, price: String(tradePrice), qty: String(fillQty),
+          fee: String(makerFee), tds: String(makerTds),
         });
 
         // Update orders. avgPrice is the volume-weighted average across
@@ -272,6 +275,7 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           filledQty: String(newTakerFilled),
           avgPrice: String(newTakerAvg.toFixed(8)),
           fee: sql`${ordersTable.fee} + ${takerFee}`,
+          tds: sql`${ordersTable.tds} + ${takerTds}`,
           status: takerFinished ? "filled" : "partial",
           updatedAt: new Date(),
         }).where(eq(ordersTable.id, taker.id));
@@ -279,6 +283,7 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           filledQty: String(newMakerFilled),
           avgPrice: String(newMakerAvg.toFixed(8)),
           fee: sql`${ordersTable.fee} + ${makerFee}`,
+          tds: sql`${ordersTable.tds} + ${makerTds}`,
           status: makerFinished ? "filled" : "partial",
           updatedAt: new Date(),
         }).where(eq(ordersTable.id, maker.id));

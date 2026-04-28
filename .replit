@@ -65,6 +65,10 @@ localPort = 8085
 externalPort = 8008
 
 [[ports]]
+localPort = 8086
+externalPort = 9000
+
+[[ports]]
 localPort = 23004
 externalPort = 8099
 exposeLocalhost = true
