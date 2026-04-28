@@ -718,8 +718,13 @@ r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void>
 
   // Pull recent rows from each source. We cap each side at 200 then merge.
   const [trades, inrDeps, cryptoDeps, inrWdrs, cryptoWdrs, coins, pairs] = await Promise.all([
+    // SECURITY: exclude bot-originated trades from the user's transaction
+    // history. See orders.ts GET /trades for the same NOT EXISTS pattern.
     want("TRADE")
-      ? db.select().from(tradesTable).where(eq(tradesTable.userId, userId)).orderBy(desc(tradesTable.createdAt)).limit(200)
+      ? db.select().from(tradesTable).where(and(
+          eq(tradesTable.userId, userId),
+          sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
+        )).orderBy(desc(tradesTable.createdAt)).limit(200)
       : Promise.resolve([] as any[]),
     want("DEPOSIT")
       ? db.select().from(inrDepositsTable).where(eq(inrDepositsTable.userId, userId)).orderBy(desc(inrDepositsTable.createdAt)).limit(200)
@@ -1430,7 +1435,10 @@ r.get("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
   const currency = String(req.query.currency || "").toUpperCase();
   const pair = String(req.query.pair || "").toUpperCase();
 
-  const conds: any[] = [eq(ordersTable.userId, userId)];
+  // SECURITY: scope to the calling user AND drop bot rows. Without is_bot=0
+  // the admin/whichever-user owns the bot account would see all market-making
+  // orders in their personal "Open Orders" / "Order History" lists.
+  const conds: any[] = [eq(ordersTable.userId, userId), eq(ordersTable.isBot, 0)];
   if (statusRaw === "OPEN") {
     conds.push(or(eq(ordersTable.status, "open"), eq(ordersTable.status, "partial"))!);
   } else if (statusRaw === "CLOSED") {

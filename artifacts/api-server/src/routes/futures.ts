@@ -686,7 +686,10 @@ r.get("/futures/order", bicryptoAuth, async (req: any, res: Response): Promise<v
   const currency = String(req.query.currency || "");
   const pairSym = String(req.query.pair || "");
   const status = req.query.status ? String(req.query.status).toUpperCase() : null;
-  const conds = [eq(futuresOrdersTable.userId, u.id)];
+  // SECURITY: same defence-in-depth as spot — never surface bot rows in a
+  // user's personal futures order list, regardless of which user_id the bot
+  // currently runs under. Bot futures rows remain visible via admin endpoints.
+  const conds = [eq(futuresOrdersTable.userId, u.id), eq(futuresOrdersTable.isBot, 0)];
   let pair: ResolvedPair | null = null;
   if (currency && pairSym) {
     pair = await resolvePair(currency, pairSym);

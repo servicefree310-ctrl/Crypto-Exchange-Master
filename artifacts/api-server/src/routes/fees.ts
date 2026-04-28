@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, sql } from "drizzle-orm";
-import { db, tradesTable, pairsTable, coinsTable, usersTable, settingsTable } from "@workspace/db";
+import { db, ordersTable, tradesTable, pairsTable, coinsTable, usersTable, settingsTable } from "@workspace/db";
 import { requireAuth, optionalAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -104,7 +104,14 @@ router.get("/fees/my", requireAuth, async (req, res): Promise<void> => {
     .from(tradesTable)
     .innerJoin(pairsTable, eq(tradesTable.pairId, pairsTable.id))
     .innerJoin(coinsTable, eq(pairsTable.quoteCoinId, coinsTable.id))
-    .where(and(eq(tradesTable.userId, userId), gte(tradesTable.createdAt, since)))
+    // SECURITY/CORRECTNESS: bot-originated trades must NOT inflate a real user's
+    // 30-day VIP volume — a user that happens to share an id with the bot would
+    // otherwise jump tiers based on synthetic liquidity they never produced.
+    .where(and(
+      eq(tradesTable.userId, userId),
+      gte(tradesTable.createdAt, since),
+      sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
+    ))
     .groupBy(coinsTable.symbol, coinsTable.currentPrice);
 
   let volumeUsdt = 0, totalFeeUsdt = 0;

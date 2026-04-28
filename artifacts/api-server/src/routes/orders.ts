@@ -69,18 +69,35 @@ async function ensureWallet(tx: any, userId: number, coinId: number, walletType:
   return locked;
 }
 
+// SECURITY: User-facing "My Orders" / "My Trades" must NEVER include bot rows.
+// Bot orders are inserted under a real user_id (currently the admin's id) so the
+// userId scope alone is not enough to keep them out of a user's personal view —
+// without an explicit `is_bot = 0` filter, an admin (or any user that shares an
+// id with the bot account) would see all market-making bot orders as if they
+// placed them. Bot rows remain visible only via the admin endpoints in admin.ts.
 router.get("/orders", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
   const status = (req.query.status as string) || "all";
-  const rows = status === "all"
-    ? await db.select().from(ordersTable).where(eq(ordersTable.userId, userId)).orderBy(desc(ordersTable.createdAt)).limit(200)
-    : await db.select().from(ordersTable).where(and(eq(ordersTable.userId, userId), eq(ordersTable.status, status))).orderBy(desc(ordersTable.createdAt)).limit(200);
+  const conds = [eq(ordersTable.userId, userId), eq(ordersTable.isBot, 0)];
+  if (status !== "all") conds.push(eq(ordersTable.status, status));
+  const rows = await db.select().from(ordersTable)
+    .where(and(...conds))
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(200);
   res.json(rows);
 });
 
 router.get("/trades", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
-  const rows = await db.select().from(tradesTable).where(eq(tradesTable.userId, userId)).orderBy(desc(tradesTable.createdAt)).limit(200);
+  // tradesTable has no is_bot column; filter via the parent order. NOT EXISTS
+  // is faster than a subselect IN (...) because it short-circuits per row.
+  const rows = await db.select().from(tradesTable)
+    .where(and(
+      eq(tradesTable.userId, userId),
+      sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
+    ))
+    .orderBy(desc(tradesTable.createdAt))
+    .limit(200);
   res.json(rows);
 });
 
@@ -270,7 +287,14 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
 export async function cancelSpotOrderById(userId: number, id: number): Promise<any> {
   if (!id) { const e: any = new Error("id required"); e.code = 400; throw e; }
   const cancelled = await db.transaction(async (tx) => {
-      const [o] = await tx.select().from(ordersTable).where(and(eq(ordersTable.id, id), eq(ordersTable.userId, userId))).for("update").limit(1);
+      // SECURITY: never let a real-user request mutate a bot order, even when
+      // the bot account currently runs under the same user_id (e.g. admin).
+      // Bot orders must only be cancelled by the bot lifecycle / admin tools.
+      const [o] = await tx.select().from(ordersTable).where(and(
+        eq(ordersTable.id, id),
+        eq(ordersTable.userId, userId),
+        eq(ordersTable.isBot, 0),
+      )).for("update").limit(1);
       if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
       if (o.status !== "open" && o.status !== "partial") { const e: any = new Error(`Cannot cancel — status is ${o.status}`); e.code = 400; throw e; }
       const [pair] = await tx.select().from(pairsTable).where(eq(pairsTable.id, o.pairId)).limit(1);
