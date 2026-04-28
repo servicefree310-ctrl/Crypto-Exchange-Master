@@ -940,6 +940,10 @@ r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void>
 
   const coinById = new Map(coins.map(c => [c.id, c.symbol]));
   const pairById = new Map(pairs.map(p => [p.id, p.symbol]));
+  // Resolve each pair's quote coin so the row can advertise the correct
+  // fee currency. Spot fee is taken from the QUOTE coin (e.g. INR for
+  // BTCINR, USDT for BTCUSDT) — not the base coin the trade qty is in.
+  const pairQuoteById = new Map(pairs.map(p => [p.id, coinById.get(p.quoteCoinId) ?? ""]));
 
   const rows: any[] = [];
 
@@ -947,6 +951,7 @@ r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void>
     const sym = pairById.get(t.pairId) ?? "";
     // Symbol like SOL/INR or SOLINR — base currency is the first chunk.
     const base = sym.includes("/") ? sym.split("/")[0] : sym.replace(/INR$|USDT$/i, "");
+    const quote = pairQuoteById.get(t.pairId) || (sym.includes("/") ? sym.split("/")[1] : sym.replace(base, ""));
     rows.push({
       id: `trade-${t.id}`,
       userId: String(userId),
@@ -955,8 +960,11 @@ r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void>
       status: "COMPLETED",
       amount: Number(t.qty),
       fee: Number(t.fee || 0),
+      // Spot fees settle in the quote coin; surface this so clients can
+      // render "1.72 INR" instead of mistakenly labelling it as base coin.
+      feeCurrency: quote,
       description: `${String(t.side).toUpperCase()} ${sym} @ ${Number(t.price)}`,
-      metadata: { pair: sym, side: t.side, price: Number(t.price), orderId: t.orderId },
+      metadata: { pair: sym, side: t.side, price: Number(t.price), orderId: t.orderId, quote },
       referenceId: t.uid,
       trxId: t.uid,
       createdAt: t.createdAt,
@@ -974,6 +982,8 @@ r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void>
       status: String(d.status || "pending").toUpperCase(),
       amount: Number(d.amount),
       fee: Number(d.fee || 0),
+      // Deposit/withdraw fee is in the same coin as the amount.
+      feeCurrency: currency,
       description: `Deposit ${currency}`,
       metadata: { refId: d.refId ?? d.txHash ?? null },
       referenceId: d.refId ?? d.txHash ?? null,
@@ -996,6 +1006,7 @@ r.get("/finance/transaction", bicryptoAuth, async (req: any, res): Promise<void>
       status: String(w.status || "pending").toUpperCase(),
       amount: Number(w.amount),
       fee: Number(w.fee || 0),
+      feeCurrency: currency,
       description: `Withdraw ${currency}`,
       metadata: { refId: w.refId ?? w.txHash ?? null },
       referenceId: w.refId ?? w.txHash ?? null,

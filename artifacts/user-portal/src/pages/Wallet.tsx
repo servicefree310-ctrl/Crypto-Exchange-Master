@@ -69,6 +69,10 @@ type Tx = {
   status: string;
   amount: number;
   fee: number;
+  // Spot trade fees settle in the QUOTE coin (e.g. INR for BTCINR), not
+  // the base coin shown in `wallet.currency`. Falls back to wallet.currency
+  // for older API responses or non-trade rows where they happen to match.
+  feeCurrency?: string;
   description: string;
   trxId?: string | null;
   referenceId?: string | null;
@@ -987,6 +991,12 @@ function TxDetailsDialog({ tx, onClose }: { tx: Tx | null; onClose: () => void }
 
   const ccy = tx.wallet.currency || "";
   const digits = ccy === "INR" ? 2 : 6;
+  // Spot trade fee settles in the QUOTE coin (INR / USDT etc), not the
+  // base coin shown in `wallet.currency`. Older API rows that don't carry
+  // feeCurrency (deposits / withdrawals before the field existed) fall
+  // back to the wallet currency, where they happen to match anyway.
+  const feeCcy = tx.feeCurrency || ccy;
+  const feeDigits = feeCcy === "INR" ? 2 : 6;
   const absTime = (() => {
     const d = new Date(tx.createdAt);
     return isFinite(d.getTime()) ? d.toLocaleString() : tx.createdAt;
@@ -1013,7 +1023,7 @@ function TxDetailsDialog({ tx, onClose }: { tx: Tx | null; onClose: () => void }
           />
           <DetailRow
             label="Fee"
-            value={<span className="font-mono">{fmtNum(tx.fee, digits)} {ccy}</span>}
+            value={<span className="font-mono">{fmtNum(tx.fee, feeDigits)} {feeCcy}</span>}
           />
           <DetailRow label="Wallet" value={<span>{ccy} · <span className="text-muted-foreground">{tx.wallet.type}</span></span>} />
           {tx.type === "TRADE" && meta.price != null && (
