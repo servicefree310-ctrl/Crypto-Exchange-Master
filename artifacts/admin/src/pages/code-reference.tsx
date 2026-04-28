@@ -27,11 +27,13 @@ type FileResp  = { root: string; path: string; size: number; content: string };
 const DEFAULT_EXPANDED: Record<string, string[]> = {
   admin:         ["src", "src/pages", "src/components"],
   "user-portal": ["src", "src/pages", "src/components"],
+  "api-server":  ["src", "src/routes", "src/middlewares"],
 };
 
 const PREFERRED_FILE: Record<string, string[]> = {
   admin:         ["src/App.tsx"],
   "user-portal": ["src/App.tsx", "src/main.tsx"],
+  "api-server":  ["src/index.ts", "src/routes/index.ts"],
 };
 
 function langOf(name: string): string {
@@ -181,10 +183,12 @@ export default function CodeReferencePage() {
   const [expandedByRoot, setExpandedByRoot] = useState<Record<string, Set<string>>>({
     admin:         new Set(DEFAULT_EXPANDED.admin),
     "user-portal": new Set(DEFAULT_EXPANDED["user-portal"]),
+    "api-server":  new Set(DEFAULT_EXPANDED["api-server"]),
   });
   const [selectedByRoot, setSelectedByRoot] = useState<Record<string, string | null>>({
-    admin: null,
+    admin:         null,
     "user-portal": null,
+    "api-server":  null,
   });
   const [copied, setCopied] = useState(false);
 
@@ -276,13 +280,14 @@ export default function CodeReferencePage() {
     : [
         { key: "admin",        label: "artifacts/admin" },
         { key: "user-portal",  label: "artifacts/user-portal" },
+        { key: "api-server",   label: "artifacts/api-server" },
       ];
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Code Reference"
-        subtitle="Browse the admin and user-portal source trees, just like in your editor."
+        subtitle="Browse the admin, user-portal, and api-server source trees, just like in your editor."
         icon={Code2}
         actions={
           <Badge variant="outline" className="gap-1">
@@ -299,7 +304,7 @@ export default function CodeReferencePage() {
           setRootKey(v);
         }}
       >
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
+        <TabsList className="grid w-full grid-cols-3 max-w-xl">
           {roots.map((r) => (
             <TabsTrigger key={r.key} value={r.key} className="gap-2">
               <Folder className="h-4 w-4 text-amber-500" />
