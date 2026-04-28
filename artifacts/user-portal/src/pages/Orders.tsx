@@ -27,6 +27,8 @@ type Order = {
   type: string;
   side: "buy" | "sell";
   price?: string | number | null;
+  avgPrice?: string | number | null;
+  filledQty?: string | number | null;
   amount: string | number;
   status: string;
   createdAt: string;
@@ -176,7 +178,25 @@ export default function Orders() {
                         {o.side}
                       </td>
                       <td className="px-4 py-3 font-mono tabular-nums text-right">
-                        {o.price && Number(o.price) > 0 ? Number(o.price).toLocaleString("en-IN") : "Market"}
+                        {(() => {
+                          const isMarket = String(o.type).toLowerCase() === "market";
+                          const avg = Number(o.avgPrice ?? 0);
+                          const filled = Number(o.filledQty ?? 0);
+                          // Filled / partial → show actual avg fill price (truth)
+                          if (filled > 0 && avg > 0) {
+                            return (
+                              <span className="inline-flex flex-col items-end leading-tight">
+                                <span>{avg.toLocaleString("en-IN", { maximumFractionDigits: 4 })}</span>
+                                <span className="text-[10px] text-muted-foreground">avg fill</span>
+                              </span>
+                            );
+                          }
+                          // Open market order with no fill yet → just say "Market"
+                          if (isMarket) return <span className="text-muted-foreground">Market</span>;
+                          // Open limit order → user's limit price
+                          const lim = Number(o.price ?? 0);
+                          return lim > 0 ? lim.toLocaleString("en-IN", { maximumFractionDigits: 4 }) : "—";
+                        })()}
                       </td>
                       <td className="px-4 py-3 font-mono tabular-nums text-right">
                         {Number(o.amount).toLocaleString("en-IN", { maximumFractionDigits: 8 })}

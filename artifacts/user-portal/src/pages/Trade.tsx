@@ -1040,9 +1040,18 @@ function OrdersTable({
       <tbody>
         {rows.map((o: any) => {
           const sideStr = String(o.side || "").toLowerCase();
-          const px = Number(o.price ?? o.priceFilled ?? 0);
+          const typeStr = String(o.type || "limit").toLowerCase();
+          const isMarket = typeStr === "market";
+          const limitPx = Number(o.price ?? 0);
+          const avgPx = Number(o.avgPrice ?? 0);
           const qty = Number(o.amount ?? o.qty ?? 0);
-          const filled = Number(o.filled ?? 0);
+          // API returns `filledQty`; keep `filled` as fallback for legacy payloads.
+          const filled = Number(o.filledQty ?? o.filled ?? 0);
+          // For market orders the stored `price` is the ±10% slippage cap, not a
+          // real fill price. Show "Market" when nothing has filled yet, otherwise
+          // surface the avg fill (truth) for both market and limit rows.
+          const showAvg = filled > 0 && avgPx > 0;
+          const px = showAvg ? avgPx : (isMarket ? 0 : limitPx);
           const ts = Number(o.createdAt ? new Date(o.createdAt).getTime() : o.ts ?? Date.now());
           const status = String(o.status || "OPEN").toUpperCase();
           // Pair label — API returns `symbol` (either "BTC/USDT" or "BTCUSDT").
@@ -1087,8 +1096,23 @@ function OrdersTable({
             >
               <td className="px-3 py-1.5 font-semibold whitespace-nowrap">{pairLabel}</td>
               <td className={`px-2 py-1.5 font-bold ${sideStr === "buy" ? "text-success" : "text-destructive"}`}>{sideStr.toUpperCase()}</td>
-              <td className="px-2 py-1.5 capitalize text-muted-foreground">{String(o.type || "limit").toLowerCase()}</td>
-              <td className="px-2 py-1.5 text-right font-mono tabular-nums">{px > 0 ? fmtNum(px, 2) : "—"}</td>
+              <td className="px-2 py-1.5 capitalize text-muted-foreground">{typeStr}</td>
+              <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                {px > 0 ? (
+                  showAvg ? (
+                    <span className="inline-flex flex-col items-end leading-tight">
+                      <span>{fmtNum(px, 2)}</span>
+                      <span className="text-[9px] text-muted-foreground">avg</span>
+                    </span>
+                  ) : (
+                    fmtNum(px, 2)
+                  )
+                ) : isMarket ? (
+                  <span className="text-muted-foreground">Market</span>
+                ) : (
+                  "—"
+                )}
+              </td>
               <td className="px-2 py-1.5 text-right font-mono tabular-nums">{fmtNum(qty, 6)}</td>
               <td className="px-2 py-1.5 text-right font-mono tabular-nums">{fmtNum(filled, 6)}</td>
               {mode === "history" && (

@@ -140,11 +140,13 @@ export function OrderFillsDialog({
               <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <Stat label="Requested Qty" value={`${fmt(data.order.qty, 8)} ${data.order.base}`} />
                 <Stat
-                  label={data.order.type === "market" ? "Limit Price" : "Order Price"}
+                  label={data.order.type === "market" ? "Order Type" : "Limit Price"}
                   value={
-                    data.order.price > 0
-                      ? `${fmt(data.order.price, 4)} ${data.order.quote}`
-                      : "Market"
+                    data.order.type === "market"
+                      ? "Market (best available)"
+                      : data.order.price > 0
+                        ? `${fmt(data.order.price, 4)} ${data.order.quote}`
+                        : "—"
                   }
                 />
                 <Stat label="Filled Qty" value={`${fmt(data.order.filledQty, 8)} ${data.order.base}`} />
@@ -155,6 +157,7 @@ export function OrderFillsDialog({
                       ? `${fmt(data.order.avgPrice, 4)} ${data.order.quote}`
                       : "—"
                   }
+                  accent={data.order.type === "market"}
                 />
               </div>
             </div>

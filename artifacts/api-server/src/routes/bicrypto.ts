@@ -1769,12 +1769,28 @@ r.get("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => {
   res.json(rows.map(o => {
     const sym = pairBySym.get(o.pairId) ?? "";
     const qtyN = Number(o.qty);
+    const filledN = Number(o.filledQty);
+    const avgN = Number(o.avgPrice);
     const priceN = Number(o.price);
+    // For MARKET orders the stored `price` is the ±10% slippage cap, not a real
+    // execution price. If we expose it as-is the mobile/portal "price" column
+    // shows a wildly inflated number and `cost = price * qty` is meaningless.
+    // Normalize ONLY market rows: surface avgPrice once filled, else 0 ("Market").
+    // Limit orders keep their user-chosen `price` unchanged (preserves the
+    // historical contract — the user's limit is meaningful even after fill).
+    const isMarket = String(o.type).toLowerCase() === "market";
+    const displayPrice = isMarket
+      ? (filledN > 0 && avgN > 0 ? avgN : 0)
+      : priceN;
+    const costN = isMarket
+      ? (filledN > 0 && avgN > 0 ? avgN * filledN : 0)
+      : priceN * qtyN;
     return {
       ...o,
+      price: displayPrice,
       symbol: sym,
       amount: qtyN,
-      cost: priceN * qtyN,
+      cost: costN,
     };
   }));
 });
@@ -1816,16 +1832,29 @@ r.post("/exchange/order", bicryptoAuth, async (req: any, res): Promise<void> => 
     });
     // Bicrypto/Flutter `OrderModel.fromJson` reads `amount` (not `qty`) and
     // `cost`; without explicit aliasing the client model decodes amount=0.
+    // Normalize ONLY market rows: the stored `price` for market orders is the
+    // ±10% slippage cap, not a real execution price — surface avgPrice once
+    // filled, else 0 ("Market"). Limit orders keep their user-chosen price.
     const o: any = result.order;
-    const priceNum = Number(o.avgPrice ?? o.price ?? price ?? 0);
+    const isMarket = String(o.type).toLowerCase() === "market";
+    const filledNum = Number(o.filledQty ?? 0);
+    const avgNum = Number(o.avgPrice ?? 0);
+    const limitNum = Number(o.price ?? 0);
     const qtyNum = Number(o.qty ?? amount);
+    const displayPrice = isMarket
+      ? (filledNum > 0 && avgNum > 0 ? avgNum : 0)
+      : limitNum;
+    const costN = isMarket
+      ? (filledNum > 0 && avgNum > 0 ? avgNum * filledNum : 0)
+      : limitNum * qtyNum;
     res.status(201).json({
       ...o,
+      price: displayPrice,
       symbol,
       currency,
       pair,
       amount: qtyNum,
-      cost: priceNum * qtyNum,
+      cost: costN,
       matched: result.matched,
     });
   } catch (e: any) {
