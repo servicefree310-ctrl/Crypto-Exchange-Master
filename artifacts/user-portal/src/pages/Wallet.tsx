@@ -78,6 +78,21 @@ type Tx = {
 type TxResponse = { items: Tx[]; pagination: { totalItems: number; currentPage: number; perPage: number; totalPages: number } };
 type BankAccount = { id: number; bankName: string; accountNumber: string; ifsc: string; holderName: string; status: string };
 
+// VIP-tier + fee-discount snapshot returned by /finance/wallet (and ?pnl=true).
+// Rates are fractions (0.0025 == 0.25%); discountPct values are 0..100.
+type DiscountInfo = {
+  vipTier: number;
+  vipName: string;
+  spot: { maker: number; taker: number };
+  spotBase: { maker: number; taker: number };
+  futures: { maker: number; taker: number };
+  futuresBase: { maker: number; taker: number };
+  withdrawDiscountPct: number;
+  gstPercent: number;
+  tdsPercent: number;
+  discountPct: { spotMaker: number; spotTaker: number; futuresMaker: number; futuresTaker: number };
+};
+
 function fmtNum(n: number, digits = 4): string {
   if (!isFinite(n)) return "—";
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -210,6 +225,7 @@ export default function Wallet() {
     totals?: { usd: number; inr: number; count: number; nonZero: number };
     inrRate?: number;
     fees?: { today: { usd: number; inr: number }; total: { usd: number; inr: number } };
+    discount?: DiscountInfo;
   }>({
     queryKey: ["wallets"],
     queryFn: () => get("/finance/wallet?perPage=200"),
@@ -217,7 +233,7 @@ export default function Wallet() {
     refetchInterval: 7_000,
     refetchOnWindowFocus: true,
   });
-  const pnlQ = useQuery<{ today: number; yesterday: number; pnl: number; pnlPct?: number; inrRate?: number; fees?: { today: { usd: number; inr: number }; total: { usd: number; inr: number } } }>({
+  const pnlQ = useQuery<{ today: number; yesterday: number; pnl: number; pnlPct?: number; inrRate?: number; fees?: { today: { usd: number; inr: number }; total: { usd: number; inr: number } }; discount?: DiscountInfo }>({
     queryKey: ["wallet-pnl"],
     queryFn: () => get("/finance/wallet?pnl=true"),
     enabled: !!user,
@@ -400,31 +416,40 @@ export default function Wallet() {
             <BreakdownChip label="Assets" value={String(aggregated.filter(a => a.free + a.locked > 0).length)} icon={<WalletIcon className="h-3.5 w-3.5" />} />
           </div>
 
-          {/* Trading-fee summary — server-aggregated across spot + futures,
-             converted to USD/INR with the same live ticker cache. */}
+          {/* Trading-fee + VIP discount summary — server-aggregated across spot
+             + futures, plus the user's effective fee tier vs the base "Regular"
+             tier so they can see how much they're saving today. */}
           {(() => {
             const fees = walletQ.data?.fees ?? pnlQ.data?.fees;
-            if (!fees) return null;
+            const discount = walletQ.data?.discount ?? pnlQ.data?.discount;
+            if (!fees && !discount) return null;
             return (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-border bg-muted/30 p-3" data-testid="card-fee-today">
-                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Fees paid today</div>
-                  <div className="mt-1 text-lg font-semibold font-mono">
-                    {mask(fmtUsd(fees.today.usd))}
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {fees && (
+                  <div className="rounded-xl border border-border bg-muted/30 p-3" data-testid="card-fee-today">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Fees paid today</div>
+                    <div className="mt-1 text-lg font-semibold font-mono">
+                      {mask(fmtUsd(fees.today.usd))}
+                    </div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      ≈ {mask(fmtInr(fees.today.inr))}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    ≈ {mask(fmtInr(fees.today.inr))}
+                )}
+                {fees && (
+                  <div className="rounded-xl border border-border bg-muted/30 p-3" data-testid="card-fee-total">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Fees paid total</div>
+                    <div className="mt-1 text-lg font-semibold font-mono">
+                      {mask(fmtUsd(fees.total.usd))}
+                    </div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      ≈ {mask(fmtInr(fees.total.inr))}
+                    </div>
                   </div>
-                </div>
-                <div className="rounded-xl border border-border bg-muted/30 p-3" data-testid="card-fee-total">
-                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Fees paid total</div>
-                  <div className="mt-1 text-lg font-semibold font-mono">
-                    {mask(fmtUsd(fees.total.usd))}
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    ≈ {mask(fmtInr(fees.total.inr))}
-                  </div>
-                </div>
+                )}
+                {discount && (
+                  <DiscountCard discount={discount} />
+                )}
               </div>
             );
           })()}
@@ -710,6 +735,7 @@ function TransactionHistory() {
   const [status, setStatus] = useState<"ALL" | "PENDING" | "COMPLETED" | "FAILED" | "REJECTED">("ALL");
   const [currency, setCurrency] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedTx, setSelectedTx] = useState<Tx | null>(null);
   const perPage = 20;
 
   const params = new URLSearchParams();
@@ -811,7 +837,15 @@ function TransactionHistory() {
               </thead>
               <tbody>
                 {items.map(tx => (
-                  <tr key={tx.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors" data-testid={`row-tx-${tx.id}`}>
+                  <tr
+                    key={tx.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
+                    data-testid={`row-tx-${tx.id}`}
+                    onClick={() => setSelectedTx(tx)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedTx(tx); } }}
+                  >
                     <td className="px-4 py-3">
                       <TxTypeBadge type={tx.type} />
                     </td>
@@ -844,7 +878,15 @@ function TransactionHistory() {
           {/* Mobile */}
           <div className="md:hidden divide-y divide-border">
             {items.map(tx => (
-              <div key={tx.id} className="p-4" data-testid={`card-tx-${tx.id}`}>
+              <div
+                key={tx.id}
+                className="p-4 cursor-pointer hover:bg-muted/20 transition-colors"
+                data-testid={`card-tx-${tx.id}`}
+                onClick={() => setSelectedTx(tx)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedTx(tx); } }}
+              >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <CoinIcon symbol={tx.wallet.currency} size={8} />
@@ -907,6 +949,179 @@ function TransactionHistory() {
           )}
         </>
       )}
+
+      <TxDetailsDialog tx={selectedTx} onClose={() => setSelectedTx(null)} />
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Transaction details — shows every field the row carries plus
+// trade-only metadata (pair / side / price / order id) when present.
+// We render straight from the row; the listing endpoint already has
+// everything the per-id endpoint would return.
+// ──────────────────────────────────────────────────────────────────
+function TxDetailsDialog({ tx, onClose }: { tx: Tx | null; onClose: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (key: string, val: string) => {
+    try {
+      navigator.clipboard.writeText(val);
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  if (!tx) return null;
+
+  // The list endpoint stuffs trade-only context into description / referenceId.
+  // We pull it back out here so the dialog can show side/price/orderId nicely.
+  const meta: { side?: string; price?: number; orderId?: string | number; pair?: string } = {};
+  if (tx.type === "TRADE") {
+    const m = (tx.description || "").match(/^(BUY|SELL)\s+(\S+)\s+@\s+([\d.]+)/i);
+    if (m) {
+      meta.side = m[1].toUpperCase();
+      meta.pair = m[2];
+      meta.price = Number(m[3]);
+    }
+  }
+
+  const ccy = tx.wallet.currency || "";
+  const digits = ccy === "INR" ? 2 : 6;
+  const absTime = (() => {
+    const d = new Date(tx.createdAt);
+    return isFinite(d.getTime()) ? d.toLocaleString() : tx.createdAt;
+  })();
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg" data-testid="dialog-tx-details">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <TxTypeBadge type={tx.type} />
+            <span>{tx.type === "TRADE" ? `${meta.side ?? "Trade"} ${meta.pair ?? ccy}` : `${tx.type === "DEPOSIT" ? "Deposit" : "Withdraw"} ${ccy}`}</span>
+          </DialogTitle>
+          <DialogDescription>
+            {absTime} · <span className="text-muted-foreground">{relTime(tx.createdAt)}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 text-sm">
+          <DetailRow label="Status" value={<StatusBadge status={tx.status} />} />
+          <DetailRow
+            label="Amount"
+            value={<span className="font-mono">{fmtNum(tx.amount, digits)} {ccy}</span>}
+          />
+          <DetailRow
+            label="Fee"
+            value={<span className="font-mono">{fmtNum(tx.fee, digits)} {ccy}</span>}
+          />
+          <DetailRow label="Wallet" value={<span>{ccy} · <span className="text-muted-foreground">{tx.wallet.type}</span></span>} />
+          {tx.type === "TRADE" && meta.price != null && (
+            <DetailRow
+              label="Trade price"
+              value={<span className="font-mono">{fmtNum(meta.price, 2)}{meta.pair?.endsWith("INR") ? " INR" : meta.pair?.includes("USDT") ? " USDT" : ""}</span>}
+            />
+          )}
+          {tx.description && (
+            <DetailRow label="Description" value={<span className="text-foreground/90">{tx.description}</span>} />
+          )}
+          {tx.referenceId && (
+            <DetailRow
+              label="Reference"
+              value={
+                <button
+                  type="button"
+                  className="font-mono text-xs break-all text-left hover:text-primary transition-colors flex items-center gap-1"
+                  onClick={() => copy("ref", String(tx.referenceId))}
+                  data-testid="button-copy-ref"
+                  title="Click to copy"
+                >
+                  <span>{tx.referenceId}</span>
+                  {copied === "ref" ? <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" /> : <Copy className="h-3 w-3 opacity-60 shrink-0" />}
+                </button>
+              }
+            />
+          )}
+          {tx.trxId && tx.trxId !== tx.referenceId && (
+            <DetailRow
+              label="Tx ID"
+              value={
+                <button
+                  type="button"
+                  className="font-mono text-xs break-all text-left hover:text-primary transition-colors flex items-center gap-1"
+                  onClick={() => copy("trx", String(tx.trxId))}
+                  data-testid="button-copy-trx"
+                  title="Click to copy"
+                >
+                  <span>{tx.trxId}</span>
+                  {copied === "trx" ? <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" /> : <Copy className="h-3 w-3 opacity-60 shrink-0" />}
+                </button>
+              }
+            />
+          )}
+          <DetailRow
+            label="Internal ID"
+            value={<span className="font-mono text-xs text-muted-foreground">{tx.id}</span>}
+          />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} data-testid="button-tx-close">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1 border-b border-border/60 last:border-0">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground pt-0.5 shrink-0">{label}</div>
+      <div className="text-right">{value}</div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// VIP-tier discount card — shows the user's current tier and the
+// effective spot/futures rates plus a "you're saving X%" badge
+// computed against the base "Regular" tier on the server.
+// ──────────────────────────────────────────────────────────────────
+function DiscountCard({ discount }: { discount: DiscountInfo }) {
+  const pctFmt = (frac: number) => (frac * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
+  const bestSaving = Math.max(
+    discount.discountPct.spotMaker,
+    discount.discountPct.spotTaker,
+    discount.discountPct.futuresMaker,
+    discount.discountPct.futuresTaker,
+    discount.withdrawDiscountPct,
+  );
+  return (
+    <div
+      className="rounded-xl border border-border bg-gradient-to-br from-amber-500/10 to-amber-500/5 p-3"
+      data-testid="card-fee-discount"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Your fee tier</div>
+        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
+          <Sparkles className="h-2.5 w-2.5" />
+          {discount.vipName}
+        </span>
+      </div>
+      <div className="mt-1 text-lg font-semibold font-mono">
+        {bestSaving > 0 ? `−${bestSaving.toFixed(bestSaving < 10 ? 2 : 1)}%` : "0%"}
+        <span className="text-xs text-muted-foreground font-normal ml-2">discount</span>
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+        <div>Spot taker</div>
+        <div className="text-right font-mono text-foreground/80">{pctFmt(discount.spot.taker)}</div>
+        <div>Spot maker</div>
+        <div className="text-right font-mono text-foreground/80">{pctFmt(discount.spot.maker)}</div>
+        <div>Futures taker</div>
+        <div className="text-right font-mono text-foreground/80">{pctFmt(discount.futures.taker)}</div>
+        <div>Withdraw off</div>
+        <div className="text-right font-mono text-foreground/80">{discount.withdrawDiscountPct}%</div>
+      </div>
     </div>
   );
 }

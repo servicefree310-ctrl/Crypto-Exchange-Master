@@ -22,6 +22,7 @@ import { rGet, rSet } from "../lib/redis";
 import { randomBytes, createHash } from "node:crypto";
 import { consumeVerifiedOtp } from "./otp";
 import { placeSpotOrder, cancelSpotOrderById } from "./orders";
+import { getSpotFeeRates, loadVipTiers, type VipTier } from "./fees";
 
 const r: IRouter = Router();
 
@@ -652,9 +653,9 @@ r.get("/finance/wallet", bicryptoAuth, async (req: any, res): Promise<void> => {
     } catch { /* redis offline → fall back to today=yesterday, pnl=0 */ }
     const pnl = Math.round((today - yesterday) * 100) / 100;
     const pnlPct = yesterday > 0 ? Math.round((pnl / yesterday) * 10000) / 100 : 0;
-    const fees = await getUserFees(userId);
+    const [fees, discount] = await Promise.all([getUserFees(userId), getUserDiscount(userId)]);
     res.json({
-      today, yesterday, pnl, pnlPct, inrRate, fees,
+      today, yesterday, pnl, pnlPct, inrRate, fees, discount,
       chart: Array.from({ length: 28 }, (_, i) => ({ t: Date.now() - (27 - i) * 86400000, v: today })),
     });
     return;
@@ -687,12 +688,13 @@ r.get("/finance/wallet", bicryptoAuth, async (req: any, res): Promise<void> => {
 
   const start = (page - 1) * perPage;
   const slice = items.slice(start, start + perPage);
-  const fees = await getUserFees(userId);
+  const [fees, discount] = await Promise.all([getUserFees(userId), getUserDiscount(userId)]);
   res.json({
     items: slice,
     totals: { usd: totalUsd, inr: totalInr, count: items.length, nonZero: items.filter(i => (i.balance || 0) + (i.inOrder || 0) > 0).length },
     inrRate,
     fees,
+    discount,
     pagination: { total: items.length, page, perPage, totalPages: Math.ceil(items.length / perPage) },
   });
 });
@@ -767,6 +769,71 @@ async function getUserFees(userId: number): Promise<{
     today: { usd: r2(todayUsd), inr: r2(todayUsd * inrRate) },
     total: { usd: r2(totalUsd), inr: r2(totalUsd * inrRate) },
   };
+}
+
+// VIP tier + fee-discount snapshot for the wallet header. Returns the user's
+// effective spot maker/taker rate (already including GST) plus the equivalent
+// rate at the base "Regular" tier so the client can render a single
+// "you're saving X%" badge without re-fetching the tier ladder.
+//
+// Withdraw discount and the tier ladder are returned as-is for the wallet
+// page to show "Tier 0 → next tier needs $X volume".
+async function getUserDiscount(userId: number): Promise<{
+  vipTier: number;
+  vipName: string;
+  spot: { maker: number; taker: number };           // effective rates (fractions, GST included)
+  spotBase: { maker: number; taker: number };       // tier-0 rates for the same gst (fractions)
+  futures: { maker: number; taker: number };        // tier rates as fractions (no GST in trade ledger)
+  futuresBase: { maker: number; taker: number };
+  withdrawDiscountPct: number;                      // 0..100 — % off withdraw fee at this tier
+  gstPercent: number;
+  tdsPercent: number;                               // shown as "1%" etc.
+  discountPct: { spotMaker: number; spotTaker: number; futuresMaker: number; futuresTaker: number }; // 0..100
+}> {
+  // Defaults so the endpoint never fails just because of the discount block.
+  const fallback = {
+    vipTier: 0,
+    vipName: "Regular",
+    spot: { maker: 0.002, taker: 0.0025 },
+    spotBase: { maker: 0.002, taker: 0.0025 },
+    futures: { maker: 0.0005, taker: 0.0007 },
+    futuresBase: { maker: 0.0005, taker: 0.0007 },
+    withdrawDiscountPct: 0,
+    gstPercent: 18,
+    tdsPercent: 1,
+    discountPct: { spotMaker: 0, spotTaker: 0, futuresMaker: 0, futuresTaker: 0 },
+  };
+  try {
+    const [u] = await db.select({ vipTier: usersTable.vipTier }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    const tierLevel = Math.max(0, Number(u?.vipTier ?? 0));
+    const tiers = await loadVipTiers();
+    const tier: VipTier = tiers[Math.min(tierLevel, tiers.length - 1)] ?? tiers[0];
+    const baseTier: VipTier = tiers[0];
+    const [me, base] = await Promise.all([getSpotFeeRates(tierLevel), getSpotFeeRates(0)]);
+
+    const pct = (cur: number, ref: number) =>
+      ref > 0 ? Math.max(0, Math.round(((ref - cur) / ref) * 10000) / 100) : 0;
+
+    return {
+      vipTier: tier.level,
+      vipName: tier.name,
+      spot: { maker: me.maker, taker: me.taker },
+      spotBase: { maker: base.maker, taker: base.taker },
+      futures: { maker: tier.futuresMaker / 100, taker: tier.futuresTaker / 100 },
+      futuresBase: { maker: baseTier.futuresMaker / 100, taker: baseTier.futuresTaker / 100 },
+      withdrawDiscountPct: Number(tier.withdrawDiscount || 0),
+      gstPercent: me.gstPercent,
+      tdsPercent: Math.round(me.tds * 10000) / 100,
+      discountPct: {
+        spotMaker: pct(me.maker, base.maker),
+        spotTaker: pct(me.taker, base.taker),
+        futuresMaker: pct(tier.futuresMaker, baseTier.futuresMaker),
+        futuresTaker: pct(tier.futuresTaker, baseTier.futuresTaker),
+      },
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 async function sumUsd(userId: number): Promise<number> {
