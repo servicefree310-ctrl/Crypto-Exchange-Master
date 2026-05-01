@@ -22,6 +22,7 @@ import bicryptoRouter from "./bicrypto";
 import contentRouter from "./content";
 import adminContentRouter from "./admin-content";
 import adminSourceRouter from "./admin-source";
+import inmemEngineRouter from "./inmem-engine";
 
 const router: IRouter = Router();
 
@@ -57,5 +58,6 @@ router.use("/admin", redisAdminRouter);
 router.use(contentRouter);
 router.use(adminContentRouter);
 router.use(adminSourceRouter);
+router.use(inmemEngineRouter);
 
 export default router;
