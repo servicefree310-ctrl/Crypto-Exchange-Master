@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -39,6 +40,7 @@ import CompetitionsPage from "@/pages/competitions";
 import NotificationsBroadcastPage from "@/pages/notifications-broadcast";
 import SiteSettingsPage from "@/pages/site-settings";
 import RedisPage from "@/pages/redis";
+import TradingEnginePage from "@/pages/trading-engine";
 import BackendStatusPage from "@/pages/backend-status";
 import CodeReferencePage from "@/pages/code-reference";
 import NotFound from "@/pages/not-found";
@@ -51,6 +53,24 @@ const queryClient = new QueryClient({
 });
 
 const ADMIN_ROLES = ["support", "admin", "superadmin"];
+
+/** Wrap a page that requires a stricter role than the global admin gate. */
+function RoleGated({ allow, children }: { allow: string[]; children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user || !allow.includes(user.role)) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-3">
+          <div className="text-lg font-semibold">Access restricted</div>
+          <div className="text-sm text-muted-foreground">
+            Yeh page sirf {allow.join(" / ")} roles ke liye hai. Apne admin se request karein.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
 
 function Protected() {
   const { user, loading, logout } = useAuth();
@@ -99,6 +119,11 @@ function Protected() {
         <Route path="/broadcast-notifications" component={NotificationsBroadcastPage} />
         <Route path="/site-settings" component={SiteSettingsPage} />
         <Route path="/redis" component={RedisPage} />
+        <Route path="/trading-engine">
+          <RoleGated allow={["admin", "superadmin"]}>
+            <TradingEnginePage />
+          </RoleGated>
+        </Route>
         <Route path="/legal" component={LegalPage} />
         <Route path="/chat" component={ChatPage} />
         <Route path="/login-logs" component={LoginLogsPage} />

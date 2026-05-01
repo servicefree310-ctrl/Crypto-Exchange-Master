@@ -6,7 +6,7 @@ import {
   PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
   KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp,
   Megaphone, Trophy, Database, Server, Search, Command as CommandIcon,
-  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, type LucideIcon,
+  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/futures-positions", label: "Futures Positions", icon: TrendingUp, roles: ["support", "admin", "superadmin"] },
       { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
       { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
+      { href: "/trading-engine", label: "Trading Engine", icon: Cpu, roles: ["admin", "superadmin"] },
     ],
   },
   {
