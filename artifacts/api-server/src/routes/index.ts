@@ -23,6 +23,7 @@ import contentRouter from "./content";
 import adminContentRouter from "./admin-content";
 import adminSourceRouter from "./admin-source";
 import inmemEngineRouter from "./inmem-engine";
+import inmemEngineProdRouter from "./inmem-engine-prod";
 
 const router: IRouter = Router();
 
@@ -59,5 +60,6 @@ router.use(contentRouter);
 router.use(adminContentRouter);
 router.use(adminSourceRouter);
 router.use(inmemEngineRouter);
+router.use(inmemEngineProdRouter);
 
 export default router;

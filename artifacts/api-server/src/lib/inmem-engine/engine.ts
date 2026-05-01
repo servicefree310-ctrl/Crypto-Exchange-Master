@@ -3,7 +3,7 @@ import path from "node:path";
 import { OrderBook } from "./orderbook";
 import { WalWriter } from "./wal";
 import { SnapshotStore, type SnapshotFile } from "./snapshot";
-import type { Order, Side, Trade, Depth, Command } from "./types";
+import type { Order, OrderType, STPMode, Side, Trade, Depth, Command, AutoCancelEvent, RejectReason } from "./types";
 
 // ─── Public-facing engine API ────────────────────────────────────────────
 //
@@ -42,6 +42,10 @@ export interface EngineOptions {
   /** Disable WAL writes entirely — used by the benchmark to measure raw
    *  matching speed without filesystem syscalls in the hot loop. */
   disablePersistence?: boolean;
+  /** When true, every WAL append is fdatasync'd before the engine
+   *  acknowledges the command. Production engine sets this; sandbox /
+   *  benchmark leaves it off. Adds ~50-200µs per command. */
+  fsyncWal?: boolean;
 }
 
 export interface EngineMetrics {
@@ -52,15 +56,28 @@ export interface EngineMetrics {
   /** Rolling EMA of per-match latency (microseconds). */
   avgMatchLatencyUs: number;
   symbolsTracked: number;
+  haltedSymbols: string[];
+  /** Last sequence number applied — useful for the settlement layer to
+   *  reason about the "committed cursor" vs the "settled cursor". */
+  seq: number;
 }
 
 export interface PlaceOrderInput {
   symbol: string;
   side: Side;
-  /** Limit price in QUOTE currency. */
+  /** Limit price in QUOTE currency. For MARKET orders pass 0. */
   price: number;
   /** Order size in BASE currency. */
   quantity: number;
+  /** Order type. Defaults to "limit" for backward compatibility with the
+   *  original sandbox API. */
+  type?: OrderType;
+  /** Self-trade prevention policy. Defaults to "none". */
+  stp?: STPMode;
+  /** Owner — required for STP and for the production settlement layer to
+   *  know whose wallet to debit/credit. The sandbox path leaves it
+   *  undefined and accepts the resulting STP=none semantics. */
+  userId?: number;
   /** Optional opaque tag (e.g. SQL row id) the engine threads through into
    *  every emitted Trade for downstream reconciliation. */
   ref?: string;
@@ -71,11 +88,23 @@ export interface PlaceOrderResult {
   trades: Trade[];
   /** True if any qty rested in the book (i.e. order is not fully filled). */
   resting: boolean;
+  /** True if the order was rejected outright (post_only would cross, FOK
+   *  could not fully fill, STP triggered cancel_newest). The settlement
+   *  layer must refund any locked balance for the FULL original quantity. */
+  rejected: boolean;
+  rejectReason?: RejectReason;
+  /** Auto-cancellations the engine performed on its own — STP-induced maker
+   *  cancels, IOC remainder, etc. The settlement layer iterates this and
+   *  refunds the unfilled qty for each. */
+  autoCancels: AutoCancelEvent[];
 }
 
 export class InMemoryEngine {
   private readonly opts: Required<EngineOptions>;
   private readonly books = new Map<string, OrderBook>();
+  /** Set of symbols where the engine refuses new placements. Cancels are
+   *  still processed (so users can withdraw orders during a halt). */
+  private readonly halted = new Set<string>();
 
   private nextOrderId = 1;
   private nextTradeId = 1;
@@ -99,8 +128,11 @@ export class InMemoryEngine {
   private lastMatchUs = 0;
   private avgMatchUs = 0;
 
-  /** Emits `trade` events so downstream services (settlement, websockets,
-   *  market data) can react without polling. */
+  /** Emits two kinds of events:
+   *    'trade'     → Trade — for the settlement worker
+   *    'autoCancel'→ AutoCancelEvent — for the refund worker
+   *  Listeners must be attached BEFORE the engine processes any command
+   *  to avoid missing events. */
   readonly events = new EventEmitter();
 
   constructor(opts: EngineOptions = {}) {
@@ -108,9 +140,13 @@ export class InMemoryEngine {
       dataDir: opts.dataDir ?? "/tmp/cryptox-inmem",
       snapshotEveryNCommands: opts.snapshotEveryNCommands ?? 5_000,
       disablePersistence: opts.disablePersistence ?? false,
+      fsyncWal: opts.fsyncWal ?? false,
     };
     if (!this.opts.disablePersistence) {
-      this.wal = new WalWriter(path.join(this.opts.dataDir, "engine.wal.jsonl"));
+      this.wal = new WalWriter(
+        path.join(this.opts.dataDir, "engine.wal.jsonl"),
+        { fsyncOnAppend: this.opts.fsyncWal },
+      );
       this.snapshotStore = new SnapshotStore(path.join(this.opts.dataDir, "engine.snapshot.json"));
     }
   }
@@ -145,16 +181,22 @@ export class InMemoryEngine {
   // ─── Public API ────────────────────────────────────────────────────────
 
   placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
+    const orderType: OrderType = input.type ?? "limit";
     const order: Order = {
       id: this.nextOrderId++,
       symbol: input.symbol,
       side: input.side,
-      type: "limit",
+      type: orderType,
+      // For market orders the caller passes 0 (or any value); we store it
+      // as a sentinel so the WAL replay is bit-identical. The matching
+      // loop ignores price entirely for market orders.
       price: input.price,
       quantity: input.quantity,
       remaining: input.quantity,
       timestamp: Date.now(),
       ...(input.ref !== undefined ? { ref: input.ref } : {}),
+      ...(input.userId !== undefined ? { userId: input.userId } : {}),
+      ...(input.stp !== undefined ? { stp: input.stp } : {}),
     };
     return this.enqueue({ kind: "place", order }) as Promise<PlaceOrderResult>;
   }
@@ -165,8 +207,20 @@ export class InMemoryEngine {
 
   getOrderbook(symbol: string, maxLevels = 20): Depth {
     const book = this.books.get(symbol);
-    if (!book) return { symbol, bids: [], asks: [], seq: this.seq };
-    return book.depth(maxLevels, this.seq);
+    const halted = this.halted.has(symbol);
+    if (!book) return { symbol, bids: [], asks: [], seq: this.seq, halted };
+    const d = book.depth(maxLevels, this.seq);
+    if (halted) d.halted = true;
+    return d;
+  }
+
+  /** Snapshot every resting order across every book. Used by callers
+   *  (e.g. ProdEngine) that need to rebuild their own ref→engineId
+   *  index after recovery. Read-only — does not mutate state. */
+  allRestingOrdersBySymbol(): Map<string, Order[]> {
+    const out = new Map<string, Order[]>();
+    for (const [sym, b] of this.books) out.set(sym, b.allRestingOrders());
+    return out;
   }
 
   metrics(): EngineMetrics {
@@ -177,7 +231,33 @@ export class InMemoryEngine {
       lastMatchLatencyUs: Math.round(this.lastMatchUs),
       avgMatchLatencyUs: Math.round(this.avgMatchUs),
       symbolsTracked: this.books.size,
+      haltedSymbols: Array.from(this.halted),
+      seq: this.seq,
     };
+  }
+
+  /** Halt new placements on a symbol. Cancels still flow. The set is
+   *  WAL-logged so it survives a restart. */
+  async haltSymbol(symbol: string): Promise<void> {
+    if (this.halted.has(symbol)) return;
+    this.halted.add(symbol);
+    if (this.wal) {
+      this.seq++;
+      await this.wal.append({ seq: this.seq, t: Date.now(), type: "halt", symbol });
+    }
+  }
+
+  async resumeSymbol(symbol: string): Promise<void> {
+    if (!this.halted.has(symbol)) return;
+    this.halted.delete(symbol);
+    if (this.wal) {
+      this.seq++;
+      await this.wal.append({ seq: this.seq, t: Date.now(), type: "resume", symbol });
+    }
+  }
+
+  isHalted(symbol: string): boolean {
+    return this.halted.has(symbol);
   }
 
   /** Force a snapshot now. Returns once the file is fsynced and the WAL
@@ -193,6 +273,7 @@ export class InMemoryEngine {
         books,
         nextOrderId: this.nextOrderId,
         nextTradeId: this.nextTradeId,
+        haltedSymbols: Array.from(this.halted),
       });
       await this.wal!.rotate();
       this.commandsSinceSnapshot = 0;
@@ -248,9 +329,32 @@ export class InMemoryEngine {
     this.seq++;
 
     if (cmd.kind === "place") {
+      // Halt check happens inside the queue (not at enqueue) so admin
+      // halts are observed in WAL-deterministic order with respect to
+      // concurrent placements that landed in the queue first.
+      if (this.halted.has(cmd.order.symbol)) {
+        return {
+          orderId: cmd.order.id,
+          trades: [],
+          resting: false,
+          rejected: true,
+          rejectReason: "symbol_halted",
+          autoCancels: [],
+        };
+      }
+
+      // Capture the AS-PLACED snapshot of the order BEFORE match() mutates
+      // `remaining`. The WAL must record the order in its untouched state
+      // so deterministic replay starts matching from the same `remaining`
+      // the live engine started from. Logging post-match state would
+      // leave fully-filled takers as `remaining: 0` in the WAL, and
+      // replay would skip matching them — the book would then carry
+      // ghost makers forever.
+      const orderForWal: Order = { ...cmd.order };
+
       const tStart = nowUs();
       const book = this.bookFor(cmd.order.symbol);
-      const { trades, resting } = book.match(cmd.order, () => this.nextTradeId++);
+      const result = book.match(cmd.order, () => this.nextTradeId++);
       const tEnd = nowUs();
       this.lastMatchUs = tEnd - tStart;
       // EWMA with alpha=0.05 — enough smoothing to filter GC spikes but
@@ -258,23 +362,32 @@ export class InMemoryEngine {
       this.avgMatchUs = this.avgMatchUs === 0
         ? this.lastMatchUs
         : this.avgMatchUs * 0.95 + this.lastMatchUs * 0.05;
-      this.totalTrades += trades.length;
+      this.totalTrades += result.trades.length;
 
       // Persist the COMMAND first so a replay reproduces the same trades.
       // Then persist each trade (or you could reconstruct trades from
       // command replay — but storing trades makes downstream reconciliation
       // cheaper since the settlement layer doesn't need to re-run match).
       if (this.wal) {
-        await this.wal.append({ seq: this.seq, t: Date.now(), type: "place", order: { ...cmd.order } });
-        for (const trade of trades) {
+        await this.wal.append({ seq: this.seq, t: Date.now(), type: "place", order: orderForWal });
+        for (const trade of result.trades) {
           await this.wal.append({ seq: this.seq, t: Date.now(), type: "trade", trade });
         }
       }
 
-      for (const t of trades) this.events.emit("trade", t);
+      for (const t of result.trades) this.events.emit("trade", t);
+      for (const c of result.autoCancels) this.events.emit("autoCancel", c);
 
       this.maybeSnapshot();
-      return { orderId: cmd.order.id, trades, resting };
+      const ret: PlaceOrderResult = {
+        orderId: cmd.order.id,
+        trades: result.trades,
+        resting: result.resting,
+        rejected: result.rejected,
+        autoCancels: result.autoCancels,
+      };
+      if (result.rejectReason !== undefined) ret.rejectReason = result.rejectReason;
+      return ret;
     }
 
     // cancel
@@ -322,12 +435,17 @@ export class InMemoryEngine {
       const book = this.bookFor(sym);
       for (const o of orders) book.insertResting({ ...o });
     }
+    if (snap.haltedSymbols) {
+      for (const s of snap.haltedSymbols) this.halted.add(s);
+    }
   }
 
   private applyWalEntry(entry: { seq: number } & (
     | { type: "place"; order: Order }
     | { type: "cancel"; symbol: string; orderId: number }
     | { type: "trade"; trade: Trade }
+    | { type: "halt"; symbol: string }
+    | { type: "resume"; symbol: string }
   )): void {
     this.seq = entry.seq;
     if (entry.type === "place") {
@@ -341,6 +459,10 @@ export class InMemoryEngine {
     } else if (entry.type === "cancel") {
       const book = this.books.get(entry.symbol);
       book?.cancel(entry.orderId);
+    } else if (entry.type === "halt") {
+      this.halted.add(entry.symbol);
+    } else if (entry.type === "resume") {
+      this.halted.delete(entry.symbol);
     }
     // 'trade' entries are derivable from 'place' replays — we skip them on
     // recovery to avoid double-counting metrics. They're kept in the WAL

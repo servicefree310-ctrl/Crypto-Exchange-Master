@@ -1,7 +1,10 @@
-import { promises as fsp, createReadStream, createWriteStream, type WriteStream } from "node:fs";
+import { promises as fsp, createReadStream, createWriteStream, fdatasync as fdatasyncCb, type WriteStream } from "node:fs";
+import { promisify } from "node:util";
 import path from "node:path";
 import readline from "node:readline";
 import type { WalEntry } from "./types";
+
+const fdatasync = promisify(fdatasyncCb);
 
 // Write-Ahead Log: every accepted command and emitted trade is appended,
 // in receive order, as a single JSON object per line (JSONL). The engine
@@ -23,13 +26,26 @@ import type { WalEntry } from "./types";
 // Concurrent writes from different processes are NOT supported — the
 // engine is intentionally single-process / single-threaded.
 
+export interface WalOptions {
+  /** When true, every append calls fdatasync(2) before resolving. This
+   *  guarantees the entry is on disk before the engine acknowledges the
+   *  command — the strongest single-node durability we can offer.
+   *  Cost: ~50-200µs per append depending on the disk. Production
+   *  exchanges run this on. The benchmark / sandbox path leaves it off
+   *  to measure raw matching speed. */
+  fsyncOnAppend?: boolean;
+}
+
 export class WalWriter {
   private stream: WriteStream | null = null;
+  private fd: number | null = null;
   private readonly path: string;
   private opening: Promise<void> | null = null;
+  private readonly fsyncOnAppend: boolean;
 
-  constructor(filePath: string) {
+  constructor(filePath: string, opts: WalOptions = {}) {
     this.path = filePath;
+    this.fsyncOnAppend = opts.fsyncOnAppend ?? false;
   }
 
   private async ensureOpen(): Promise<void> {
@@ -39,21 +55,35 @@ export class WalWriter {
       await fsp.mkdir(path.dirname(this.path), { recursive: true });
       // 'a' = append. flags must be a string for createWriteStream.
       this.stream = createWriteStream(this.path, { flags: "a" });
+      // Capture the underlying fd so we can fdatasync it directly when
+      // fsyncOnAppend is enabled. We wait for 'open' so the descriptor
+      // exists before any append fires.
+      await new Promise<void>((resolve, reject) => {
+        this.stream!.once("open", (fd) => { this.fd = fd; resolve(); });
+        this.stream!.once("error", reject);
+      });
     })();
     await this.opening;
     this.opening = null;
   }
 
-  /** Append one entry. Resolves once the line is in the OS write buffer.
-   *  We don't fsync per write — that would add a syscall + disk-flush per
-   *  trade and crater latency. The snapshot writer fsyncs the snapshot
-   *  on rotate, which is the durability boundary we care about. */
+  /** Append one entry. With `fsyncOnAppend:false` (default) resolves once
+   *  the line is in the OS write buffer — fastest path, used by the
+   *  benchmark and sandbox. With `fsyncOnAppend:true` the entry is forced
+   *  to disk via fdatasync(2) before the promise resolves — the durability
+   *  boundary the production engine relies on. */
   async append(entry: WalEntry): Promise<void> {
     await this.ensureOpen();
     const line = JSON.stringify(entry) + "\n";
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       this.stream!.write(line, (err) => (err ? reject(err) : resolve()));
     });
+    if (this.fsyncOnAppend && this.fd !== null) {
+      // fdatasync flushes the data (not metadata like mtime). Roughly 2-5×
+      // faster than fsync on ext4/xfs and is sufficient for an append-only
+      // log because we never depend on metadata accuracy for replay.
+      await fdatasync(this.fd);
+    }
   }
 
   /** Truncate the WAL — called after a snapshot rotation so disk usage
@@ -63,6 +93,7 @@ export class WalWriter {
     if (this.stream) {
       await new Promise<void>((res) => this.stream!.end(() => res()));
       this.stream = null;
+      this.fd = null;
     }
     await fsp.writeFile(this.path, "");
   }
@@ -71,6 +102,7 @@ export class WalWriter {
     if (!this.stream) return;
     await new Promise<void>((res) => this.stream!.end(() => res()));
     this.stream = null;
+    this.fd = null;
   }
 
   /** Streaming replay — yields one entry per line, never loads the whole

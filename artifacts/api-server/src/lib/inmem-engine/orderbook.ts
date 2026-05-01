@@ -1,5 +1,5 @@
 import { PriceLevel, type OrderNode } from "./pricelevel";
-import type { Order, Side, Trade, Depth, DepthLevel } from "./types";
+import type { Order, Side, Trade, Depth, DepthLevel, AutoCancelEvent, RejectReason, STPMode } from "./types";
 
 // Per-symbol order book.
 //
@@ -24,6 +24,20 @@ import type { Order, Side, Trade, Depth, DepthLevel } from "./types";
 // as the best bid. Reason: array.pop() is O(1) but array.shift() is O(n),
 // so by storing bids ascending we get O(1) best-bid removal too.
 
+export interface MatchResult {
+  trades: Trade[];
+  /** True if any qty rested in the book (i.e. order is not fully filled). */
+  resting: boolean;
+  /** True if the order was rejected outright (post_only crossed, fok could
+   *  not fill, stp triggered cancel_newest). The `rejectReason` explains. */
+  rejected: boolean;
+  rejectReason?: RejectReason;
+  /** Auto-cancellations the matcher performed on its own (STP cancels of
+   *  resting makers, etc.). The engine emits one event per entry so the
+   *  settlement layer can refund locked balances. */
+  autoCancels: AutoCancelEvent[];
+}
+
 export class OrderBook {
   readonly symbol: string;
 
@@ -42,35 +56,84 @@ export class OrderBook {
     this.symbol = symbol;
   }
 
-  /** Apply an aggressive (taker) limit order. Returns the trades it
-   *  generated (possibly empty) and whether any quantity is left to rest
-   *  in the book.
+  /** Apply an aggressive (taker) order. Handles all five order types
+   *  (limit / market / ioc / fok / post_only) plus self-trade prevention.
    *
-   *  This is the HOT PATH — every line is benchmarked. Avoid:
-   *    - object allocation in the inner loop except for trades
-   *    - Map.delete inside the loop (use the dropLevel helper which the
-   *      engine calls AFTER the loop drains a level)
-   *    - try/catch inside the loop (deopts the function in V8)
+   *  This is the HOT PATH for limit orders — every line is benchmarked.
+   *  The branchy preludes for FOK / post_only run BEFORE the inner loop so
+   *  the limit-order path is unchanged.
    */
-  match(taker: Order, nextTradeId: () => number): { trades: Trade[]; resting: boolean } {
+  match(taker: Order, nextTradeId: () => number): MatchResult {
     const trades: Trade[] = [];
+    const autoCancels: AutoCancelEvent[] = [];
     const isBuyer = taker.side === "buy";
-    // Buyers eat the asks (lowest first); sellers eat the bids (highest first).
+    const stp: STPMode = taker.stp ?? "none";
+
+    // ── post_only: must NOT cross. Reject if it would. ───────────────────
+    if (taker.type === "post_only" && this.wouldCross(taker)) {
+      return { trades, resting: false, rejected: true, rejectReason: "post_only_would_cross", autoCancels };
+    }
+
+    // ── fok: must fill in FULL or do nothing. Pre-walk the book to check
+    //    available liquidity at acceptable prices BEFORE mutating anything. ─
+    if (taker.type === "fok" && !this.canFullyFill(taker)) {
+      return { trades, resting: false, rejected: true, rejectReason: "fok_insufficient_liquidity", autoCancels };
+    }
+
     const bookPrices = isBuyer ? this.askPrices : this.bidPrices;
     const bookLevels = isBuyer ? this.asks : this.bids;
+    const isMarket = taker.type === "market";
 
     while (taker.remaining > 0 && bookPrices.length > 0) {
       // Best price = first ask (ascending) or last bid (ascending).
       const bestPrice = isBuyer ? bookPrices[0]! : bookPrices[bookPrices.length - 1]!;
 
-      // Cross check — limit orders only match when the prices cross.
-      if (isBuyer ? taker.price < bestPrice : taker.price > bestPrice) break;
+      // Cross check — skip for market (any price is acceptable).
+      if (!isMarket) {
+        if (isBuyer ? taker.price < bestPrice : taker.price > bestPrice) break;
+      }
 
       const level = bookLevels.get(bestPrice)!;
+
       // Drain the FIFO at this level. Each iteration peels one maker.
       while (taker.remaining > 0 && level.head) {
         const makerNode = level.head;
         const maker = makerNode.order;
+
+        // ── STP: if same owner and not 'none', resolve per the policy. ───
+        if (stp !== "none" && maker.userId !== undefined && maker.userId === taker.userId) {
+          if (stp === "cancel_oldest" || stp === "cancel_both") {
+            // Drop the resting maker. It refunds via autoCancel event.
+            level.unlink(makerNode);
+            this.orderIndex.delete(maker.id);
+            autoCancels.push({
+              orderId: maker.id,
+              symbol: this.symbol,
+              reason: "stp_self_match",
+              unfilled: maker.remaining,
+              ...(maker.ref !== undefined ? { ref: maker.ref } : {}),
+              ...(maker.userId !== undefined ? { userId: maker.userId } : {}),
+            });
+            if (stp === "cancel_both") {
+              // Don't keep matching — cancel the taker too.
+              if (level.isEmpty()) this.dropLevel(bestPrice, isBuyer ? "ask" : "bid");
+              return {
+                trades, resting: false, rejected: true, rejectReason: "stp_self_match",
+                autoCancels,
+              };
+            }
+            // cancel_oldest → continue inner loop, the next maker is
+            // makerNode.next (now level.head after unlink).
+            continue;
+          }
+          // cancel_newest — bail out completely.
+          if (level.isEmpty()) this.dropLevel(bestPrice, isBuyer ? "ask" : "bid");
+          return {
+            trades, resting: false, rejected: true, rejectReason: "stp_self_match",
+            autoCancels,
+          };
+        }
+
         const fillQty = taker.remaining < maker.remaining ? taker.remaining : maker.remaining;
 
         trades.push({
@@ -83,6 +146,8 @@ export class OrderBook {
           takerOrderId: taker.id,
           ...(maker.ref !== undefined ? { makerRef: maker.ref } : {}),
           ...(taker.ref !== undefined ? { takerRef: taker.ref } : {}),
+          ...(maker.userId !== undefined ? { makerUserId: maker.userId } : {}),
+          ...(taker.userId !== undefined ? { takerUserId: taker.userId } : {}),
           timestamp: Date.now(),
         });
 
@@ -99,12 +164,29 @@ export class OrderBook {
       if (level.isEmpty()) this.dropLevel(bestPrice, isBuyer ? "ask" : "bid");
     }
 
+    // After matching: decide what to do with any remainder.
     let resting = false;
     if (taker.remaining > 0) {
-      this.rest(taker);
-      resting = true;
+      if (taker.type === "limit" || taker.type === "post_only") {
+        this.rest(taker);
+        resting = true;
+      } else if (taker.type === "ioc") {
+        // Caller refunds any unfilled portion via the autoCancel event.
+        autoCancels.push({
+          orderId: taker.id,
+          symbol: this.symbol,
+          reason: "ioc_remainder",
+          unfilled: taker.remaining,
+          ...(taker.ref !== undefined ? { ref: taker.ref } : {}),
+          ...(taker.userId !== undefined ? { userId: taker.userId } : {}),
+        });
+      }
+      // market / fok: no remainder is ever added to the book. fok with
+      // remaining > 0 here is impossible (we checked canFullyFill upfront)
+      // but if it ever happens, drop silently — caller refunds via the
+      // settlement layer's "unfilled at end of place" check.
     }
-    return { trades, resting };
+    return { trades, resting, rejected: false, autoCancels };
   }
 
   /** Place a non-aggressive (post-only style) order directly into the book
@@ -168,6 +250,61 @@ export class OrderBook {
   }
 
   // ─── private helpers ───────────────────────────────────────────────────
+
+  /** True if this order would immediately match the top of the book at the
+   *  caller's price. Used by post_only to reject crossing orders BEFORE
+   *  we mutate any state. */
+  private wouldCross(taker: Order): boolean {
+    if (taker.side === "buy") {
+      const ask = this.bestAsk();
+      return ask !== null && taker.price >= ask;
+    }
+    const bid = this.bestBid();
+    return bid !== null && taker.price <= bid;
+  }
+
+  /** Walk the opposite side (without mutating) and check whether enough
+   *  qty exists at acceptable prices to satisfy the taker in full. Used
+   *  exclusively by FOK; never called on the limit hot path. */
+  private canFullyFill(taker: Order): boolean {
+    let needed = taker.remaining;
+    if (taker.side === "buy") {
+      // Asks ascending: walk until price > taker.price or qty satisfied.
+      for (let i = 0; i < this.askPrices.length; i++) {
+        const p = this.askPrices[i]!;
+        if (taker.type !== "market" && p > taker.price) return false;
+        const lvl = this.asks.get(p)!;
+        // Discount any same-userId resting qty when STP is configured to
+        // skip them (cancel_newest would bail out before filling, so for
+        // FOK semantics we treat self-matches as unavailable liquidity).
+        const usable = this.usableQtyAtLevel(lvl, taker);
+        needed -= usable;
+        if (needed <= 0) return true;
+      }
+    } else {
+      // Bids ascending: walk from the END (best bid first).
+      for (let i = this.bidPrices.length - 1; i >= 0; i--) {
+        const p = this.bidPrices[i]!;
+        if (taker.type !== "market" && p < taker.price) return false;
+        const lvl = this.bids.get(p)!;
+        const usable = this.usableQtyAtLevel(lvl, taker);
+        needed -= usable;
+        if (needed <= 0) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Sum of resting quantity at this level that the given taker is allowed
+   *  to consume given its STP policy. */
+  private usableQtyAtLevel(lvl: PriceLevel, taker: Order): number {
+    if (!taker.userId || !taker.stp || taker.stp === "none") return lvl.totalQty;
+    let sum = 0;
+    for (let n = lvl.head; n; n = n.next) {
+      if (n.order.userId !== taker.userId) sum += n.order.remaining;
+    }
+    return sum;
+  }
 
   private rest(order: Order): void {
     const isBuyer = order.side === "buy";

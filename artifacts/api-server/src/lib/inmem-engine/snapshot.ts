@@ -10,10 +10,13 @@ import type { Order } from "./types";
 //   2. Stream-replay the WAL from `seq + 1` onwards.
 //   3. Engine resumes serving with `nextSeq = lastReplayedSeq + 1`.
 
-const SNAPSHOT_VERSION = 1 as const;
+// v1 → original (sandbox) format
+// v2 → adds `haltedSymbols` so admin halt state survives a restart
+const SNAPSHOT_VERSION = 2 as const;
+const SUPPORTED_VERSIONS = new Set<number>([1, 2]);
 
 export interface SnapshotFile {
-  version: typeof SNAPSHOT_VERSION;
+  version: number;
   /** Last sequence number applied at the moment of snapshot. The WAL after
    *  this seq must be replayed on top to bring the engine fully current. */
   seq: number;
@@ -27,6 +30,9 @@ export interface SnapshotFile {
    *  pre-recovery ones, even if the WAL is empty. */
   nextOrderId: number;
   nextTradeId: number;
+  /** Symbols currently halted (no new orders accepted). Optional for back-
+   *  compat with v1 snapshots written before halt support landed. */
+  haltedSymbols?: string[];
 }
 
 export class SnapshotStore {
@@ -54,9 +60,9 @@ export class SnapshotStore {
     try {
       const buf = await fsp.readFile(this.path, "utf8");
       const parsed = JSON.parse(buf) as SnapshotFile;
-      if (parsed.version !== SNAPSHOT_VERSION) {
-        // Mismatched version — refuse to load rather than half-applying
-        // an incompatible schema. Operator should run a migration script.
+      if (!SUPPORTED_VERSIONS.has(parsed.version)) {
+        // Unknown version — refuse to load rather than half-applying an
+        // incompatible schema. Operator should run a migration script.
         return null;
       }
       return parsed;
