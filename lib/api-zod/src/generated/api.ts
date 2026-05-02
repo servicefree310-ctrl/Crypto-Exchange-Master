@@ -14,3 +14,896 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary List the authenticated user's saved P2P payment methods
+ */
+export const ListP2pPaymentMethodsResponseItem = zod.object({
+  id: zod.number(),
+  method: zod.enum(["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"]),
+  label: zod.string(),
+  account: zod.string(),
+  ifsc: zod.string().nullish(),
+  holderName: zod.string().nullish(),
+  active: zod.boolean(),
+});
+export const ListP2pPaymentMethodsResponse = zod.array(
+  ListP2pPaymentMethodsResponseItem,
+);
+
+/**
+ * @summary Add a payment method (UPI / IMPS / bank / wallet)
+ */
+export const createP2pPaymentMethodBodyLabelMax = 60;
+
+export const createP2pPaymentMethodBodyAccountMax = 120;
+
+export const createP2pPaymentMethodBodyIfscMax = 20;
+
+export const createP2pPaymentMethodBodyHolderNameMax = 80;
+
+export const CreateP2pPaymentMethodBody = zod.object({
+  method: zod.enum(["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"]),
+  label: zod.string().min(1).max(createP2pPaymentMethodBodyLabelMax),
+  account: zod.string().min(1).max(createP2pPaymentMethodBodyAccountMax),
+  ifsc: zod.string().max(createP2pPaymentMethodBodyIfscMax).optional(),
+  holderName: zod
+    .string()
+    .max(createP2pPaymentMethodBodyHolderNameMax)
+    .optional(),
+});
+
+export const CreateP2pPaymentMethodResponse = zod.object({
+  id: zod.number(),
+  method: zod.enum(["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"]),
+  label: zod.string(),
+  account: zod.string(),
+  ifsc: zod.string().nullish(),
+  holderName: zod.string().nullish(),
+  active: zod.boolean(),
+});
+
+/**
+ * @summary Soft-delete (deactivate) a payment method
+ */
+
+export const DeleteP2pPaymentMethodParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const DeleteP2pPaymentMethodResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Browse the public offer book
+ */
+
+export const listP2pOffersQueryFiatDefault = `INR`;
+
+export const ListP2pOffersQueryParams = zod.object({
+  side: zod
+    .enum(["buy", "sell"])
+    .optional()
+    .describe(
+      "buy = merchant wants to buy crypto from you; sell = merchant sells crypto to you",
+    ),
+  coinId: zod.coerce.number().min(1).optional(),
+  fiat: zod.coerce.string().default(listP2pOffersQueryFiatDefault),
+  paymentMethod: zod.coerce.string().optional(),
+});
+
+export const ListP2pOffersResponseItem = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  userId: zod.number(),
+  side: zod.enum(["buy", "sell"]),
+  fiat: zod.string(),
+  price: zod.number(),
+  totalQty: zod.number(),
+  availableQty: zod.number(),
+  minFiat: zod.number(),
+  maxFiat: zod.number(),
+  paymentMethods: zod.array(zod.string()),
+  payWindowMins: zod.number(),
+  terms: zod.string().nullish(),
+  status: zod.enum(["online", "offline", "closed", "suspended"]),
+  minKycLevel: zod.number(),
+  minTrades: zod.number(),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  merchant: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  createdAt: zod.coerce.date(),
+});
+export const ListP2pOffersResponse = zod.array(ListP2pOffersResponseItem);
+
+/**
+ * @summary Post a new merchant offer
+ */
+
+export const createP2pOfferBodyFiatDefault = `INR`;
+export const createP2pOfferBodyPriceExclusiveMin = 0;
+
+export const createP2pOfferBodyTotalQtyExclusiveMin = 0;
+
+export const createP2pOfferBodyMinFiatExclusiveMin = 0;
+
+export const createP2pOfferBodyMaxFiatExclusiveMin = 0;
+
+export const createP2pOfferBodyPayWindowMinsDefault = 15;
+export const createP2pOfferBodyPayWindowMinsMin = 5;
+export const createP2pOfferBodyPayWindowMinsMax = 240;
+
+export const createP2pOfferBodyTermsMax = 2000;
+
+export const createP2pOfferBodyMinKycLevelDefault = 1;
+export const createP2pOfferBodyMinKycLevelMin = 0;
+export const createP2pOfferBodyMinKycLevelMax = 3;
+
+export const createP2pOfferBodyMinTradesDefault = 0;
+export const createP2pOfferBodyMinTradesMin = 0;
+
+export const CreateP2pOfferBody = zod.object({
+  side: zod.enum(["buy", "sell"]),
+  coinId: zod.number().min(1),
+  fiat: zod.string().default(createP2pOfferBodyFiatDefault),
+  price: zod.number().gt(createP2pOfferBodyPriceExclusiveMin),
+  totalQty: zod.number().gt(createP2pOfferBodyTotalQtyExclusiveMin),
+  minFiat: zod.number().gt(createP2pOfferBodyMinFiatExclusiveMin),
+  maxFiat: zod.number().gt(createP2pOfferBodyMaxFiatExclusiveMin),
+  paymentMethods: zod
+    .array(
+      zod.enum(["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"]),
+    )
+    .min(1),
+  payWindowMins: zod
+    .number()
+    .min(createP2pOfferBodyPayWindowMinsMin)
+    .max(createP2pOfferBodyPayWindowMinsMax)
+    .default(createP2pOfferBodyPayWindowMinsDefault),
+  terms: zod.string().max(createP2pOfferBodyTermsMax).optional(),
+  minKycLevel: zod
+    .number()
+    .min(createP2pOfferBodyMinKycLevelMin)
+    .max(createP2pOfferBodyMinKycLevelMax)
+    .default(createP2pOfferBodyMinKycLevelDefault),
+  minTrades: zod
+    .number()
+    .min(createP2pOfferBodyMinTradesMin)
+    .default(createP2pOfferBodyMinTradesDefault),
+});
+
+export const CreateP2pOfferResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  userId: zod.number(),
+  side: zod.enum(["buy", "sell"]),
+  fiat: zod.string(),
+  price: zod.number(),
+  totalQty: zod.number(),
+  availableQty: zod.number(),
+  minFiat: zod.number(),
+  maxFiat: zod.number(),
+  paymentMethods: zod.array(zod.string()),
+  payWindowMins: zod.number(),
+  terms: zod.string().nullish(),
+  status: zod.enum(["online", "offline", "closed", "suspended"]),
+  minKycLevel: zod.number(),
+  minTrades: zod.number(),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  merchant: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary List offers owned by the authenticated user (any status)
+ */
+export const ListMyP2pOffersResponseItem = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  userId: zod.number(),
+  side: zod.enum(["buy", "sell"]),
+  fiat: zod.string(),
+  price: zod.number(),
+  totalQty: zod.number(),
+  availableQty: zod.number(),
+  minFiat: zod.number(),
+  maxFiat: zod.number(),
+  paymentMethods: zod.array(zod.string()),
+  payWindowMins: zod.number(),
+  terms: zod.string().nullish(),
+  status: zod.enum(["online", "offline", "closed", "suspended"]),
+  minKycLevel: zod.number(),
+  minTrades: zod.number(),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  merchant: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  createdAt: zod.coerce.date(),
+});
+export const ListMyP2pOffersResponse = zod.array(ListMyP2pOffersResponseItem);
+
+/**
+ * @summary Update a merchant's own offer (price / qty / payment methods / status)
+ */
+
+export const UpdateP2pOfferParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const updateP2pOfferBodyPriceExclusiveMin = 0;
+
+export const updateP2pOfferBodyTotalQtyExclusiveMin = 0;
+
+export const updateP2pOfferBodyMinFiatExclusiveMin = 0;
+
+export const updateP2pOfferBodyMaxFiatExclusiveMin = 0;
+
+export const updateP2pOfferBodyPayWindowMinsMin = 5;
+export const updateP2pOfferBodyPayWindowMinsMax = 240;
+
+export const updateP2pOfferBodyTermsMax = 2000;
+
+export const updateP2pOfferBodyMinKycLevelMin = 0;
+export const updateP2pOfferBodyMinKycLevelMax = 3;
+
+export const updateP2pOfferBodyMinTradesMin = 0;
+
+export const UpdateP2pOfferBody = zod.object({
+  price: zod.number().gt(updateP2pOfferBodyPriceExclusiveMin).optional(),
+  totalQty: zod.number().gt(updateP2pOfferBodyTotalQtyExclusiveMin).optional(),
+  minFiat: zod.number().gt(updateP2pOfferBodyMinFiatExclusiveMin).optional(),
+  maxFiat: zod.number().gt(updateP2pOfferBodyMaxFiatExclusiveMin).optional(),
+  paymentMethods: zod
+    .array(
+      zod.enum(["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"]),
+    )
+    .optional(),
+  payWindowMins: zod
+    .number()
+    .min(updateP2pOfferBodyPayWindowMinsMin)
+    .max(updateP2pOfferBodyPayWindowMinsMax)
+    .optional(),
+  terms: zod.string().max(updateP2pOfferBodyTermsMax).optional(),
+  status: zod.enum(["online", "offline", "closed"]).optional(),
+  minKycLevel: zod
+    .number()
+    .min(updateP2pOfferBodyMinKycLevelMin)
+    .max(updateP2pOfferBodyMinKycLevelMax)
+    .optional(),
+  minTrades: zod.number().min(updateP2pOfferBodyMinTradesMin).optional(),
+});
+
+export const UpdateP2pOfferResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  userId: zod.number(),
+  side: zod.enum(["buy", "sell"]),
+  fiat: zod.string(),
+  price: zod.number(),
+  totalQty: zod.number(),
+  availableQty: zod.number(),
+  minFiat: zod.number(),
+  maxFiat: zod.number(),
+  paymentMethods: zod.array(zod.string()),
+  payWindowMins: zod.number(),
+  terms: zod.string().nullish(),
+  status: zod.enum(["online", "offline", "closed", "suspended"]),
+  minKycLevel: zod.number(),
+  minTrades: zod.number(),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  merchant: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Soft-delete a merchant's own offer (status → closed)
+ */
+
+export const DeleteP2pOfferParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const DeleteP2pOfferResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary List all orders the authenticated user is party to (buyer or seller)
+ */
+export const ListP2pOrdersQueryParams = zod.object({
+  status: zod
+    .enum(["pending", "paid", "released", "cancelled", "disputed", "expired"])
+    .optional(),
+});
+
+export const ListP2pOrdersResponseItem = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+export const ListP2pOrdersResponse = zod.array(ListP2pOrdersResponseItem);
+
+/**
+ * @summary Open a new order against an existing offer (locks seller's escrow)
+ */
+
+export const openP2pOrderBodyQtyExclusiveMin = 0;
+
+export const OpenP2pOrderBody = zod.object({
+  offerId: zod.number().min(1),
+  qty: zod.number().gt(openP2pOrderBodyQtyExclusiveMin),
+  paymentMethodId: zod.number().min(1),
+});
+
+export const OpenP2pOrderResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Get a single order (must be a party or admin)
+ */
+
+export const GetP2pOrderParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const GetP2pOrderResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Buyer marks the fiat as transferred (optional UTR / reference)
+ */
+
+export const MarkP2pOrderPaidParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const markP2pOrderPaidBodyUtrMax = 64;
+
+export const MarkP2pOrderPaidBody = zod.object({
+  utr: zod.string().max(markP2pOrderPaidBodyUtrMax).optional(),
+});
+
+export const MarkP2pOrderPaidResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Seller releases escrow → crypto credited to buyer
+ */
+
+export const ReleaseP2pOrderParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const ReleaseP2pOrderResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Cancel a pending order (refunds seller's escrow)
+ */
+
+export const CancelP2pOrderParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const CancelP2pOrderResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Open a dispute on a pending or paid order
+ */
+
+export const OpenP2pDisputeParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const openP2pDisputeBodyReasonMin = 8;
+export const openP2pDisputeBodyReasonMax = 1000;
+
+export const OpenP2pDisputeBody = zod.object({
+  reason: zod
+    .string()
+    .min(openP2pDisputeBodyReasonMin)
+    .max(openP2pDisputeBodyReasonMax),
+});
+
+export const OpenP2pDisputeResponse = zod.object({
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  role: zod.enum(["buyer", "seller"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary List chat messages on an order
+ */
+
+export const ListP2pMessagesParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const ListP2pMessagesResponseItem = zod.object({
+  id: zod.number(),
+  orderId: zod.number(),
+  senderId: zod.number(),
+  senderRole: zod.enum(["buyer", "seller", "admin", "system"]),
+  body: zod.string(),
+  createdAt: zod.coerce.date(),
+});
+export const ListP2pMessagesResponse = zod.array(ListP2pMessagesResponseItem);
+
+/**
+ * @summary Post a chat message to an order
+ */
+
+export const PostP2pMessageParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const postP2pMessageBodyBodyMax = 2000;
+
+export const PostP2pMessageBody = zod.object({
+  body: zod.string().min(1).max(postP2pMessageBodyBodyMax),
+});
+
+export const PostP2pMessageResponse = zod.object({
+  id: zod.number(),
+  orderId: zod.number(),
+  senderId: zod.number(),
+  senderRole: zod.enum(["buyer", "seller", "admin", "system"]),
+  body: zod.string(),
+  createdAt: zod.coerce.date(),
+});

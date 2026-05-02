@@ -7,6 +7,7 @@ import {
   p2pOrdersTable,
   p2pMessagesTable,
   p2pPaymentMethodsTable,
+  p2pDisputesTable,
   walletsTable,
   coinsTable,
   usersTable,
@@ -716,6 +717,20 @@ router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<vo
         disputeOpenedAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(p2pOrdersTable.id, id)).returning();
+      // Mirror into the dedicated p2p_disputes table (one row per order).
+      // ON CONFLICT covers the rare case of a re-opened dispute on the
+      // same order — we simply refresh the existing row.
+      await tx.insert(p2pDisputesTable).values({
+        orderId: id,
+        openedBy: req.user!.id,
+        buyerId: o.buyerId,
+        sellerId: o.sellerId,
+        reason,
+        status: "open",
+      }).onConflictDoUpdate({
+        target: p2pDisputesTable.orderId,
+        set: { status: "open", reason, openedBy: req.user!.id, openedAt: new Date(), updatedAt: new Date() },
+      });
       await tx.insert(p2pMessagesTable).values({
         orderId: id, senderId: req.user!.id, senderRole: "system",
         body: `Dispute opened: ${reason.slice(0, 200)}`,
@@ -865,6 +880,33 @@ router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Prom
       await db.insert(p2pMessagesTable).values({
         orderId: id, senderId: req.user!.id, senderRole: "admin",
         body: `Admin notes: ${notes.slice(0, 300)}`,
+      });
+    }
+    // Close the row in p2p_disputes — UPDATE-then-INSERT-on-miss covers
+    // legacy disputes opened before migration 008 landed.
+    const [existingDispute] = await db.select({ id: p2pDisputesTable.id })
+      .from(p2pDisputesTable).where(eq(p2pDisputesTable.orderId, id)).limit(1);
+    if (existingDispute) {
+      await db.update(p2pDisputesTable).set({
+        status: "resolved",
+        resolution: action,
+        resolvedBy: req.user!.id,
+        resolvedAt: new Date(),
+        notes: notes || null,
+        updatedAt: new Date(),
+      }).where(eq(p2pDisputesTable.id, existingDispute.id));
+    } else {
+      await db.insert(p2pDisputesTable).values({
+        orderId: id,
+        openedBy: o.disputeOpenedBy ?? o.buyerId,
+        buyerId: o.buyerId,
+        sellerId: o.sellerId,
+        reason: o.disputeReason ?? "(legacy)",
+        status: "resolved",
+        resolution: action,
+        resolvedBy: req.user!.id,
+        resolvedAt: new Date(),
+        notes: notes || null,
       });
     }
     req.log.info({ adminId: req.user!.id, orderId: id, action, hasNotes: notes.length > 0 }, "admin resolved p2p dispute");

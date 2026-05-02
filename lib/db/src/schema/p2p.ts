@@ -163,3 +163,44 @@ export const p2pMessagesTable = pgTable("p2p_messages", {
 }));
 
 export type P2pMessage = typeof p2pMessagesTable.$inferSelect;
+
+// ─── P2P Disputes ───────────────────────────────────────────────────────
+// Dedicated dispute record per P2P order — one-to-one with p2p_orders
+// (orderId is unique). The legacy embedded dispute_* columns on
+// p2p_orders are kept for backward-compat during the migration window
+// but new disputes are also written here so admin tooling, audit, and
+// SLA dashboards can query disputes independently of the order table.
+//
+// Status lifecycle: open → resolved (release|refund) | escalated
+//   - "release" = admin pushed escrow to buyer
+//   - "refund"  = admin refunded escrow to seller
+//   - "escalated" = needs manual review beyond the on-platform agent
+export const p2pDisputesTable = pgTable("p2p_disputes", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().unique(),
+  openedBy: integer("opened_by").notNull(),
+  // Snapshot of buyer/seller at dispute time so the admin queue
+  // doesn't need to re-join with p2p_orders for the basic display.
+  buyerId: integer("buyer_id").notNull(),
+  sellerId: integer("seller_id").notNull(),
+  reason: text("reason").notNull(),
+  // Optional payment-evidence URL (object-storage path / external link)
+  // for the future screenshots feature — column added now to avoid a
+  // second migration when the upload UI lands.
+  evidenceUrl: text("evidence_url"),
+  // open | resolved | escalated
+  status: text("status").notNull().default("open"),
+  // Resolution fields — populated when admin presses release/refund.
+  resolution: text("resolution"), // "release" | "refund" | "escalate"
+  resolvedBy: integer("resolved_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  notes: text("notes"),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => ({
+  statusIdx: index("p2p_dispute_status_idx").on(t.status, t.openedAt),
+  buyerIdx: index("p2p_dispute_buyer_idx").on(t.buyerId),
+  sellerIdx: index("p2p_dispute_seller_idx").on(t.sellerId),
+}));
+
+export type P2pDispute = typeof p2pDisputesTable.$inferSelect;

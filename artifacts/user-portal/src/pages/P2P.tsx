@@ -7,6 +7,19 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { get, post, patch, del, ApiError } from "@/lib/api";
+import {
+  useMarkP2pOrderPaid,
+  useReleaseP2pOrder,
+  useCancelP2pOrder,
+  useOpenP2pDispute,
+  usePostP2pMessage,
+} from "@workspace/api-client-react";
+
+// Generated hooks use the shared `customFetch` from @workspace/api-client-react
+// which doesn't default cookie credentials (so the same client can be used
+// from Expo with bearer tokens). The user-portal needs the session cookie,
+// so we pass `credentials: "include"` per-call via the `request` option.
+const COOKIE_REQ = { credentials: "include" as const };
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -888,43 +901,63 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
     refetchInterval: 4000,
   });
 
-  const markPaidMut = useMutation({
-    mutationFn: () => post(`/p2p/orders/${initial.id}/mark-paid`, { utr: utr || undefined }),
-    onSuccess: () => {
-      toast({ title: "Marked as paid", description: "Seller has been notified." });
-      qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+  // ─── Order-action mutations (generated from OpenAPI) ──────────────────
+  // These five hooks come from @workspace/api-client-react which is
+  // produced by orval against lib/api-spec/openapi.yaml. The shape is
+  // `mutation.mutate({ id, data })` — body shape is enforced by the
+  // generated `BodyType<P2pMarkPaidInput | P2pDisputeInput | P2pMessageInput>`
+  // type so a typo on the wire is caught at compile time.
+  const onActionFail = (e: unknown) =>
+    toast({ title: "Failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" });
+
+  const markPaidMut = useMarkP2pOrderPaid({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Marked as paid", description: "Seller has been notified." });
+        qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+      },
+      onError: onActionFail,
     },
-    onError: (e: ApiError) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
-  const releaseMut = useMutation({
-    mutationFn: () => post(`/p2p/orders/${initial.id}/release`, {}),
-    onSuccess: () => {
-      toast({ title: "Released", description: "Crypto sent to buyer." });
-      qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+  const releaseMut = useReleaseP2pOrder({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Released", description: "Crypto sent to buyer." });
+        qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+      },
+      onError: onActionFail,
     },
-    onError: (e: ApiError) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
-  const cancelMut = useMutation({
-    mutationFn: () => post(`/p2p/orders/${initial.id}/cancel`, {}),
-    onSuccess: () => {
-      toast({ title: "Cancelled", description: "Escrow refunded to seller." });
-      qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+  const cancelMut = useCancelP2pOrder({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Cancelled", description: "Escrow refunded to seller." });
+        qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+      },
+      onError: onActionFail,
     },
-    onError: (e: ApiError) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
-  const disputeMut = useMutation({
-    mutationFn: () => post(`/p2p/orders/${initial.id}/dispute`, { reason: disputeReason }),
-    onSuccess: () => {
-      toast({ title: "Dispute opened", description: "Admin will review shortly." });
-      setShowDispute(false);
-      qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+  const disputeMut = useOpenP2pDispute({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Dispute opened", description: "Admin will review shortly." });
+        setShowDispute(false);
+        qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+      },
+      onError: onActionFail,
     },
-    onError: (e: ApiError) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
-  const sendChatMut = useMutation({
-    mutationFn: () => post(`/p2p/orders/${initial.id}/messages`, { body: chatBody }),
-    onSuccess: () => { setChatBody(""); messagesQ.refetch(); },
-    onError: (e: ApiError) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
+  const sendChatMut = usePostP2pMessage({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => { setChatBody(""); messagesQ.refetch(); },
+      onError: (e: unknown) =>
+        toast({ title: "Send failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
+    },
   });
 
   const isBuyer = order.role === "buyer";
@@ -986,7 +1019,7 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
                     />
                     <Button
                       className="w-full bg-emerald-500 hover:bg-emerald-600"
-                      onClick={() => markPaidMut.mutate()}
+                      onClick={() => markPaidMut.mutate({ id: order.id, data: { utr: utr || undefined } })}
                       disabled={markPaidMut.isPending}
                       data-testid="p2p-mark-paid"
                     >
@@ -998,7 +1031,7 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
                 {canRelease && (
                   <Button
                     className="w-full bg-emerald-500 hover:bg-emerald-600"
-                    onClick={() => { if (confirm("Confirm fiat received and release crypto to buyer?")) releaseMut.mutate(); }}
+                    onClick={() => { if (confirm("Confirm fiat received and release crypto to buyer?")) releaseMut.mutate({ id: order.id }); }}
                     disabled={releaseMut.isPending}
                     data-testid="p2p-release"
                   >
@@ -1010,7 +1043,7 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
                   <Button
                     variant="outline"
                     className="w-full"
-                    onClick={() => { if (confirm("Cancel this order? Escrow refunds to seller.")) cancelMut.mutate(); }}
+                    onClick={() => { if (confirm("Cancel this order? Escrow refunds to seller.")) cancelMut.mutate({ id: order.id }); }}
                     disabled={cancelMut.isPending}
                     data-testid="p2p-cancel"
                   >
@@ -1071,12 +1104,12 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
                   placeholder="Type a message…"
                   value={chatBody}
                   onChange={(e) => setChatBody(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && chatBody.trim()) { e.preventDefault(); sendChatMut.mutate(); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && chatBody.trim()) { e.preventDefault(); sendChatMut.mutate({ id: order.id, data: { body: chatBody } }); } }}
                   data-testid="p2p-chat-input"
                 />
                 <Button
                   size="icon"
-                  onClick={() => sendChatMut.mutate()}
+                  onClick={() => sendChatMut.mutate({ id: order.id, data: { body: chatBody } })}
                   disabled={!chatBody.trim() || sendChatMut.isPending}
                   data-testid="p2p-chat-send"
                 >
@@ -1104,7 +1137,7 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowDispute(false)}>Cancel</Button>
                 <Button
-                  onClick={() => disputeMut.mutate()}
+                  onClick={() => disputeMut.mutate({ id: order.id, data: { reason: disputeReason } })}
                   disabled={disputeReason.length < 10 || disputeMut.isPending}
                   data-testid="p2p-dispute-submit"
                 >

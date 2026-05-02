@@ -5,18 +5,37 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  HealthStatus,
+  ListP2pOffersParams,
+  ListP2pOrdersParams,
+  OkResponse,
+  P2pDisputeInput,
+  P2pMarkPaidInput,
+  P2pMessage,
+  P2pMessageInput,
+  P2pOffer,
+  P2pOfferInput,
+  P2pOfferPatch,
+  P2pOrder,
+  P2pOrderInput,
+  P2pPaymentMethod,
+  P2pPaymentMethodInput,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -99,3 +118,1458 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List the authenticated user's saved P2P payment methods
+ */
+export const getListP2pPaymentMethodsUrl = () => {
+  return `/api/p2p/payment-methods`;
+};
+
+export const listP2pPaymentMethods = async (
+  options?: RequestInit,
+): Promise<P2pPaymentMethod[]> => {
+  return customFetch<P2pPaymentMethod[]>(getListP2pPaymentMethodsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pPaymentMethodsQueryKey = () => {
+  return [`/api/p2p/payment-methods`] as const;
+};
+
+export const getListP2pPaymentMethodsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pPaymentMethods>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pPaymentMethods>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListP2pPaymentMethodsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listP2pPaymentMethods>>
+  > = ({ signal }) => listP2pPaymentMethods({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pPaymentMethods>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pPaymentMethodsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pPaymentMethods>>
+>;
+export type ListP2pPaymentMethodsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the authenticated user's saved P2P payment methods
+ */
+
+export function useListP2pPaymentMethods<
+  TData = Awaited<ReturnType<typeof listP2pPaymentMethods>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pPaymentMethods>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pPaymentMethodsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add a payment method (UPI / IMPS / bank / wallet)
+ */
+export const getCreateP2pPaymentMethodUrl = () => {
+  return `/api/p2p/payment-methods`;
+};
+
+export const createP2pPaymentMethod = async (
+  p2pPaymentMethodInput: P2pPaymentMethodInput,
+  options?: RequestInit,
+): Promise<P2pPaymentMethod> => {
+  return customFetch<P2pPaymentMethod>(getCreateP2pPaymentMethodUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pPaymentMethodInput),
+  });
+};
+
+export const getCreateP2pPaymentMethodMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createP2pPaymentMethod>>,
+    TError,
+    { data: BodyType<P2pPaymentMethodInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createP2pPaymentMethod>>,
+  TError,
+  { data: BodyType<P2pPaymentMethodInput> },
+  TContext
+> => {
+  const mutationKey = ["createP2pPaymentMethod"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createP2pPaymentMethod>>,
+    { data: BodyType<P2pPaymentMethodInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createP2pPaymentMethod(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateP2pPaymentMethodMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createP2pPaymentMethod>>
+>;
+export type CreateP2pPaymentMethodMutationBody =
+  BodyType<P2pPaymentMethodInput>;
+export type CreateP2pPaymentMethodMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Add a payment method (UPI / IMPS / bank / wallet)
+ */
+export const useCreateP2pPaymentMethod = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createP2pPaymentMethod>>,
+    TError,
+    { data: BodyType<P2pPaymentMethodInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createP2pPaymentMethod>>,
+  TError,
+  { data: BodyType<P2pPaymentMethodInput> },
+  TContext
+> => {
+  return useMutation(getCreateP2pPaymentMethodMutationOptions(options));
+};
+
+/**
+ * @summary Soft-delete (deactivate) a payment method
+ */
+export const getDeleteP2pPaymentMethodUrl = (id: number) => {
+  return `/api/p2p/payment-methods/${id}`;
+};
+
+export const deleteP2pPaymentMethod = async (
+  id: number,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getDeleteP2pPaymentMethodUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteP2pPaymentMethodMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteP2pPaymentMethod>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteP2pPaymentMethod>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteP2pPaymentMethod"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteP2pPaymentMethod>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteP2pPaymentMethod(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteP2pPaymentMethodMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteP2pPaymentMethod>>
+>;
+
+export type DeleteP2pPaymentMethodMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Soft-delete (deactivate) a payment method
+ */
+export const useDeleteP2pPaymentMethod = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteP2pPaymentMethod>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteP2pPaymentMethod>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteP2pPaymentMethodMutationOptions(options));
+};
+
+/**
+ * @summary Browse the public offer book
+ */
+export const getListP2pOffersUrl = (params?: ListP2pOffersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/p2p/offers?${stringifiedParams}`
+    : `/api/p2p/offers`;
+};
+
+export const listP2pOffers = async (
+  params?: ListP2pOffersParams,
+  options?: RequestInit,
+): Promise<P2pOffer[]> => {
+  return customFetch<P2pOffer[]>(getListP2pOffersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pOffersQueryKey = (params?: ListP2pOffersParams) => {
+  return [`/api/p2p/offers`, ...(params ? [params] : [])] as const;
+};
+
+export const getListP2pOffersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pOffers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pOffersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pOffers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListP2pOffersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listP2pOffers>>> = ({
+    signal,
+  }) => listP2pOffers(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pOffers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pOffersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pOffers>>
+>;
+export type ListP2pOffersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Browse the public offer book
+ */
+
+export function useListP2pOffers<
+  TData = Awaited<ReturnType<typeof listP2pOffers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pOffersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pOffers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pOffersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Post a new merchant offer
+ */
+export const getCreateP2pOfferUrl = () => {
+  return `/api/p2p/offers`;
+};
+
+export const createP2pOffer = async (
+  p2pOfferInput: P2pOfferInput,
+  options?: RequestInit,
+): Promise<P2pOffer> => {
+  return customFetch<P2pOffer>(getCreateP2pOfferUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pOfferInput),
+  });
+};
+
+export const getCreateP2pOfferMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createP2pOffer>>,
+    TError,
+    { data: BodyType<P2pOfferInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createP2pOffer>>,
+  TError,
+  { data: BodyType<P2pOfferInput> },
+  TContext
+> => {
+  const mutationKey = ["createP2pOffer"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createP2pOffer>>,
+    { data: BodyType<P2pOfferInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createP2pOffer(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateP2pOfferMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createP2pOffer>>
+>;
+export type CreateP2pOfferMutationBody = BodyType<P2pOfferInput>;
+export type CreateP2pOfferMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Post a new merchant offer
+ */
+export const useCreateP2pOffer = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createP2pOffer>>,
+    TError,
+    { data: BodyType<P2pOfferInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createP2pOffer>>,
+  TError,
+  { data: BodyType<P2pOfferInput> },
+  TContext
+> => {
+  return useMutation(getCreateP2pOfferMutationOptions(options));
+};
+
+/**
+ * @summary List offers owned by the authenticated user (any status)
+ */
+export const getListMyP2pOffersUrl = () => {
+  return `/api/p2p/offers/mine`;
+};
+
+export const listMyP2pOffers = async (
+  options?: RequestInit,
+): Promise<P2pOffer[]> => {
+  return customFetch<P2pOffer[]>(getListMyP2pOffersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListMyP2pOffersQueryKey = () => {
+  return [`/api/p2p/offers/mine`] as const;
+};
+
+export const getListMyP2pOffersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMyP2pOffers>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMyP2pOffers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListMyP2pOffersQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listMyP2pOffers>>> = ({
+    signal,
+  }) => listMyP2pOffers({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listMyP2pOffers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListMyP2pOffersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listMyP2pOffers>>
+>;
+export type ListMyP2pOffersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List offers owned by the authenticated user (any status)
+ */
+
+export function useListMyP2pOffers<
+  TData = Awaited<ReturnType<typeof listMyP2pOffers>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMyP2pOffers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListMyP2pOffersQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update a merchant's own offer (price / qty / payment methods / status)
+ */
+export const getUpdateP2pOfferUrl = (id: number) => {
+  return `/api/p2p/offers/${id}`;
+};
+
+export const updateP2pOffer = async (
+  id: number,
+  p2pOfferPatch: P2pOfferPatch,
+  options?: RequestInit,
+): Promise<P2pOffer> => {
+  return customFetch<P2pOffer>(getUpdateP2pOfferUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pOfferPatch),
+  });
+};
+
+export const getUpdateP2pOfferMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateP2pOffer>>,
+    TError,
+    { id: number; data: BodyType<P2pOfferPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateP2pOffer>>,
+  TError,
+  { id: number; data: BodyType<P2pOfferPatch> },
+  TContext
+> => {
+  const mutationKey = ["updateP2pOffer"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateP2pOffer>>,
+    { id: number; data: BodyType<P2pOfferPatch> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateP2pOffer(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateP2pOfferMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateP2pOffer>>
+>;
+export type UpdateP2pOfferMutationBody = BodyType<P2pOfferPatch>;
+export type UpdateP2pOfferMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a merchant's own offer (price / qty / payment methods / status)
+ */
+export const useUpdateP2pOffer = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateP2pOffer>>,
+    TError,
+    { id: number; data: BodyType<P2pOfferPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateP2pOffer>>,
+  TError,
+  { id: number; data: BodyType<P2pOfferPatch> },
+  TContext
+> => {
+  return useMutation(getUpdateP2pOfferMutationOptions(options));
+};
+
+/**
+ * @summary Soft-delete a merchant's own offer (status → closed)
+ */
+export const getDeleteP2pOfferUrl = (id: number) => {
+  return `/api/p2p/offers/${id}`;
+};
+
+export const deleteP2pOffer = async (
+  id: number,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getDeleteP2pOfferUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteP2pOfferMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteP2pOffer>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteP2pOffer>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteP2pOffer"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteP2pOffer>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteP2pOffer(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteP2pOfferMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteP2pOffer>>
+>;
+
+export type DeleteP2pOfferMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Soft-delete a merchant's own offer (status → closed)
+ */
+export const useDeleteP2pOffer = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteP2pOffer>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteP2pOffer>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteP2pOfferMutationOptions(options));
+};
+
+/**
+ * @summary List all orders the authenticated user is party to (buyer or seller)
+ */
+export const getListP2pOrdersUrl = (params?: ListP2pOrdersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/p2p/orders?${stringifiedParams}`
+    : `/api/p2p/orders`;
+};
+
+export const listP2pOrders = async (
+  params?: ListP2pOrdersParams,
+  options?: RequestInit,
+): Promise<P2pOrder[]> => {
+  return customFetch<P2pOrder[]>(getListP2pOrdersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pOrdersQueryKey = (params?: ListP2pOrdersParams) => {
+  return [`/api/p2p/orders`, ...(params ? [params] : [])] as const;
+};
+
+export const getListP2pOrdersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListP2pOrdersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listP2pOrders>>> = ({
+    signal,
+  }) => listP2pOrders(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pOrders>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pOrdersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pOrders>>
+>;
+export type ListP2pOrdersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all orders the authenticated user is party to (buyer or seller)
+ */
+
+export function useListP2pOrders<
+  TData = Awaited<ReturnType<typeof listP2pOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pOrdersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Open a new order against an existing offer (locks seller's escrow)
+ */
+export const getOpenP2pOrderUrl = () => {
+  return `/api/p2p/orders`;
+};
+
+export const openP2pOrder = async (
+  p2pOrderInput: P2pOrderInput,
+  options?: RequestInit,
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getOpenP2pOrderUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pOrderInput),
+  });
+};
+
+export const getOpenP2pOrderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openP2pOrder>>,
+    TError,
+    { data: BodyType<P2pOrderInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof openP2pOrder>>,
+  TError,
+  { data: BodyType<P2pOrderInput> },
+  TContext
+> => {
+  const mutationKey = ["openP2pOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof openP2pOrder>>,
+    { data: BodyType<P2pOrderInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return openP2pOrder(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OpenP2pOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof openP2pOrder>>
+>;
+export type OpenP2pOrderMutationBody = BodyType<P2pOrderInput>;
+export type OpenP2pOrderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Open a new order against an existing offer (locks seller's escrow)
+ */
+export const useOpenP2pOrder = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openP2pOrder>>,
+    TError,
+    { data: BodyType<P2pOrderInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof openP2pOrder>>,
+  TError,
+  { data: BodyType<P2pOrderInput> },
+  TContext
+> => {
+  return useMutation(getOpenP2pOrderMutationOptions(options));
+};
+
+/**
+ * @summary Get a single order (must be a party or admin)
+ */
+export const getGetP2pOrderUrl = (id: number) => {
+  return `/api/p2p/orders/${id}`;
+};
+
+export const getP2pOrder = async (
+  id: number,
+  options?: RequestInit,
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getGetP2pOrderUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetP2pOrderQueryKey = (id: number) => {
+  return [`/api/p2p/orders/${id}`] as const;
+};
+
+export const getGetP2pOrderQueryOptions = <
+  TData = Awaited<ReturnType<typeof getP2pOrder>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getP2pOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetP2pOrderQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getP2pOrder>>> = ({
+    signal,
+  }) => getP2pOrder(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getP2pOrder>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetP2pOrderQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getP2pOrder>>
+>;
+export type GetP2pOrderQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get a single order (must be a party or admin)
+ */
+
+export function useGetP2pOrder<
+  TData = Awaited<ReturnType<typeof getP2pOrder>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getP2pOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetP2pOrderQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Buyer marks the fiat as transferred (optional UTR / reference)
+ */
+export const getMarkP2pOrderPaidUrl = (id: number) => {
+  return `/api/p2p/orders/${id}/mark-paid`;
+};
+
+export const markP2pOrderPaid = async (
+  id: number,
+  p2pMarkPaidInput?: P2pMarkPaidInput,
+  options?: RequestInit,
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getMarkP2pOrderPaidUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pMarkPaidInput),
+  });
+};
+
+export const getMarkP2pOrderPaidMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markP2pOrderPaid>>,
+    TError,
+    { id: number; data: BodyType<P2pMarkPaidInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markP2pOrderPaid>>,
+  TError,
+  { id: number; data: BodyType<P2pMarkPaidInput> },
+  TContext
+> => {
+  const mutationKey = ["markP2pOrderPaid"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markP2pOrderPaid>>,
+    { id: number; data: BodyType<P2pMarkPaidInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return markP2pOrderPaid(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkP2pOrderPaidMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markP2pOrderPaid>>
+>;
+export type MarkP2pOrderPaidMutationBody = BodyType<P2pMarkPaidInput>;
+export type MarkP2pOrderPaidMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Buyer marks the fiat as transferred (optional UTR / reference)
+ */
+export const useMarkP2pOrderPaid = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markP2pOrderPaid>>,
+    TError,
+    { id: number; data: BodyType<P2pMarkPaidInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markP2pOrderPaid>>,
+  TError,
+  { id: number; data: BodyType<P2pMarkPaidInput> },
+  TContext
+> => {
+  return useMutation(getMarkP2pOrderPaidMutationOptions(options));
+};
+
+/**
+ * @summary Seller releases escrow → crypto credited to buyer
+ */
+export const getReleaseP2pOrderUrl = (id: number) => {
+  return `/api/p2p/orders/${id}/release`;
+};
+
+export const releaseP2pOrder = async (
+  id: number,
+  options?: RequestInit,
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getReleaseP2pOrderUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getReleaseP2pOrderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof releaseP2pOrder>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof releaseP2pOrder>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["releaseP2pOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof releaseP2pOrder>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return releaseP2pOrder(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReleaseP2pOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof releaseP2pOrder>>
+>;
+
+export type ReleaseP2pOrderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Seller releases escrow → crypto credited to buyer
+ */
+export const useReleaseP2pOrder = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof releaseP2pOrder>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof releaseP2pOrder>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getReleaseP2pOrderMutationOptions(options));
+};
+
+/**
+ * @summary Cancel a pending order (refunds seller's escrow)
+ */
+export const getCancelP2pOrderUrl = (id: number) => {
+  return `/api/p2p/orders/${id}/cancel`;
+};
+
+export const cancelP2pOrder = async (
+  id: number,
+  options?: RequestInit,
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getCancelP2pOrderUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCancelP2pOrderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelP2pOrder>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelP2pOrder>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["cancelP2pOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelP2pOrder>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return cancelP2pOrder(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelP2pOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelP2pOrder>>
+>;
+
+export type CancelP2pOrderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Cancel a pending order (refunds seller's escrow)
+ */
+export const useCancelP2pOrder = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelP2pOrder>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelP2pOrder>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getCancelP2pOrderMutationOptions(options));
+};
+
+/**
+ * @summary Open a dispute on a pending or paid order
+ */
+export const getOpenP2pDisputeUrl = (id: number) => {
+  return `/api/p2p/orders/${id}/dispute`;
+};
+
+export const openP2pDispute = async (
+  id: number,
+  p2pDisputeInput: P2pDisputeInput,
+  options?: RequestInit,
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getOpenP2pDisputeUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pDisputeInput),
+  });
+};
+
+export const getOpenP2pDisputeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openP2pDispute>>,
+    TError,
+    { id: number; data: BodyType<P2pDisputeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof openP2pDispute>>,
+  TError,
+  { id: number; data: BodyType<P2pDisputeInput> },
+  TContext
+> => {
+  const mutationKey = ["openP2pDispute"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof openP2pDispute>>,
+    { id: number; data: BodyType<P2pDisputeInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return openP2pDispute(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OpenP2pDisputeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof openP2pDispute>>
+>;
+export type OpenP2pDisputeMutationBody = BodyType<P2pDisputeInput>;
+export type OpenP2pDisputeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Open a dispute on a pending or paid order
+ */
+export const useOpenP2pDispute = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openP2pDispute>>,
+    TError,
+    { id: number; data: BodyType<P2pDisputeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof openP2pDispute>>,
+  TError,
+  { id: number; data: BodyType<P2pDisputeInput> },
+  TContext
+> => {
+  return useMutation(getOpenP2pDisputeMutationOptions(options));
+};
+
+/**
+ * @summary List chat messages on an order
+ */
+export const getListP2pMessagesUrl = (id: number) => {
+  return `/api/p2p/orders/${id}/messages`;
+};
+
+export const listP2pMessages = async (
+  id: number,
+  options?: RequestInit,
+): Promise<P2pMessage[]> => {
+  return customFetch<P2pMessage[]>(getListP2pMessagesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pMessagesQueryKey = (id: number) => {
+  return [`/api/p2p/orders/${id}/messages`] as const;
+};
+
+export const getListP2pMessagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pMessages>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListP2pMessagesQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listP2pMessages>>> = ({
+    signal,
+  }) => listP2pMessages(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pMessages>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pMessagesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pMessages>>
+>;
+export type ListP2pMessagesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List chat messages on an order
+ */
+
+export function useListP2pMessages<
+  TData = Awaited<ReturnType<typeof listP2pMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pMessages>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pMessagesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Post a chat message to an order
+ */
+export const getPostP2pMessageUrl = (id: number) => {
+  return `/api/p2p/orders/${id}/messages`;
+};
+
+export const postP2pMessage = async (
+  id: number,
+  p2pMessageInput: P2pMessageInput,
+  options?: RequestInit,
+): Promise<P2pMessage> => {
+  return customFetch<P2pMessage>(getPostP2pMessageUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pMessageInput),
+  });
+};
+
+export const getPostP2pMessageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postP2pMessage>>,
+    TError,
+    { id: number; data: BodyType<P2pMessageInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postP2pMessage>>,
+  TError,
+  { id: number; data: BodyType<P2pMessageInput> },
+  TContext
+> => {
+  const mutationKey = ["postP2pMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postP2pMessage>>,
+    { id: number; data: BodyType<P2pMessageInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return postP2pMessage(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostP2pMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postP2pMessage>>
+>;
+export type PostP2pMessageMutationBody = BodyType<P2pMessageInput>;
+export type PostP2pMessageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Post a chat message to an order
+ */
+export const usePostP2pMessage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postP2pMessage>>,
+    TError,
+    { id: number; data: BodyType<P2pMessageInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof postP2pMessage>>,
+  TError,
+  { id: number; data: BodyType<P2pMessageInput> },
+  TContext
+> => {
+  return useMutation(getPostP2pMessageMutationOptions(options));
+};

@@ -6,4 +6,33 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./coin";
 export * from "./healthStatus";
+export * from "./listP2pOffersParams";
+export * from "./listP2pOffersSide";
+export * from "./listP2pOrdersParams";
+export * from "./listP2pOrdersStatus";
+export * from "./merchant";
+export * from "./okResponse";
+export * from "./p2pDisputeInput";
+export * from "./p2pMarkPaidInput";
+export * from "./p2pMessage";
+export * from "./p2pMessageInput";
+export * from "./p2pMessageSenderRole";
+export * from "./p2pOffer";
+export * from "./p2pOfferInput";
+export * from "./p2pOfferInputPaymentMethodsItem";
+export * from "./p2pOfferInputSide";
+export * from "./p2pOfferPatch";
+export * from "./p2pOfferPatchPaymentMethodsItem";
+export * from "./p2pOfferPatchStatus";
+export * from "./p2pOfferSide";
+export * from "./p2pOfferStatus";
+export * from "./p2pOrder";
+export * from "./p2pOrderInput";
+export * from "./p2pOrderRole";
+export * from "./p2pOrderStatus";
+export * from "./p2pPaymentMethod";
+export * from "./p2pPaymentMethodInput";
+export * from "./p2pPaymentMethodInputMethod";
+export * from "./p2pPaymentMethodMethod";
