@@ -1,20 +1,5 @@
-// Instant Convert — one-click crypto-to-crypto / crypto-to-INR swaps backed
-// by the in-memory price cache plus a 10-second locked quote.
-//
-// Pattern matches every other balance-mutating module in this codebase:
-//   - routes/transfer.ts                  (spot ↔ futures ↔ earn ↔ inr)
-//   - lib/matching-engine.ts              (spot order fills)
-//   - lib/inmem-engine/prod/settler.ts    (settlement refunds)
-//   - lib/p2p-escrow.ts                   (P2P lock/release)
-// All open a `db.transaction`, take a `SELECT … FOR UPDATE` lock on the
-// affected wallet rows, and apply numeric deltas via parameterised drizzle
-// `sql` templates (e.g. `${walletsTable.balance} - ${amt}::numeric`).
-//
-// Idempotency: the `convert_quotes.status` column is the source of truth.
-// /execute opens a transaction, takes FOR UPDATE on the quote row, refuses
-// any non-pending status, and only flips to 'executed' after both wallet
-// updates land. A second concurrent /execute on the same quoteId blocks on
-// the row lock and then sees 'executed' → 409.
+// Instant Convert: 10s-locked quotes; idempotent execute via FOR UPDATE on
+// the quote row + status column as source of truth.
 
 import { Router, type IRouter } from "express";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -158,9 +143,7 @@ router.post("/convert/execute", requireAuth, async (req, res): Promise<void> => 
     return;
   }
 
-  // Discriminated result so we can persist failure states (e.g. 'expired')
-  // INSIDE the transaction without throwing — throwing rolls back the very
-  // status update we want to keep, leaving expired quotes stuck as 'pending'.
+  // Return (don't throw) for terminal states so the status update commits.
   type ExecResult =
     | { kind: "ok"; row: typeof convertQuotesTable.$inferSelect }
     | { kind: "fail"; code: number; message: string };
@@ -189,9 +172,6 @@ router.post("/convert/execute", requireAuth, async (req, res): Promise<void> => 
         return { kind: "fail", code: 410, message: "Quote expired — refresh the rate and try again" };
       }
 
-      // Lock source spot wallet (must exist with sufficient balance). Wallet
-      // checks throw because they are *true* abort conditions — there is
-      // nothing about the quote row we need to persist on failure.
       const [src] = await tx.select().from(walletsTable)
         .where(and(
           eq(walletsTable.userId, userId),

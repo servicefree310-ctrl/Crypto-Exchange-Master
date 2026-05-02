@@ -33,10 +33,7 @@ export async function loadVipTiers(): Promise<VipTier[]> {
     if (row?.value) {
       const arr = JSON.parse(row.value);
       if (Array.isArray(arr) && arr.length > 0 && arr.every((t: any) => typeof t.level === "number")) {
-        // Backfill `convertFee` for tiers persisted before this field existed,
-        // so older settings rows continue to resolve a sane convert rate
-        // instead of NaN. We pick the matching default tier by level when
-        // possible, else fall back to a reasonable 0.30%.
+        // Backfill convertFee for tiers persisted before this field existed.
         const sorted = (arr as VipTier[]).sort((a, b) => a.level - b.level);
         return sorted.map((t) => {
           if (typeof t.convertFee === "number" && Number.isFinite(t.convertFee) && t.convertFee >= 0) return t;

@@ -43,15 +43,7 @@ const NUM_FIELDS: Array<keyof VipTier> = [
   "minVolume", "spotMaker", "spotTaker", "futuresMaker", "futuresTaker", "convertFee", "withdrawDiscount",
 ];
 
-/**
- * Admin: Fees & VIP Tiers.
- *
- * Renders the VIP ladder as an editable matrix. The whole array is sent
- * back via PUT /admin/fees/tiers — the server validates monotonic
- * minVolume, then writes the JSON to `app_settings.fees.vip_tiers` and
- * audit-logs the change. All three fee paths (spot, futures, convert)
- * resolve from this same source of truth.
- */
+// Admin Fees & VIP Tiers — editable matrix saved via PUT /admin/fees/tiers.
 export default function FeesAdminPage() {
   const { user } = useAuth();
   const { toast } = useToast();

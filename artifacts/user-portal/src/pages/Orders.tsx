@@ -36,15 +36,6 @@ type Order = {
   createdAt: string;
 };
 
-/**
- * Open Orders page — premium-themed.
- *
- * Pulls live orders from the API, lets the user cancel any open order via a
- * branded confirmation dialog (no native window.confirm — keeps the UX
- * consistent with the rest of the portal), and uses the shared
- * PageHeader/SectionCard/EmptyState/StatusPill primitives so it matches the
- * Wallet, Profile, etc. visual language at launch.
- */
 type ConvertRow = {
   id: number;
   fromCoin: string;
@@ -84,9 +75,6 @@ export default function Orders() {
     return [];
   }, [ordersData]);
 
-  // Spot vs futures heuristic — futures pairs end in -PERP / -SWAP / contain
-  // "PERP" markers, otherwise treated as spot. Matches how the symbol field
-  // is rendered everywhere else in the portal (Trade, Wallet, etc.).
   function isFutures(o: Order) {
     const s = String(o.symbol || "").toUpperCase();
     const ty = String(o.type || "").toLowerCase();

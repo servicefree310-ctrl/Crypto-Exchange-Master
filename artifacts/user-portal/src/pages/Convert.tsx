@@ -13,20 +13,7 @@ import { EmptyState } from "@/components/premium/EmptyState";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { cn } from "@/lib/utils";
 
-/**
- * Quick Convert — quote-then-execute, 10-second locked rates.
- *
- * Flow:
- *   1. User picks fromCoin / toCoin and an amount.
- *   2. We hit POST /convert/quote → server pins a row with status='pending'
- *      and an `expiresAt = now() + 10s`.
- *   3. The page renders the rate, fee, net out, and a live countdown.
- *      Every 10s (or on-input-change) we re-quote so the user always sees
- *      a fresh price.
- *   4. POST /convert/execute is atomic on the server (FOR UPDATE wallet
- *      lock + status flip → 'executed'). On 410 (expired) we auto-refresh
- *      the quote so the user just clicks again.
- */
+// Quick Convert: quote-then-execute with 10-second locked rates.
 
 type Wallet = { coin: string; balance: number; spotBalance?: number; spotLocked?: number };
 type Coin   = { id: number; symbol: string; name: string; status?: string; isListed?: boolean };
