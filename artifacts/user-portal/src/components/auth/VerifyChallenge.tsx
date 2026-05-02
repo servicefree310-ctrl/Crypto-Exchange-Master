@@ -180,7 +180,7 @@ export function VerifyChallenge({ challenge, onSuccess, onCancel }: Props) {
       <div className="space-y-4">
         {rows.map((row) => {
           const st = states[row.key];
-          const cooldown = st.cooldownUntil && st.cooldownUntil > Date.now();
+          const cooldown = !!(st.cooldownUntil && st.cooldownUntil > Date.now());
           return (
             <div key={row.key} className={`rounded-xl border p-4 ${st.verified ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/60 bg-card/50"}`}>
               <div className="flex items-center gap-2 mb-2">

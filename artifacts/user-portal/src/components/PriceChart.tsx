@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { get } from "@/lib/api";
 import { useOhlcv, type Candle } from "@/lib/marketSocket";
+import { rsi, macd, bollinger } from "@/lib/indicators";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 
@@ -88,8 +89,18 @@ function fmtCompact(n: number): string {
 const INDICATOR_KEY = "zebvix:chart:indicators";
 const KIND_KEY = "zebvix:chart:kind";
 
-type IndicatorState = { ma7: boolean; ma25: boolean; ma99: boolean; volume: boolean };
-const DEFAULT_INDICATORS: IndicatorState = { ma7: true, ma25: true, ma99: false, volume: true };
+type IndicatorState = {
+  ma7: boolean; ma25: boolean; ma99: boolean; volume: boolean;
+  bb: boolean; rsi: boolean; macd: boolean;
+};
+const DEFAULT_INDICATORS: IndicatorState = {
+  ma7: true, ma25: true, ma99: false, volume: true,
+  bb: false, rsi: false, macd: false,
+};
+
+const BB_COLORS = { upper: "#a78bfa", middle: "#a78bfa", lower: "#a78bfa" };
+const RSI_PANE_INDEX = 1;
+const MACD_PANE_INDEX = 2;
 
 export function PriceChart({ symbol }: { symbol: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,6 +110,16 @@ export function PriceChart({ symbol }: { symbol: string }) {
   const mainSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const maSeriesRef = useRef<Record<string, ISeriesApi<"Line">>>({});
+  // Bollinger Bands (3 overlay lines on main pane)
+  const bbSeriesRef = useRef<{ upper: ISeriesApi<"Line">; middle: ISeriesApi<"Line">; lower: ISeriesApi<"Line"> } | null>(null);
+  // RSI on its own pane (0-100 scale)
+  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const rsiOverboughtRef = useRef<IPriceLine | null>(null);
+  const rsiOversoldRef = useRef<IPriceLine | null>(null);
+  // MACD on its own pane: histogram + macd line + signal line
+  const macdHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const macdLineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const macdSigRef = useRef<ISeriesApi<"Line"> | null>(null);
   const priceLineRef = useRef<IPriceLine | null>(null);
   const lastTimeRef = useRef<number>(0);
   const candlesRef = useRef<Candle[]>([]);
@@ -162,6 +183,13 @@ export function PriceChart({ symbol }: { symbol: string }) {
       mainSeriesRef.current = null;
       volumeSeriesRef.current = null;
       maSeriesRef.current = {};
+      bbSeriesRef.current = null;
+      rsiSeriesRef.current = null;
+      rsiOverboughtRef.current = null;
+      rsiOversoldRef.current = null;
+      macdHistRef.current = null;
+      macdLineRef.current = null;
+      macdSigRef.current = null;
       priceLineRef.current = null;
     };
   }, []);
@@ -282,6 +310,95 @@ export function PriceChart({ symbol }: { symbol: string }) {
     }
   }, [indicators.ma7, indicators.ma25, indicators.ma99]);
 
+  // ── Bollinger Bands (overlay on main pane) ──
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (indicators.bb) {
+      if (!bbSeriesRef.current) {
+        const common = {
+          lineWidth: 1 as const,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        };
+        const upper = chart.addSeries(LineSeries, { ...common, color: BB_COLORS.upper });
+        const middle = chart.addSeries(LineSeries, { ...common, color: BB_COLORS.middle, lineStyle: LineStyle.Dashed });
+        const lower = chart.addSeries(LineSeries, { ...common, color: BB_COLORS.lower });
+        bbSeriesRef.current = { upper, middle, lower };
+        if (candlesRef.current.length > 0) applyBollinger(candlesRef.current, bbSeriesRef.current);
+      }
+    } else if (bbSeriesRef.current) {
+      try { chart.removeSeries(bbSeriesRef.current.upper); } catch { /* ignore */ }
+      try { chart.removeSeries(bbSeriesRef.current.middle); } catch { /* ignore */ }
+      try { chart.removeSeries(bbSeriesRef.current.lower); } catch { /* ignore */ }
+      bbSeriesRef.current = null;
+    }
+  }, [indicators.bb]);
+
+  // ── RSI pane ──
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (indicators.rsi) {
+      if (!rsiSeriesRef.current) {
+        const s = chart.addSeries(LineSeries, {
+          color: "#fb923c",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          crosshairMarkerVisible: false,
+          priceFormat: { type: "custom", formatter: (v: number) => v.toFixed(0), minMove: 0.01 },
+        }, RSI_PANE_INDEX);
+        try {
+          rsiOverboughtRef.current = s.createPriceLine({ price: 70, color: "rgba(239,68,68,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "70" });
+          rsiOversoldRef.current = s.createPriceLine({ price: 30, color: "rgba(34,197,94,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "30" });
+        } catch { /* ignore */ }
+        rsiSeriesRef.current = s;
+        if (candlesRef.current.length > 0) applyRsi(candlesRef.current, s);
+      }
+    } else if (rsiSeriesRef.current) {
+      try { rsiSeriesRef.current.removePriceLine(rsiOverboughtRef.current!); } catch { /* ignore */ }
+      try { rsiSeriesRef.current.removePriceLine(rsiOversoldRef.current!); } catch { /* ignore */ }
+      try { chart.removeSeries(rsiSeriesRef.current); } catch { /* ignore */ }
+      rsiSeriesRef.current = null;
+      rsiOverboughtRef.current = null;
+      rsiOversoldRef.current = null;
+    }
+  }, [indicators.rsi]);
+
+  // ── MACD pane ──
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (indicators.macd) {
+      if (!macdLineRef.current) {
+        macdHistRef.current = chart.addSeries(HistogramSeries, {
+          priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
+          color: "rgba(34,197,94,0.6)",
+          priceLineVisible: false,
+          lastValueVisible: false,
+        }, MACD_PANE_INDEX);
+        macdLineRef.current = chart.addSeries(LineSeries, {
+          color: "#60a5fa", lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+        }, MACD_PANE_INDEX);
+        macdSigRef.current = chart.addSeries(LineSeries, {
+          color: "#f97316", lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+        }, MACD_PANE_INDEX);
+        if (candlesRef.current.length > 0) applyMacd(candlesRef.current);
+      }
+    } else if (macdLineRef.current) {
+      try { chart.removeSeries(macdLineRef.current); } catch { /* ignore */ }
+      try { if (macdSigRef.current) chart.removeSeries(macdSigRef.current); } catch { /* ignore */ }
+      try { if (macdHistRef.current) chart.removeSeries(macdHistRef.current); } catch { /* ignore */ }
+      macdLineRef.current = null;
+      macdSigRef.current = null;
+      macdHistRef.current = null;
+    }
+  }, [indicators.macd]);
+
   // ── Seed from REST whenever symbol/interval changes ──
   useEffect(() => {
     let cancelled = false;
@@ -327,6 +444,9 @@ export function PriceChart({ symbol }: { symbol: string }) {
           const s = maSeriesRef.current[def.id];
           if (s) s.setData(sma(unique.map((c) => ({ time: c.time, close: c.close })), def.period));
         }
+        if (bbSeriesRef.current) applyBollinger(unique, bbSeriesRef.current);
+        if (rsiSeriesRef.current) applyRsi(unique, rsiSeriesRef.current);
+        if (macdLineRef.current) applyMacd(unique);
         if (mainSeriesRef.current && unique.length > 0) {
           const last = unique[unique.length - 1];
           ensurePriceLine(mainSeriesRef.current, last.close, last.close >= last.open);
@@ -377,6 +497,10 @@ export function PriceChart({ symbol }: { symbol: string }) {
             s.update({ time: c.time as Time, value: avg });
           }
         }
+        // Recompute Bollinger / RSI / MACD on the streaming bar
+        if (bbSeriesRef.current) applyBollinger(candlesRef.current, bbSeriesRef.current);
+        if (rsiSeriesRef.current) applyRsi(candlesRef.current, rsiSeriesRef.current);
+        if (macdLineRef.current) applyMacd(candlesRef.current);
         // Update live price line
         if (mainSeriesRef.current) {
           ensurePriceLine(mainSeriesRef.current, c.close, c.close >= c.open);
@@ -430,6 +554,31 @@ export function PriceChart({ symbol }: { symbol: string }) {
       color: c.close >= c.open ? "rgba(34, 197, 94, 0.5)" : "rgba(239, 68, 68, 0.5)",
     })));
   }
+  function applyBollinger(
+    candles: Candle[],
+    series: { upper: ISeriesApi<"Line">; middle: ISeriesApi<"Line">; lower: ISeriesApi<"Line"> },
+  ) {
+    const bb = bollinger(candles.map((c) => ({ time: c.time, close: c.close })), 20, 2);
+    series.upper.setData(bb.map((p) => ({ time: p.time as Time, value: p.upper })));
+    series.middle.setData(bb.map((p) => ({ time: p.time as Time, value: p.middle })));
+    series.lower.setData(bb.map((p) => ({ time: p.time as Time, value: p.lower })));
+  }
+  function applyRsi(candles: Candle[], series: ISeriesApi<"Line">) {
+    const out = rsi(candles.map((c) => ({ time: c.time, close: c.close })), 14);
+    series.setData(out.map((p) => ({ time: p.time as Time, value: p.value })));
+  }
+  function applyMacd(candles: Candle[]) {
+    const out = macd(candles.map((c) => ({ time: c.time, close: c.close })), 12, 26, 9);
+    if (macdLineRef.current) macdLineRef.current.setData(out.map((p) => ({ time: p.time as Time, value: p.macd })));
+    if (macdSigRef.current) macdSigRef.current.setData(out.map((p) => ({ time: p.time as Time, value: p.signal })));
+    if (macdHistRef.current) {
+      macdHistRef.current.setData(out.map((p) => ({
+        time: p.time as Time,
+        value: p.hist,
+        color: p.hist >= 0 ? "rgba(34,197,94,0.55)" : "rgba(239,68,68,0.55)",
+      })));
+    }
+  }
 
   // ── Toolbar handlers ──
   const handleReset = () => { chartRef.current?.timeScale().fitContent(); };
@@ -471,7 +620,11 @@ export function PriceChart({ symbol }: { symbol: string }) {
   };
 
   const enabledMaCount = (indicators.ma7 ? 1 : 0) + (indicators.ma25 ? 1 : 0) + (indicators.ma99 ? 1 : 0);
-  const indicatorBadge = enabledMaCount + (indicators.volume ? 1 : 0);
+  const indicatorBadge = enabledMaCount
+    + (indicators.volume ? 1 : 0)
+    + (indicators.bb ? 1 : 0)
+    + (indicators.rsi ? 1 : 0)
+    + (indicators.macd ? 1 : 0);
 
   // Display values for OHLC bar
   const display = hover?.candle || candlesRef.current[candlesRef.current.length - 1];
@@ -586,6 +739,15 @@ export function PriceChart({ symbol }: { symbol: string }) {
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setIndicators((p) => ({ ...p, bb: !p.bb }))}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-sm"
+            >
+              <span className="h-0.5 w-5 rounded" style={{ backgroundColor: BB_COLORS.upper }} />
+              <span className="flex-1 text-left">Bollinger 20/2</span>
+              {indicators.bb && <Check className="h-3.5 w-3.5 text-primary" />}
+            </button>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1 mb-1 mt-2">Panes</div>
             <button
               type="button"
@@ -595,6 +757,24 @@ export function PriceChart({ symbol }: { symbol: string }) {
               <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="flex-1 text-left">Volume</span>
               {indicators.volume && <Check className="h-3.5 w-3.5 text-primary" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIndicators((p) => ({ ...p, rsi: !p.rsi }))}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-sm"
+            >
+              <span className="h-0.5 w-5 rounded" style={{ backgroundColor: "#fb923c" }} />
+              <span className="flex-1 text-left">RSI 14</span>
+              {indicators.rsi && <Check className="h-3.5 w-3.5 text-primary" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIndicators((p) => ({ ...p, macd: !p.macd }))}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-sm"
+            >
+              <span className="h-0.5 w-5 rounded" style={{ backgroundColor: "#60a5fa" }} />
+              <span className="flex-1 text-left">MACD 12/26/9</span>
+              {indicators.macd && <Check className="h-3.5 w-3.5 text-primary" />}
             </button>
           </PopoverContent>
         </Popover>

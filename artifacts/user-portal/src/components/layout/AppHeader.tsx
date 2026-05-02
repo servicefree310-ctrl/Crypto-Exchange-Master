@@ -9,6 +9,7 @@ import {
   PieChart,
   Search,
   Bell,
+  BellRing,
   Menu,
   X,
   User as UserIcon,
@@ -37,6 +38,15 @@ import {
   Sigma,
   Globe2,
   Radar,
+  Bot as BotIcon,
+  Star,
+  LayoutDashboard,
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Info,
+  CheckCheck,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -107,7 +117,10 @@ const navItems: NavItem[] = [
 ];
 
 const userNavItems: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, match: (l) => l === "/dashboard", badge: "PRO", badgeTone: "new", priority: 1 },
   { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l) => l === "/wallet", priority: 2 },
+  { href: "/bots", label: "Bots", icon: BotIcon, match: (l) => l.startsWith("/bots"), badge: "NEW", badgeTone: "new", priority: 2 },
+  { href: "/copy-trading", label: "Copy", icon: Star, match: (l) => l.startsWith("/copy-trading"), priority: 2 },
 ];
 
 type MoreItem = {
@@ -188,6 +201,12 @@ type BroadcastNotif = {
   ctaLabel: string; ctaUrl: string; createdAt: string;
 };
 
+type UserNotif = {
+  id: number; title: string; body: string; kind: string; category: string;
+  ctaLabel: string | null; ctaUrl: string | null;
+  readAt: string | null; createdAt: string;
+};
+
 export function AppHeader() {
   const { user, logout } = useAuth();
   const features = useFeatures();
@@ -197,12 +216,29 @@ export function AppHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [langCode, setLangCode] = useState<string>("en");
 
+  // Public broadcast notifications (visible to guests too)
   const { data: notifs = [] } = useQuery<BroadcastNotif[]>({
     queryKey: ["/content/notifications"],
     queryFn: () => get<BroadcastNotif[]>("/content/notifications"),
     staleTime: 20_000,
     refetchOnWindowFocus: false,
     retry: 1,
+  });
+
+  // User-specific inbox: unread count + most recent few (auth users only)
+  const { data: unreadCount } = useQuery<{ count: number }>({
+    queryKey: ["/notifications/me/unread-count"],
+    queryFn: () => get<{ count: number }>("/notifications/me/unread-count"),
+    enabled: !!user,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const { data: userInbox } = useQuery<{ items: UserNotif[] }>({
+    queryKey: ["/notifications/me?limit=8"],
+    queryFn: () => get<{ items: UserNotif[] }>("/notifications/me?limit=8"),
+    enabled: !!user,
+    refetchInterval: 30_000,
+    retry: false,
   });
 
   useEffect(() => {
@@ -501,52 +537,13 @@ export function AppHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Notifications — visible to guests too (audience=all|guest); auth users see all|auth */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notifications">
-                <Bell className="h-4 w-4" />
-                {notifs.length > 0 && (
-                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <DropdownMenuLabel className="flex items-center justify-between">
-                <span>Notifications</span>
-                {notifs.length > 0 && (
-                  <Badge variant="outline" className="text-[9px] h-4">{notifs.length} new</Badge>
-                )}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {notifs.length === 0 ? (
-                <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                  Aap up to date hain. Naya kuch nahi.
-                </div>
-              ) : (
-                <div className="max-h-80 overflow-y-auto">
-                  {notifs.slice(0, 8).map((n) => {
-                    const tone = NOTIF_KIND_TONE[n.kind] ?? "text-amber-400";
-                    const Icon = n.kind === "success" ? Gift : n.kind === "warning" || n.kind === "danger" ? Shield : Bell;
-                    return (
-                      <NotificationItem
-                        key={n.id}
-                        icon={<Icon className={`h-4 w-4 ${tone}`} />}
-                        title={n.title}
-                        desc={n.body || (n.ctaLabel ? n.ctaLabel : "")}
-                        time={relativeTime(n.createdAt)}
-                        href={n.ctaUrl || undefined}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild className="justify-center text-xs text-primary font-medium">
-                <Link href="/announcements">View all updates</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Notifications — user inbox (auth) + broadcast (everyone) */}
+          <NotificationsBell
+            broadcasts={notifs}
+            inbox={userInbox?.items ?? []}
+            unreadCount={unreadCount?.count ?? 0}
+            isAuthed={!!user}
+          />
 
           {user ? (
             <>
@@ -812,6 +809,114 @@ export function AppHeader() {
         </div>
       </div>
     </header>
+  );
+}
+
+const INBOX_KIND_ICON: Record<string, LucideIcon> = {
+  info: Info, success: CheckCircle2, warning: AlertTriangle, danger: XCircle, promo: Gift,
+};
+const INBOX_KIND_TONE: Record<string, string> = {
+  info: "text-sky-400", success: "text-emerald-400", warning: "text-amber-400", danger: "text-rose-400", promo: "text-fuchsia-400",
+};
+
+function NotificationsBell({
+  broadcasts,
+  inbox,
+  unreadCount,
+  isAuthed,
+}: {
+  broadcasts: BroadcastNotif[];
+  inbox: UserNotif[];
+  unreadCount: number;
+  isAuthed: boolean;
+}) {
+  const totalDot = unreadCount > 0 || broadcasts.length > 0;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notifications">
+          {unreadCount > 0 ? <BellRing className="h-4 w-4 text-amber-400" /> : <Bell className="h-4 w-4" />}
+          {unreadCount > 0 ? (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-[9px] font-bold text-white flex items-center justify-center ring-2 ring-card">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          ) : totalDot ? (
+            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 p-0">
+        <DropdownMenuLabel className="flex items-center justify-between px-3 py-2">
+          <span className="text-sm font-bold">Notifications</span>
+          {unreadCount > 0 && (
+            <Badge variant="outline" className="text-[9px] h-4">
+              <CheckCheck className="h-2.5 w-2.5 mr-0.5" /> {unreadCount} unread
+            </Badge>
+          )}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator className="m-0" />
+
+        <div className="max-h-96 overflow-y-auto">
+          {/* Personal inbox first */}
+          {isAuthed && inbox.length > 0 && (
+            <>
+              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Inbox</div>
+              {inbox.slice(0, 5).map((n) => {
+                const Icon = INBOX_KIND_ICON[n.kind] ?? Bell;
+                const tone = INBOX_KIND_TONE[n.kind] ?? "text-amber-400";
+                const isUnread = !n.readAt;
+                return (
+                  <div key={`u${n.id}`} className={isUnread ? "border-l-2 border-primary/50" : ""}>
+                    <NotificationItem
+                      icon={<Icon className={`h-4 w-4 ${tone}`} />}
+                      title={n.title}
+                      desc={n.body || ""}
+                      time={relativeTime(n.createdAt)}
+                      href={n.ctaUrl || "/notifications"}
+                    />
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* Public broadcasts */}
+          {broadcasts.length > 0 && (
+            <>
+              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Announcements</div>
+              {broadcasts.slice(0, 5).map((n) => {
+                const tone = NOTIF_KIND_TONE[n.kind] ?? "text-amber-400";
+                const Icon = n.kind === "success" ? Gift : n.kind === "warning" || n.kind === "danger" ? Shield : Bell;
+                return (
+                  <NotificationItem
+                    key={`b${n.id}`}
+                    icon={<Icon className={`h-4 w-4 ${tone}`} />}
+                    title={n.title}
+                    desc={n.body || (n.ctaLabel ? n.ctaLabel : "")}
+                    time={relativeTime(n.createdAt)}
+                    href={n.ctaUrl || undefined}
+                  />
+                );
+              })}
+            </>
+          )}
+
+          {(!isAuthed || inbox.length === 0) && broadcasts.length === 0 && (
+            <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+              <Bell className="h-6 w-6 mx-auto mb-2 opacity-40" />
+              Aap up to date hain. Naya kuch nahi.
+            </div>
+          )}
+        </div>
+
+        <DropdownMenuSeparator className="m-0" />
+        <DropdownMenuItem asChild className="justify-center text-xs text-primary font-medium py-2">
+          <Link href={isAuthed ? "/notifications" : "/announcements"}>
+            View all{isAuthed ? "" : " updates"} →
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

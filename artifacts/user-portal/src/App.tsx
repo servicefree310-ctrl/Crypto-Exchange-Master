@@ -42,6 +42,11 @@ import Help from "@/pages/Help";
 import Status from "@/pages/Status";
 import P2P from "@/pages/P2P";
 import Convert from "@/pages/Convert";
+import Notifications from "@/pages/Notifications";
+import Bots from "@/pages/Bots";
+import CopyTrading from "@/pages/CopyTrading";
+import PortfolioPro from "@/pages/PortfolioPro";
+import ProDashboard from "@/pages/ProDashboard";
 import Calculator from "@/pages/tools/Calculator";
 import Converter from "@/pages/tools/Converter";
 import Compare from "@/pages/tools/Compare";
@@ -123,6 +128,20 @@ function App() {
                 <Route path="/status" component={Status} />
                 <Route path="/p2p" component={P2P} />
                 <Route path="/convert" component={Convert} />
+
+                <Route path="/dashboard">
+                  {() => <RequireAuth><ProDashboard /></RequireAuth>}
+                </Route>
+                <Route path="/notifications">
+                  {() => <RequireAuth><Notifications /></RequireAuth>}
+                </Route>
+                <Route path="/bots">
+                  {() => <RequireAuth><Bots /></RequireAuth>}
+                </Route>
+                <Route path="/copy-trading" component={CopyTrading} />
+                <Route path="/portfolio-pro">
+                  {() => <RequireAuth><PortfolioPro /></RequireAuth>}
+                </Route>
 
                 <Route path="/tools/calculator" component={Calculator} />
                 <Route path="/tools/converter" component={Converter} />

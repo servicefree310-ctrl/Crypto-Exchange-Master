@@ -45,6 +45,32 @@ function getAllowedOrigins(): string[] {
 const allowedOrigins = new Set(getAllowedOrigins());
 logger.info({ allowedOrigins: [...allowedOrigins] }, "CORS allow-list configured");
 
+// In dev, accept any same-host Replit preview subdomain (e.g. port-prefixed
+// proxy subdomains like `<port>--<repl-id>.<domain>` used by Playwright/test
+// runners) and any localhost:port. Production stays strictly allow-listed.
+const isDev = process.env["NODE_ENV"] !== "production";
+function isOriginAllowed(origin: string): boolean {
+  if (allowedOrigins.has(origin)) return true;
+  if (!isDev) return false;
+  try {
+    const u = new URL(origin);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+    // Same Replit workspace — match the configured dev domain or its
+    // port-prefixed sibling (e.g. `8080--<repl>.<domain>`).
+    const dev = process.env["REPLIT_DEV_DOMAIN"];
+    if (dev && (u.hostname === dev || u.hostname.endsWith(`--${dev}`) || u.hostname.endsWith(`.${dev}`))) {
+      return true;
+    }
+    // Generic Replit preview hosts — only safe in dev.
+    if (/\.(replit\.dev|repl\.co|kirk\.replit\.dev|janeway\.replit\.dev|riker\.replit\.dev|picard\.replit\.dev|spock\.replit\.dev)$/i.test(u.hostname)) {
+      return true;
+    }
+  } catch {
+    /* malformed origin → deny */
+  }
+  return false;
+}
+
 const corsMiddleware = cors({
   origin: (origin, cb) => {
     // Allow requests with no Origin header — covers mobile native HTTP
@@ -52,7 +78,7 @@ const corsMiddleware = cors({
     // from older Safari versions. They are still subject to the CSRF
     // origin guard below for any cookie-bearing write.
     if (!origin) return cb(null, true);
-    if (allowedOrigins.has(origin)) return cb(null, true);
+    if (isOriginAllowed(origin)) return cb(null, true);
     return cb(new Error(`CORS: origin not allowed: ${origin}`));
   },
   credentials: true,
@@ -89,7 +115,7 @@ function originGuard(req: Request, res: Response, next: NextFunction): void {
   }
   const origin = req.headers.origin;
   if (origin) {
-    if (allowedOrigins.has(origin)) {
+    if (isOriginAllowed(origin)) {
       next();
       return;
     }
@@ -100,7 +126,7 @@ function originGuard(req: Request, res: Response, next: NextFunction): void {
   if (referer) {
     try {
       const refOrigin = new URL(referer).origin;
-      if (allowedOrigins.has(refOrigin)) {
+      if (isOriginAllowed(refOrigin)) {
         next();
         return;
       }

@@ -12,6 +12,8 @@ import { startWithdrawalWatcher } from "./lib/withdrawal-watcher";
 import { startFuturesEngine } from "./lib/futures-engine";
 import { startOptionsEngine } from "./lib/options-engine";
 import { startListingDiscovery } from "./lib/listing-discovery";
+import { startPriceAlertWorker } from "./lib/notifications";
+import { startBotEngine } from "./lib/bot-engine";
 import { restoreBooksOnBoot } from "./routes/futures";
 import { initRedis, shutdownRedis } from "./lib/redis";
 import { seedCacheConfigs } from "./routes/redis-admin";
@@ -361,6 +363,8 @@ async function bootstrap() {
     startFuturesEngine();
     startOptionsEngine();
     startListingDiscovery();
+    startPriceAlertWorker();
+    startBotEngine();
     // Re-seed the Go matching engine's in-memory book from any open futures
     // limit orders left over from the last run. ONLY the leader does this —
     // restoring on every replica would queue duplicate work into the same

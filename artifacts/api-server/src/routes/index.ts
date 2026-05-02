@@ -31,6 +31,11 @@ import web3Router from "./web3";
 import web3AdminRouter from "./web3-admin";
 import listingsRouter from "./listings";
 import listingsAdminRouter from "./listings-admin";
+import notificationsRouter from "./notifications";
+import botsRouter from "./bots";
+import copyTradingRouter from "./copy-trading";
+import portfolioAnalyticsRouter from "./portfolio-analytics";
+import dashboardRouter from "./dashboard";
 import v1Router from "./v1";
 
 const router: IRouter = Router();
@@ -76,6 +81,11 @@ router.use(web3Router);
 router.use(web3AdminRouter);
 router.use(listingsRouter);
 router.use(listingsAdminRouter);
+router.use(notificationsRouter);
+router.use(botsRouter);
+router.use(copyTradingRouter);
+router.use(portfolioAnalyticsRouter);
+router.use(dashboardRouter);
 router.use(v1Router);
 
 export default router;

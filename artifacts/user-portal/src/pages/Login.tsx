@@ -121,7 +121,7 @@ export default function Login() {
 
   const fillDemo = () => {
     setIdentifier("demo@cryptox.in");
-    setPassword("Test1234!");
+    setPassword("Demo@123");
     setServerError(null);
     setFieldErrors({});
   };
@@ -195,7 +195,7 @@ export default function Login() {
                   <span className="text-sm">
                     <span className="font-medium">Demo:</span>{" "}
                     <code className="text-xs">demo@cryptox.in</code> /{" "}
-                    <code className="text-xs">Test1234!</code>
+                    <code className="text-xs">Demo@123</code>
                   </span>
                   <button
                     type="button"
