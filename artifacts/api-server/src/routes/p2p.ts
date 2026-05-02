@@ -108,6 +108,7 @@ router.get("/p2p/payment-methods", requireAuth, async (req, res): Promise<void> 
   const rows = await db.select().from(p2pPaymentMethodsTable)
     .where(and(eq(p2pPaymentMethodsTable.userId, req.user!.id), eq(p2pPaymentMethodsTable.active, true)))
     .orderBy(desc(p2pPaymentMethodsTable.createdAt));
+  req.log.debug({ userId: req.user!.id, count: rows.length }, "p2p payment methods listed");
   res.json(rows);
 });
 
@@ -160,6 +161,7 @@ router.get("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
   const fiat = String(req.query.fiat || "INR").toUpperCase();
   const method = String(req.query.method || "").toLowerCase();
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+  req.log.debug({ userId: req.user!.id, side, coin, fiat, method, limit }, "p2p offers browse");
 
   if (!(OFFER_SIDES as readonly string[]).includes(side)) { res.status(400).json({ error: "side must be buy/sell" }); return; }
   // Initial rollout is INR-only — reject other fiats at the listing boundary
@@ -198,6 +200,7 @@ router.get("/p2p/offers/mine", requireAuth, async (req, res): Promise<void> => {
     .where(eq(p2pOffersTable.userId, req.user!.id))
     .orderBy(desc(p2pOffersTable.createdAt))
     .limit(200);
+  req.log.debug({ userId: req.user!.id, count: rows.length }, "p2p own offers listed");
   res.json(await hydrateOffers(rows));
 });
 
@@ -206,6 +209,7 @@ router.get("/p2p/offers/:id", requireAuth, async (req, res): Promise<void> => {
   if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [offer] = await db.select().from(p2pOffersTable).where(eq(p2pOffersTable.id, id)).limit(1);
   if (!offer) { res.status(404).json({ error: "Offer not found" }); return; }
+  req.log.debug({ userId: req.user!.id, offerId: id }, "p2p offer fetched");
   const [hydrated] = await hydrateOffers([offer]);
   res.json(hydrated);
 });
@@ -236,7 +240,9 @@ router.get("/p2p/offers/:id/seller-methods", requireAuth, async (req, res): Prom
     .where(and(eq(p2pPaymentMethodsTable.userId, offer.userId), eq(p2pPaymentMethodsTable.active, true)))
     .limit(20);
   // Filter only methods compatible with the offer's accepted list.
-  res.json(rows.filter(r => accepted.includes(r.method)));
+  const filtered = rows.filter(r => accepted.includes(r.method));
+  req.log.debug({ userId: req.user!.id, offerId: id, count: filtered.length }, "p2p seller methods fetched");
+  res.json(filtered);
 });
 
 const OfferBody = z.object({
@@ -507,6 +513,7 @@ router.get("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
 
   const rows = await db.select().from(p2pOrdersTable).where(and(...conds))
     .orderBy(desc(p2pOrdersTable.createdAt)).limit(200);
+  req.log.debug({ userId: me, role, status, count: rows.length }, "p2p orders listed");
   res.json(await hydrateOrders(rows, me));
 });
 
@@ -518,6 +525,7 @@ router.get("/p2p/orders/:id", requireAuth, async (req, res): Promise<void> => {
   if (!order || (order.buyerId !== me && order.sellerId !== me && req.user!.role === "user")) {
     res.status(404).json({ error: "Order not found" }); return;
   }
+  req.log.debug({ userId: me, orderId: id, status: order.status }, "p2p order fetched");
   const [hydrated] = await hydrateOrders([order], me);
   res.json(hydrated);
 });
@@ -797,6 +805,7 @@ router.get("/p2p/orders/:id/messages", requireAuth, async (req, res): Promise<vo
     .where(eq(p2pMessagesTable.orderId, id))
     .orderBy(asc(p2pMessagesTable.createdAt))
     .limit(500);
+  req.log.debug({ userId: me, orderId: id, count: rows.length }, "p2p chat fetched");
   res.json(rows);
 });
 
@@ -825,17 +834,19 @@ router.post("/p2p/orders/:id/messages", requireAuth, async (req, res): Promise<v
 
 // Admin / moderation
 
-router.get("/admin/p2p/stats", supportPlus, async (_req, res): Promise<void> => {
+router.get("/admin/p2p/stats", supportPlus, async (req, res): Promise<void> => {
   const [open] = await db.select({ c: sql<number>`count(*)::int` }).from(p2pOffersTable).where(eq(p2pOffersTable.status, "online"));
   const [orders] = await db.select({ c: sql<number>`count(*)::int` }).from(p2pOrdersTable).where(inArray(p2pOrdersTable.status, ["pending", "paid"]));
   const [disputes] = await db.select({ c: sql<number>`count(*)::int` }).from(p2pOrdersTable).where(eq(p2pOrdersTable.status, "disputed"));
   const [released] = await db.select({ c: sql<number>`count(*)::int` }).from(p2pOrdersTable).where(eq(p2pOrdersTable.status, "released"));
-  res.json({
+  const payload = {
     onlineOffers: open?.c ?? 0,
     activeOrders: orders?.c ?? 0,
     openDisputes: disputes?.c ?? 0,
     completedOrders: released?.c ?? 0,
-  });
+  };
+  req.log.debug({ adminId: req.user!.id, ...payload }, "p2p admin stats");
+  res.json(payload);
 });
 
 router.get("/admin/p2p/offers", supportPlus, async (req, res): Promise<void> => {
@@ -846,6 +857,7 @@ router.get("/admin/p2p/offers", supportPlus, async (req, res): Promise<void> => 
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(p2pOffersTable.createdAt))
     .limit(200);
+  req.log.debug({ adminId: req.user!.id, status, count: rows.length }, "p2p admin offers listed");
   res.json(await hydrateOffers(rows));
 });
 
@@ -877,10 +889,11 @@ router.get("/admin/p2p/orders", supportPlus, async (req, res): Promise<void> => 
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(p2pOrdersTable.createdAt))
     .limit(200);
+  req.log.debug({ adminId: req.user!.id, status, count: rows.length }, "p2p admin orders listed");
   res.json(await hydrateOrders(rows, -1));
 });
 
-router.get("/admin/p2p/disputes", supportPlus, async (_req, res): Promise<void> => {
+router.get("/admin/p2p/disputes", supportPlus, async (req, res): Promise<void> => {
   // Left-join p2p_disputes so the admin moderation panel can render the
   // evidence_url attached at dispute-open time. Falls back gracefully to
   // null for legacy disputes that pre-date migration 008.
@@ -893,6 +906,7 @@ router.get("/admin/p2p/disputes", supportPlus, async (_req, res): Promise<void> 
     .orderBy(asc(p2pOrdersTable.disputeOpenedAt))
     .limit(200);
   const evidenceByOrder = new Map(rows.map(r => [r.order.id, r.evidenceUrl ?? null]));
+  req.log.debug({ adminId: req.user!.id, count: rows.length }, "p2p admin disputes listed");
   const hydrated = await hydrateOrders(rows.map(r => r.order), -1);
   res.json(hydrated.map(o => ({ ...o, disputeEvidenceUrl: evidenceByOrder.get(o.id) ?? null })));
 });

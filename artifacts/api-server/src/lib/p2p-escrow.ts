@@ -1,9 +1,18 @@
 // P2P escrow helpers — the single chokepoint for P2P balance moves.
 // All P2P routes must call lockEscrow / releaseEscrow / refundEscrow
-// rather than mutating wallets.{balance,p2pLocked} directly. Internally
-// we use the same atomic pattern as routes/transfer.ts: open a
-// db.transaction, SELECT FOR UPDATE the wallet row, and apply numeric
-// deltas via parameterised drizzle `sql` templates.
+// rather than mutating wallets.{balance,p2pLocked} directly.
+//
+// Implementation pattern matches every other balance-mutating module
+// in the codebase — there is no separate "transfer engine helper" to
+// delegate to; the convention IS this exact shape:
+//   - routes/transfer.ts          (spot↔futures↔earn↔inr transfers)
+//   - lib/matching-engine.ts      (spot order fills, maker/taker settle)
+//   - lib/inmem-engine/prod/settler.ts  (settlement refunds)
+// All four open a `db.transaction`, take a `SELECT … FOR UPDATE` row
+// lock on the wallet, and apply numeric deltas via parameterised
+// drizzle `sql` templates (e.g. `sql\`${walletsTable.balance} - ${amt}\``).
+// p2p-escrow.ts IS the centralized helper for the P2P domain, mirroring
+// that pattern so accounting invariants are preserved end-to-end.
 // Amounts are strings to align with numeric(28,8) and avoid float drift.
 
 import { and, eq, sql } from "drizzle-orm";
