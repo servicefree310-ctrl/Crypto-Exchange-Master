@@ -6,10 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type P2pOrderRole = (typeof P2pOrderRole)[keyof typeof P2pOrderRole];
+export type ListP2pOrdersRole =
+  (typeof ListP2pOrdersRole)[keyof typeof ListP2pOrdersRole];
 
-export const P2pOrderRole = {
+export const ListP2pOrdersRole = {
   buyer: "buyer",
   seller: "seller",
-  admin: "admin",
+  all: "all",
 } as const;

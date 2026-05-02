@@ -8,8 +8,13 @@
 
 export interface P2pDisputeInput {
   /**
-   * @minLength 8
-   * @maxLength 1000
+   * @minLength 10
+   * @maxLength 500
    */
   reason: string;
+  /**
+   * Optional http(s) URL to a screenshot or document supporting the claim.
+   * @maxLength 500
+   */
+  evidenceUrl?: string;
 }

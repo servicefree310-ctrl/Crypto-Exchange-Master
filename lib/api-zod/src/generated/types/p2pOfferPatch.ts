@@ -5,32 +5,16 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { P2pOfferPatchPaymentMethodsItem } from "./p2pOfferPatchPaymentMethodsItem";
 import type { P2pOfferPatchStatus } from "./p2pOfferPatchStatus";
 
 export interface P2pOfferPatch {
+  status?: P2pOfferPatchStatus;
   /** @exclusiveMinimum 0 */
   price?: number;
-  /** @exclusiveMinimum 0 */
-  totalQty?: number;
   /** @exclusiveMinimum 0 */
   minFiat?: number;
   /** @exclusiveMinimum 0 */
   maxFiat?: number;
-  paymentMethods?: P2pOfferPatchPaymentMethodsItem[];
-  /**
-   * @minimum 5
-   * @maximum 240
-   */
-  payWindowMins?: number;
-  /** @maxLength 2000 */
+  /** @maxLength 500 */
   terms?: string;
-  status?: P2pOfferPatchStatus;
-  /**
-   * @minimum 0
-   * @maximum 3
-   */
-  minKycLevel?: number;
-  /** @minimum 0 */
-  minTrades?: number;
 }

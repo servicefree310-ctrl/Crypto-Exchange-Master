@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type P2pOfferPatchPaymentMethodsItem =
-  (typeof P2pOfferPatchPaymentMethodsItem)[keyof typeof P2pOfferPatchPaymentMethodsItem];
+export type ListP2pOffersMethod =
+  (typeof ListP2pOffersMethod)[keyof typeof ListP2pOffersMethod];
 
-export const P2pOfferPatchPaymentMethodsItem = {
+export const ListP2pOffersMethod = {
   upi: "upi",
   imps: "imps",
   neft: "neft",

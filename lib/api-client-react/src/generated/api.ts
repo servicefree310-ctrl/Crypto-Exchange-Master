@@ -18,9 +18,14 @@ import type {
 
 import type {
   HealthStatus,
+  ListP2pAdminOffersParams,
+  ListP2pAdminOrdersParams,
   ListP2pOffersParams,
   ListP2pOrdersParams,
   OkResponse,
+  P2pAdminDispute,
+  P2pAdminOfferPatch,
+  P2pAdminStats,
   P2pDisputeInput,
   P2pMarkPaidInput,
   P2pMessage,
@@ -32,6 +37,8 @@ import type {
   P2pOrderInput,
   P2pPaymentMethod,
   P2pPaymentMethodInput,
+  P2pResolveDisputeInput,
+  P2pSellerMethod,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -621,7 +628,94 @@ export function useListMyP2pOffers<
 }
 
 /**
- * @summary Update a merchant's own offer (price / qty / payment methods / status)
+ * @summary Fetch a single offer (auth required, hides PII)
+ */
+export const getGetP2pOfferUrl = (id: number) => {
+  return `/api/p2p/offers/${id}`;
+};
+
+export const getP2pOffer = async (
+  id: number,
+  options?: RequestInit,
+): Promise<P2pOffer> => {
+  return customFetch<P2pOffer>(getGetP2pOfferUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetP2pOfferQueryKey = (id: number) => {
+  return [`/api/p2p/offers/${id}`] as const;
+};
+
+export const getGetP2pOfferQueryOptions = <
+  TData = Awaited<ReturnType<typeof getP2pOffer>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getP2pOffer>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetP2pOfferQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getP2pOffer>>> = ({
+    signal,
+  }) => getP2pOffer(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getP2pOffer>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetP2pOfferQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getP2pOffer>>
+>;
+export type GetP2pOfferQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Fetch a single offer (auth required, hides PII)
+ */
+
+export function useGetP2pOffer<
+  TData = Awaited<ReturnType<typeof getP2pOffer>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getP2pOffer>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetP2pOfferQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update one of your own offers (price, status, limits, terms)
  */
 export const getUpdateP2pOfferUrl = (id: number) => {
   return `/api/p2p/offers/${id}`;
@@ -685,7 +779,7 @@ export type UpdateP2pOfferMutationBody = BodyType<P2pOfferPatch>;
 export type UpdateP2pOfferMutationError = ErrorType<unknown>;
 
 /**
- * @summary Update a merchant's own offer (price / qty / payment methods / status)
+ * @summary Update one of your own offers (price, status, limits, terms)
  */
 export const useUpdateP2pOffer = <
   TError = ErrorType<unknown>,
@@ -790,6 +884,99 @@ export const useDeleteP2pOffer = <
 > => {
   return useMutation(getDeleteP2pOfferMutationOptions(options));
 };
+
+/**
+ * Returns method id + type + label only (no account number) so the buyer
+can pick which of the merchant's saved methods to use when opening
+the order. Always returns an empty array for BUY offers.
+
+ * @summary For SELL offers, list the merchant's payment method ids/types/labels (no PII)
+ */
+export const getListP2pOfferSellerMethodsUrl = (id: number) => {
+  return `/api/p2p/offers/${id}/seller-methods`;
+};
+
+export const listP2pOfferSellerMethods = async (
+  id: number,
+  options?: RequestInit,
+): Promise<P2pSellerMethod[]> => {
+  return customFetch<P2pSellerMethod[]>(getListP2pOfferSellerMethodsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pOfferSellerMethodsQueryKey = (id: number) => {
+  return [`/api/p2p/offers/${id}/seller-methods`] as const;
+};
+
+export const getListP2pOfferSellerMethodsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pOfferSellerMethods>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pOfferSellerMethods>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListP2pOfferSellerMethodsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listP2pOfferSellerMethods>>
+  > = ({ signal }) =>
+    listP2pOfferSellerMethods(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pOfferSellerMethods>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pOfferSellerMethodsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pOfferSellerMethods>>
+>;
+export type ListP2pOfferSellerMethodsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary For SELL offers, list the merchant's payment method ids/types/labels (no PII)
+ */
+
+export function useListP2pOfferSellerMethods<
+  TData = Awaited<ReturnType<typeof listP2pOfferSellerMethods>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pOfferSellerMethods>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pOfferSellerMethodsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List all orders the authenticated user is party to (buyer or seller)
@@ -1572,4 +1759,522 @@ export const usePostP2pMessage = <
   TContext
 > => {
   return useMutation(getPostP2pMessageMutationOptions(options));
+};
+
+/**
+ * @summary Marketplace counters for the admin dashboard
+ */
+export const getGetP2pAdminStatsUrl = () => {
+  return `/api/admin/p2p/stats`;
+};
+
+export const getP2pAdminStats = async (
+  options?: RequestInit,
+): Promise<P2pAdminStats> => {
+  return customFetch<P2pAdminStats>(getGetP2pAdminStatsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetP2pAdminStatsQueryKey = () => {
+  return [`/api/admin/p2p/stats`] as const;
+};
+
+export const getGetP2pAdminStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getP2pAdminStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getP2pAdminStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetP2pAdminStatsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getP2pAdminStats>>
+  > = ({ signal }) => getP2pAdminStats({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getP2pAdminStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetP2pAdminStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getP2pAdminStats>>
+>;
+export type GetP2pAdminStatsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Marketplace counters for the admin dashboard
+ */
+
+export function useGetP2pAdminStats<
+  TData = Awaited<ReturnType<typeof getP2pAdminStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getP2pAdminStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetP2pAdminStatsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List all offers (any merchant) for moderation
+ */
+export const getListP2pAdminOffersUrl = (params?: ListP2pAdminOffersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/p2p/offers?${stringifiedParams}`
+    : `/api/admin/p2p/offers`;
+};
+
+export const listP2pAdminOffers = async (
+  params?: ListP2pAdminOffersParams,
+  options?: RequestInit,
+): Promise<P2pOffer[]> => {
+  return customFetch<P2pOffer[]>(getListP2pAdminOffersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pAdminOffersQueryKey = (
+  params?: ListP2pAdminOffersParams,
+) => {
+  return [`/api/admin/p2p/offers`, ...(params ? [params] : [])] as const;
+};
+
+export const getListP2pAdminOffersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pAdminOffers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pAdminOffersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pAdminOffers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListP2pAdminOffersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listP2pAdminOffers>>
+  > = ({ signal }) => listP2pAdminOffers(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pAdminOffers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pAdminOffersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pAdminOffers>>
+>;
+export type ListP2pAdminOffersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all offers (any merchant) for moderation
+ */
+
+export function useListP2pAdminOffers<
+  TData = Awaited<ReturnType<typeof listP2pAdminOffers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pAdminOffersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pAdminOffers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pAdminOffersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Admin status change (suspend / restore / take offline / close)
+ */
+export const getUpdateP2pAdminOfferUrl = (id: number) => {
+  return `/api/admin/p2p/offers/${id}`;
+};
+
+export const updateP2pAdminOffer = async (
+  id: number,
+  p2pAdminOfferPatch: P2pAdminOfferPatch,
+  options?: RequestInit,
+): Promise<P2pOffer> => {
+  return customFetch<P2pOffer>(getUpdateP2pAdminOfferUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pAdminOfferPatch),
+  });
+};
+
+export const getUpdateP2pAdminOfferMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateP2pAdminOffer>>,
+    TError,
+    { id: number; data: BodyType<P2pAdminOfferPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateP2pAdminOffer>>,
+  TError,
+  { id: number; data: BodyType<P2pAdminOfferPatch> },
+  TContext
+> => {
+  const mutationKey = ["updateP2pAdminOffer"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateP2pAdminOffer>>,
+    { id: number; data: BodyType<P2pAdminOfferPatch> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateP2pAdminOffer(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateP2pAdminOfferMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateP2pAdminOffer>>
+>;
+export type UpdateP2pAdminOfferMutationBody = BodyType<P2pAdminOfferPatch>;
+export type UpdateP2pAdminOfferMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Admin status change (suspend / restore / take offline / close)
+ */
+export const useUpdateP2pAdminOffer = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateP2pAdminOffer>>,
+    TError,
+    { id: number; data: BodyType<P2pAdminOfferPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateP2pAdminOffer>>,
+  TError,
+  { id: number; data: BodyType<P2pAdminOfferPatch> },
+  TContext
+> => {
+  return useMutation(getUpdateP2pAdminOfferMutationOptions(options));
+};
+
+/**
+ * @summary List all orders across the marketplace for moderation
+ */
+export const getListP2pAdminOrdersUrl = (params?: ListP2pAdminOrdersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/p2p/orders?${stringifiedParams}`
+    : `/api/admin/p2p/orders`;
+};
+
+export const listP2pAdminOrders = async (
+  params?: ListP2pAdminOrdersParams,
+  options?: RequestInit,
+): Promise<P2pOrder[]> => {
+  return customFetch<P2pOrder[]>(getListP2pAdminOrdersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pAdminOrdersQueryKey = (
+  params?: ListP2pAdminOrdersParams,
+) => {
+  return [`/api/admin/p2p/orders`, ...(params ? [params] : [])] as const;
+};
+
+export const getListP2pAdminOrdersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pAdminOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pAdminOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pAdminOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListP2pAdminOrdersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listP2pAdminOrders>>
+  > = ({ signal }) => listP2pAdminOrders(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pAdminOrders>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pAdminOrdersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pAdminOrders>>
+>;
+export type ListP2pAdminOrdersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all orders across the marketplace for moderation
+ */
+
+export function useListP2pAdminOrders<
+  TData = Awaited<ReturnType<typeof listP2pAdminOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListP2pAdminOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listP2pAdminOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pAdminOrdersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary All currently-disputed orders, oldest first
+ */
+export const getListP2pAdminDisputesUrl = () => {
+  return `/api/admin/p2p/disputes`;
+};
+
+export const listP2pAdminDisputes = async (
+  options?: RequestInit,
+): Promise<P2pAdminDispute[]> => {
+  return customFetch<P2pAdminDispute[]>(getListP2pAdminDisputesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListP2pAdminDisputesQueryKey = () => {
+  return [`/api/admin/p2p/disputes`] as const;
+};
+
+export const getListP2pAdminDisputesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listP2pAdminDisputes>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pAdminDisputes>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListP2pAdminDisputesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listP2pAdminDisputes>>
+  > = ({ signal }) => listP2pAdminDisputes({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pAdminDisputes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListP2pAdminDisputesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listP2pAdminDisputes>>
+>;
+export type ListP2pAdminDisputesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary All currently-disputed orders, oldest first
+ */
+
+export function useListP2pAdminDisputes<
+  TData = Awaited<ReturnType<typeof listP2pAdminDisputes>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listP2pAdminDisputes>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListP2pAdminDisputesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Resolve a dispute by releasing to buyer or refunding to seller
+ */
+export const getResolveP2pDisputeUrl = (id: number) => {
+  return `/api/admin/p2p/disputes/${id}/resolve`;
+};
+
+export const resolveP2pDispute = async (
+  id: number,
+  p2pResolveDisputeInput: P2pResolveDisputeInput,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getResolveP2pDisputeUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(p2pResolveDisputeInput),
+  });
+};
+
+export const getResolveP2pDisputeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resolveP2pDispute>>,
+    TError,
+    { id: number; data: BodyType<P2pResolveDisputeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resolveP2pDispute>>,
+  TError,
+  { id: number; data: BodyType<P2pResolveDisputeInput> },
+  TContext
+> => {
+  const mutationKey = ["resolveP2pDispute"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resolveP2pDispute>>,
+    { id: number; data: BodyType<P2pResolveDisputeInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return resolveP2pDispute(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResolveP2pDisputeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resolveP2pDispute>>
+>;
+export type ResolveP2pDisputeMutationBody = BodyType<P2pResolveDisputeInput>;
+export type ResolveP2pDisputeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Resolve a dispute by releasing to buyer or refunding to seller
+ */
+export const useResolveP2pDispute = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resolveP2pDispute>>,
+    TError,
+    { id: number; data: BodyType<P2pResolveDisputeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resolveP2pDispute>>,
+  TError,
+  { id: number; data: BodyType<P2pResolveDisputeInput> },
+  TContext
+> => {
+  return useMutation(getResolveP2pDisputeMutationOptions(options));
 };

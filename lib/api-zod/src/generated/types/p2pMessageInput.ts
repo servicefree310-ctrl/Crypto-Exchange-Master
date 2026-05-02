@@ -9,7 +9,7 @@
 export interface P2pMessageInput {
   /**
    * @minLength 1
-   * @maxLength 2000
+   * @maxLength 1000
    */
   body: string;
 }

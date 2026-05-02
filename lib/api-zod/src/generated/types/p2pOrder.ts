@@ -34,6 +34,7 @@ export interface P2pOrder {
   createdAt: Date;
   disputeReason?: string | null;
   disputeOpenedBy?: number | null;
+  disputeOpenedAt?: Date | null;
   role: P2pOrderRole;
   coin?: Coin | null;
   buyer: Merchant;

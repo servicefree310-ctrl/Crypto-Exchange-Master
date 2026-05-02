@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ListP2pOrdersStatus =
-  (typeof ListP2pOrdersStatus)[keyof typeof ListP2pOrdersStatus];
+export type ListP2pAdminOrdersStatus =
+  (typeof ListP2pAdminOrdersStatus)[keyof typeof ListP2pAdminOrdersStatus];
 
-export const ListP2pOrdersStatus = {
+export const ListP2pAdminOrdersStatus = {
   all: "all",
   pending: "pending",
   paid: "paid",

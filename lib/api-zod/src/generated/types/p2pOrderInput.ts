@@ -9,8 +9,16 @@
 export interface P2pOrderInput {
   /** @minimum 1 */
   offerId: number;
-  /** @exclusiveMinimum 0 */
-  qty: number;
+  /**
+   * Provide EITHER fiatAmount OR qty (exactly one).
+   * @exclusiveMinimum 0
+   */
+  fiatAmount?: number;
+  /**
+   * Provide EITHER fiatAmount OR qty (exactly one).
+   * @exclusiveMinimum 0
+   */
+  qty?: number;
   /** @minimum 1 */
   paymentMethodId: number;
 }

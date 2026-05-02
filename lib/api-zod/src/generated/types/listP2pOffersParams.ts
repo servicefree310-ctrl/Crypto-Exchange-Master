@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ListP2pOffersMethod } from "./listP2pOffersMethod";
 import type { ListP2pOffersSide } from "./listP2pOffersSide";
 
 export type ListP2pOffersParams = {
@@ -13,9 +14,17 @@ export type ListP2pOffersParams = {
    */
   side?: ListP2pOffersSide;
   /**
-   * @minimum 1
+   * Coin SYMBOL (e.g. BTC, USDT) — case insensitive, server uppercases
    */
-  coinId?: number;
+  coin?: string;
   fiat?: string;
-  paymentMethod?: string;
+  /**
+   * Filter to offers accepting this payment method type
+   */
+  method?: ListP2pOffersMethod;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
 };

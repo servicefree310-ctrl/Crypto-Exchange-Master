@@ -1,18 +1,32 @@
 import { useState, useMemo, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, Plus, ShoppingCart, Tag, MessageSquare, Trash2, Power, ShieldCheck,
   AlertTriangle, Loader2, Send, ArrowDown, ArrowUp, Wallet, RefreshCw,
   Check, X, Hourglass, CircleDot, IndianRupee, Building, Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { get, post, patch, del, ApiError } from "@/lib/api";
+import { get, ApiError } from "@/lib/api";
 import {
+  useListP2pOffers,
+  useListMyP2pOffers,
+  useGetP2pOffer,
+  useUpdateP2pOffer,
+  useDeleteP2pOffer,
+  useCreateP2pOffer,
+  useListP2pOfferSellerMethods,
+  useListP2pOrders,
+  useGetP2pOrder,
+  useOpenP2pOrder,
   useMarkP2pOrderPaid,
   useReleaseP2pOrder,
   useCancelP2pOrder,
   useOpenP2pDispute,
+  useListP2pMessages,
   usePostP2pMessage,
+  useListP2pPaymentMethods,
+  useCreateP2pPaymentMethod,
+  useDeleteP2pPaymentMethod,
 } from "@workspace/api-client-react";
 
 // Generated hooks use the shared `customFetch` from @workspace/api-client-react
@@ -54,23 +68,23 @@ type Offer = {
   id: number; uid: string; userId: number; side: "buy" | "sell";
   fiat: string; price: number; totalQty: number; availableQty: number;
   minFiat: number; maxFiat: number; paymentMethods: string[];
-  payWindowMins: number; terms: string | null; status: string;
+  payWindowMins: number; terms?: string | null; status: string;
   minKycLevel: number; minTrades: number;
-  coin: Coin | null; merchant: Merchant; createdAt: string;
+  coin?: Coin | null; merchant: Merchant; createdAt: string;
 };
 
 type P2pOrder = {
   id: number; uid: string; offerId: number; buyerId: number; sellerId: number;
   fiat: string; price: number; qty: number; fiatAmount: number;
   paymentMethod: string; paymentAccount: string; paymentLabel: string;
-  paymentIfsc: string | null; paymentHolderName: string | null;
-  paymentUtr: string | null;
+  paymentIfsc?: string | null; paymentHolderName?: string | null;
+  paymentUtr?: string | null;
   status: "pending" | "paid" | "released" | "cancelled" | "disputed" | "expired";
-  paidAt: string | null; releasedAt: string | null; cancelledAt: string | null;
+  paidAt?: string | null; releasedAt?: string | null; cancelledAt?: string | null;
   expiresAt: string; createdAt: string;
-  disputeReason: string | null; disputeOpenedBy: number | null;
-  role: "buyer" | "seller";
-  coin: Coin | null;
+  disputeReason?: string | null; disputeOpenedBy?: number | null;
+  role: "buyer" | "seller" | "admin";
+  coin?: Coin | null;
   buyer: Merchant; seller: Merchant;
 };
 
@@ -206,15 +220,17 @@ function MarketplaceTab() {
   const [method, setMethod] = useState<string>("");
   const [openOffer, setOpenOffer] = useState<Offer | null>(null);
 
-  const offersQ = useQuery<Offer[]>({
-    queryKey: ["/p2p/offers", offerSide, coin, method],
-    queryFn: () => {
-      const p = new URLSearchParams({ side: offerSide });
-      if (coin) p.set("coin", coin);
-      if (method) p.set("method", method);
-      return get<Offer[]>(`/p2p/offers?${p.toString()}`);
+  const offersQ = useListP2pOffers(
+    {
+      side: offerSide,
+      ...(coin ? { coin } : {}),
+      ...(method ? { method: method as "upi" | "imps" | "neft" | "bank" | "paytm" | "phonepe" | "gpay" } : {}),
     },
-  });
+    {
+      request: COOKIE_REQ,
+      query: { queryKey: ["/p2p/offers", offerSide, coin, method] },
+    },
+  );
 
   // Coin list for filter — pulled from public coins endpoint.
   const coinsQ = useQuery<Coin[]>({
@@ -375,33 +391,30 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
   //   I pick from MY OWN saved methods so the merchant knows where to pay.
   const iAmSeller = offer.side === "buy";
 
-  const myMethodsQ = useQuery<PaymentMethod[]>({
-    queryKey: ["/p2p/payment-methods"],
-    queryFn: () => get<PaymentMethod[]>("/p2p/payment-methods"),
-    enabled: iAmSeller,
+  // BUY-ad opener (iAmSeller=true) picks one of THEIR own saved methods
+  // — the merchant will pay them there. We use the generated payment-methods
+  // hook and rely on react-query's `enabled` to skip the request entirely
+  // for SELL ads (where it's irrelevant).
+  const myMethodsQ = useListP2pPaymentMethods({
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/p2p/payment-methods"],
+      enabled: iAmSeller,
+    },
   });
 
-  // For SELL ads, the merchant's payment methods aren't exposed via API
-  // for privacy — instead the buyer just picks the TYPE (UPI, IMPS, etc),
-  // and the server resolves the specific account from the merchant's saved
-  // methods. We display this as a list of method-type choices.
-  // BUT: our backend requires a paymentMethodId belonging to the SELLER.
-  // For SELL ads, that means we need to fetch the merchant's methods OR
-  // the merchant's first method matching the chosen type. To keep things
-  // simple AND private: for SELL ads, this dialog tells the user "pay via
-  // UPI / IMPS / etc" and the server picks a method from the merchant.
-  //
-  // For now, the simplest correct flow: open-order requires a valid
-  // paymentMethodId owned by the seller. So:
-  //   - iAmSeller (BUY ad): post my own method id
-  //   - !iAmSeller (SELL ad): we cannot list merchant ids; we'd need a
-  //     server endpoint that returns only the IDs+type for the offer. Add
-  //     `/p2p/offers/:id/seller-methods` so the user can pick.
-  const offerMethodsQ = useQuery<{ id: number; method: string; label: string }[]>({
-    queryKey: ["/p2p/offers", offer.id, "methods"],
-    queryFn: () => get<{ id: number; method: string; label: string }[]>(`/p2p/offers/${offer.id}/seller-methods`),
-    enabled: !iAmSeller,
-    retry: false,
+  // For SELL ads, the merchant's payment methods are exposed via the
+  // dedicated `/p2p/offers/:id/seller-methods` endpoint, which only
+  // returns id+type+label (no account number) so the buyer can pick
+  // which of the seller's methods to pay into. The server enforces
+  // that the chosen paymentMethodId actually belongs to the seller.
+  const offerMethodsQ = useListP2pOfferSellerMethods(offer.id, {
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/p2p/offers", offer.id, "seller-methods"],
+      enabled: !iAmSeller,
+      retry: false,
+    },
   });
 
   const fiatNum = Number(fiatAmount);
@@ -410,19 +423,18 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
     && qty <= offer.availableQty && qty > 0
     && paymentMethodId != null;
 
-  const openMut = useMutation({
-    mutationFn: () => post<P2pOrder>("/p2p/orders", {
-      offerId: offer.id,
-      fiatAmount: fiatNum,
-      paymentMethodId,
-    }),
-    onSuccess: () => {
-      toast({ title: "Order opened", description: "Pay window is now active. See My Orders." });
-      qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
-      qc.invalidateQueries({ queryKey: ["/p2p/offers"] });
-      onClose();
+  const openMut = useOpenP2pOrder({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Order opened", description: "Pay window is now active. See My Orders." });
+        qc.invalidateQueries({ queryKey: ["/p2p/orders"] });
+        qc.invalidateQueries({ queryKey: ["/p2p/offers"] });
+        onClose();
+      },
+      onError: (e: unknown) =>
+        toast({ title: "Failed to open order", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
     },
-    onError: (e: ApiError) => toast({ title: "Failed to open order", description: e.message, variant: "destructive" }),
   });
 
   const availableMethodChoices = iAmSeller
@@ -494,7 +506,7 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            onClick={() => openMut.mutate()}
+            onClick={() => openMut.mutate({ data: { offerId: offer.id, fiatAmount: fiatNum, paymentMethodId: paymentMethodId! } })}
             disabled={!valid || openMut.isPending}
             data-testid="p2p-confirm-open"
           >
@@ -515,23 +527,29 @@ function MyAdsTab() {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  const adsQ = useQuery<Offer[]>({
-    queryKey: ["/p2p/offers/mine"],
-    queryFn: () => get<Offer[]>("/p2p/offers/mine"),
+  const adsQ = useListMyP2pOffers({
+    request: COOKIE_REQ,
+    query: { queryKey: ["/p2p/offers/mine"] },
   });
 
-  const toggleMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => patch(`/p2p/offers/${id}`, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/p2p/offers/mine"] }),
-    onError: (e: ApiError) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
-  });
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => del(`/p2p/offers/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/p2p/offers/mine"] });
-      toast({ title: "Ad closed" });
+  const toggleMut = useUpdateP2pOffer({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["/p2p/offers/mine"] }),
+      onError: (e: unknown) =>
+        toast({ title: "Update failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
     },
-    onError: (e: ApiError) => toast({ title: "Cannot close", description: e.message, variant: "destructive" }),
+  });
+  const deleteMut = useDeleteP2pOffer({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["/p2p/offers/mine"] });
+        toast({ title: "Ad closed" });
+      },
+      onError: (e: unknown) =>
+        toast({ title: "Cannot close", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
+    },
   });
 
   return (
@@ -595,7 +613,7 @@ function MyAdsTab() {
                         {o.status !== "suspended" && (
                           <Button
                             size="icon" variant="outline"
-                            onClick={() => toggleMut.mutate({ id: o.id, status: o.status === "online" ? "offline" : "online" })}
+                            onClick={() => toggleMut.mutate({ id: o.id, data: { status: o.status === "online" ? "offline" : "online" } })}
                             disabled={toggleMut.isPending}
                             title={o.status === "online" ? "Take offline" : "Bring online"}
                             data-testid={`p2p-toggle-${o.id}`}
@@ -605,7 +623,7 @@ function MyAdsTab() {
                         )}
                         <Button
                           size="icon" variant="outline"
-                          onClick={() => { if (confirm("Close this ad? Active orders block deletion.")) deleteMut.mutate(o.id); }}
+                          onClick={() => { if (confirm("Close this ad? Active orders block deletion.")) deleteMut.mutate({ id: o.id }); }}
                           disabled={deleteMut.isPending}
                           title="Close ad"
                           data-testid={`p2p-delete-${o.id}`}
@@ -644,24 +662,18 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
     queryFn: () => get<Coin[]>("/coins"),
   });
 
-  const createMut = useMutation({
-    mutationFn: () => post<Offer>("/p2p/offers", {
-      side, coinSymbol, fiat: "INR",
-      price: Number(price),
-      totalQty: Number(totalQty),
-      minFiat: Number(minFiat),
-      maxFiat: Number(maxFiat),
-      paymentMethods: methods,
-      payWindowMins: Number(payWindowMins),
-      terms: terms || undefined,
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/p2p/offers/mine"] });
-      qc.invalidateQueries({ queryKey: ["/p2p/offers"] });
-      toast({ title: "Ad posted", description: "Your offer is now live." });
-      onClose();
+  const createMut = useCreateP2pOffer({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["/p2p/offers/mine"] });
+        qc.invalidateQueries({ queryKey: ["/p2p/offers"] });
+        toast({ title: "Ad posted", description: "Your offer is now live." });
+        onClose();
+      },
+      onError: (e: unknown) =>
+        toast({ title: "Create failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
     },
-    onError: (e: ApiError) => toast({ title: "Create failed", description: e.message, variant: "destructive" }),
   });
 
   const valid = !!coinSymbol && Number(price) > 0 && Number(totalQty) > 0
@@ -757,7 +769,24 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => createMut.mutate()} disabled={!valid || createMut.isPending} data-testid="p2p-ad-submit">
+          <Button
+            onClick={() => createMut.mutate({
+              data: {
+                side,
+                coinSymbol,
+                fiat: "INR",
+                price: Number(price),
+                totalQty: Number(totalQty),
+                minFiat: Number(minFiat),
+                maxFiat: Number(maxFiat),
+                paymentMethods: methods as Array<"upi" | "imps" | "neft" | "bank" | "paytm" | "phonepe" | "gpay">,
+                payWindowMins: Number(payWindowMins),
+                ...(terms ? { terms } : {}),
+              },
+            })}
+            disabled={!valid || createMut.isPending}
+            data-testid="p2p-ad-submit"
+          >
             {createMut.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
             Post Ad
           </Button>
@@ -775,15 +804,18 @@ function MyOrdersTab() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [openOrder, setOpenOrder] = useState<P2pOrder | null>(null);
 
-  const ordersQ = useQuery<P2pOrder[]>({
-    queryKey: ["/p2p/orders", statusFilter],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      if (statusFilter !== "all") p.set("status", statusFilter);
-      return get<P2pOrder[]>(`/p2p/orders${p.toString() ? "?" + p.toString() : ""}`);
+  const ordersQ = useListP2pOrders(
+    statusFilter !== "all"
+      ? { status: statusFilter as "pending" | "paid" | "released" | "cancelled" | "disputed" | "expired" }
+      : undefined,
+    {
+      request: COOKIE_REQ,
+      query: {
+        queryKey: ["/p2p/orders", statusFilter],
+        refetchInterval: 10_000,
+      },
     },
-    refetchInterval: 10_000,
-  });
+  );
 
   return (
     <div className="space-y-4">
@@ -883,22 +915,27 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
   const qc = useQueryClient();
   const [utr, setUtr] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
+  const [disputeEvidenceUrl, setDisputeEvidenceUrl] = useState("");
   const [showDispute, setShowDispute] = useState(false);
   const [chatBody, setChatBody] = useState("");
 
   // Refetch the order so live-status changes (other side acted) appear.
-  const orderQ = useQuery<P2pOrder>({
-    queryKey: ["/p2p/orders", initial.id],
-    queryFn: () => get<P2pOrder>(`/p2p/orders/${initial.id}`),
-    initialData: initial,
-    refetchInterval: 4000,
+  const orderQ = useGetP2pOrder(initial.id, {
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/p2p/orders", initial.id],
+      initialData: initial,
+      refetchInterval: 4000,
+    },
   });
-  const order = orderQ.data!;
+  const order = (orderQ.data ?? initial) as P2pOrder;
 
-  const messagesQ = useQuery<ChatMsg[]>({
-    queryKey: ["/p2p/orders", initial.id, "messages"],
-    queryFn: () => get<ChatMsg[]>(`/p2p/orders/${initial.id}/messages`),
-    refetchInterval: 4000,
+  const messagesQ = useListP2pMessages(initial.id, {
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/p2p/orders", initial.id, "messages"],
+      refetchInterval: 4000,
+    },
   });
 
   // ─── Order-action mutations (generated from OpenAPI) ──────────────────
@@ -1127,17 +1164,42 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
                 <DialogTitle>Open a Dispute</DialogTitle>
                 <DialogDescription>Admin will review and decide. Provide as much detail as possible.</DialogDescription>
               </DialogHeader>
-              <Textarea
-                rows={4}
-                value={disputeReason}
-                onChange={(e) => setDisputeReason(e.target.value)}
-                placeholder="Describe the issue (min 10 chars). E.g., Buyer hasn't sent UTR after 20 mins; Seller not releasing despite payment confirmed."
-                data-testid="p2p-dispute-reason"
-              />
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Reason</Label>
+                  <Textarea
+                    rows={4}
+                    value={disputeReason}
+                    onChange={(e) => setDisputeReason(e.target.value)}
+                    placeholder="Describe the issue (min 10 chars). E.g., Buyer hasn't sent UTR after 20 mins; Seller not releasing despite payment confirmed."
+                    data-testid="p2p-dispute-reason"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Evidence URL (optional)</Label>
+                  <Input
+                    type="url"
+                    value={disputeEvidenceUrl}
+                    onChange={(e) => setDisputeEvidenceUrl(e.target.value)}
+                    placeholder="https://… (link to screenshot, bank statement, chat)"
+                    maxLength={500}
+                    data-testid="p2p-dispute-evidence"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Paste a public link to a screenshot or document. Admin will review along with your reason.
+                  </p>
+                </div>
+              </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowDispute(false)}>Cancel</Button>
                 <Button
-                  onClick={() => disputeMut.mutate({ id: order.id, data: { reason: disputeReason } })}
+                  onClick={() => disputeMut.mutate({
+                    id: order.id,
+                    data: {
+                      reason: disputeReason,
+                      ...(disputeEvidenceUrl.trim() ? { evidenceUrl: disputeEvidenceUrl.trim() } : {}),
+                    },
+                  })}
                   disabled={disputeReason.length < 10 || disputeMut.isPending}
                   data-testid="p2p-dispute-submit"
                 >
@@ -1170,18 +1232,21 @@ function PaymentMethodsTab() {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
 
-  const methodsQ = useQuery<PaymentMethod[]>({
-    queryKey: ["/p2p/payment-methods"],
-    queryFn: () => get<PaymentMethod[]>("/p2p/payment-methods"),
+  const methodsQ = useListP2pPaymentMethods({
+    request: COOKIE_REQ,
+    query: { queryKey: ["/p2p/payment-methods"] },
   });
 
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => del(`/p2p/payment-methods/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/p2p/payment-methods"] });
-      toast({ title: "Removed" });
+  const deleteMut = useDeleteP2pPaymentMethod({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["/p2p/payment-methods"] });
+        toast({ title: "Removed" });
+      },
+      onError: (e: unknown) =>
+        toast({ title: "Failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
     },
-    onError: (e: ApiError) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -1224,7 +1289,7 @@ function PaymentMethodsTab() {
                 </div>
                 <Button
                   size="icon" variant="outline"
-                  onClick={() => { if (confirm("Remove this method?")) deleteMut.mutate(m.id); }}
+                  onClick={() => { if (confirm("Remove this method?")) deleteMut.mutate({ id: m.id }); }}
                   disabled={deleteMut.isPending}
                   data-testid={`p2p-delete-method-${m.id}`}
                 >
@@ -1251,17 +1316,17 @@ function AddMethodDialog({ onClose }: { onClose: () => void }) {
 
   const needsBank = method === "imps" || method === "neft" || method === "bank";
 
-  const createMut = useMutation({
-    mutationFn: () => post<PaymentMethod>("/p2p/payment-methods", {
-      method, label, account,
-      ...(needsBank ? { ifsc, holderName } : {}),
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/p2p/payment-methods"] });
-      toast({ title: "Method saved" });
-      onClose();
+  const createMut = useCreateP2pPaymentMethod({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["/p2p/payment-methods"] });
+        toast({ title: "Method saved" });
+        onClose();
+      },
+      onError: (e: unknown) =>
+        toast({ title: "Failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" }),
     },
-    onError: (e: ApiError) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   const valid = !!label && !!account && (!needsBank || (!!ifsc && !!holderName));
@@ -1307,7 +1372,18 @@ function AddMethodDialog({ onClose }: { onClose: () => void }) {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => createMut.mutate()} disabled={!valid || createMut.isPending} data-testid="p2p-method-submit">
+          <Button
+            onClick={() => createMut.mutate({
+              data: {
+                method: method as "upi" | "imps" | "neft" | "bank" | "paytm" | "phonepe" | "gpay",
+                label,
+                account,
+                ...(needsBank ? { ifsc, holderName } : {}),
+              },
+            })}
+            disabled={!valid || createMut.isPending}
+            data-testid="p2p-method-submit"
+          >
             {createMut.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
             Save
           </Button>

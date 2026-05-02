@@ -1,12 +1,22 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShoppingCart, AlertTriangle, ShieldCheck, Loader2, RefreshCw,
-  Check, X, Power, Search,
+  Check, X, Power, Search, ExternalLink,
 } from "lucide-react";
-import { get, post, patch, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import {
+  useGetP2pAdminStats,
+  useListP2pAdminOffers,
+  useUpdateP2pAdminOffer,
+  useListP2pAdminOrders,
+  useListP2pAdminDisputes,
+  useResolveP2pDispute,
+  useListP2pMessages,
+  type P2pAdminDispute,
+  type P2pMessage,
+} from "@workspace/api-client-react";
 import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
@@ -21,27 +31,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// ─── Types (mirror server hydrators) ────────────────────────────────────
-type Coin = { id: number; symbol: string; name: string };
-type Merchant = { id: number; name: string; handle: string; kycLevel: number; vipTier: number; createdAt: string };
-type Offer = {
-  id: number; uid: string; userId: number; side: string;
-  fiat: string; price: number; totalQty: number; availableQty: number;
-  minFiat: number; maxFiat: number; paymentMethods: string[];
-  status: string; minKycLevel: number;
-  coin: Coin | null; merchant: Merchant; createdAt: string;
-};
-type Order = {
-  id: number; uid: string; offerId: number; buyerId: number; sellerId: number;
-  fiat: string; price: number; qty: number; fiatAmount: number;
-  paymentMethod: string; paymentLabel: string; paymentUtr: string | null;
-  status: string; createdAt: string; expiresAt: string;
-  paidAt: string | null; releasedAt: string | null;
-  disputeReason: string | null; disputeOpenedBy: number | null; disputeOpenedAt: string | null;
-  coin: Coin | null;
-  buyer: Merchant; seller: Merchant;
-};
-type Stats = { onlineOffers: number; activeOrders: number; openDisputes: number; completedOrders: number };
+// Admin app shares cookies with the API server — but the generated
+// `customFetch` doesn't default credentials so we must opt-in per-call.
+const COOKIE_REQ = { credentials: "include" as const };
 
 function fmtINR(n: number): string {
   return Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -49,7 +41,7 @@ function fmtINR(n: number): string {
 function fmtCrypto(n: number, dp = 6): string {
   return Number(n).toFixed(dp).replace(/\.?0+$/, "");
 }
-function relTime(s: string | null): string {
+function relTime(s: string | null | undefined): string {
   if (!s) return "—";
   const diff = Date.now() - new Date(s).getTime();
   const sec = Math.floor(diff / 1000);
@@ -68,16 +60,27 @@ function methodLabel(m: string): string {
   return map[m] ?? m.toUpperCase();
 }
 
+const onErr =
+  (toast: ReturnType<typeof useToast>["toast"], title: string) =>
+  (e: unknown) =>
+    toast({
+      title,
+      description: e instanceof Error ? e.message : "Request failed",
+      variant: "destructive",
+    });
+
 export default function P2PAdminPage() {
   const { user: me } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const canModerate = me?.role === "admin" || me?.role === "superadmin";
 
-  const statsQ = useQuery<Stats>({
-    queryKey: ["/admin/p2p/stats"],
-    queryFn: () => get<Stats>("/admin/p2p/stats"),
-    refetchInterval: 10_000,
+  const statsQ = useGetP2pAdminStats({
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/admin/p2p/stats"],
+      refetchInterval: 10_000,
+    },
   });
 
   return (
@@ -109,9 +112,9 @@ export default function P2PAdminPage() {
           <TabsTrigger value="offers" data-testid="p2padmin-tab-offers">Offers</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="disputes"><DisputesTab canModerate={canModerate} /></TabsContent>
+        <TabsContent value="disputes"><DisputesTab canModerate={canModerate} toast={toast} /></TabsContent>
         <TabsContent value="orders"><OrdersTab /></TabsContent>
-        <TabsContent value="offers"><OffersTab canModerate={canModerate} /></TabsContent>
+        <TabsContent value="offers"><OffersTab canModerate={canModerate} toast={toast} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -119,21 +122,18 @@ export default function P2PAdminPage() {
 
 // ─── Disputes ──────────────────────────────────────────────────────────
 
-type ChatMessage = {
-  id: number; orderId: number; senderId: number; senderRole: string;
-  body: string; createdAt: string;
-};
-
 function DisputeChatHistory({ orderId, buyerId, sellerId }: { orderId: number; buyerId: number; sellerId: number }) {
-  const msgsQ = useQuery<ChatMessage[]>({
-    queryKey: ["/p2p/orders", orderId, "messages"],
-    queryFn: () => get<ChatMessage[]>(`/p2p/orders/${orderId}/messages`),
-    refetchInterval: 8_000,
+  const msgsQ = useListP2pMessages(orderId, {
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/p2p/orders", orderId, "messages"],
+      refetchInterval: 8_000,
+    },
   });
   if (msgsQ.isLoading) return <Skeleton className="h-32" />;
-  const msgs = msgsQ.data ?? [];
+  const msgs = (msgsQ.data ?? []) as P2pMessage[];
   if (!msgs.length) return <div className="text-xs text-muted-foreground italic px-1">No chat history yet.</div>;
-  const labelFor = (m: ChatMessage) => {
+  const labelFor = (m: P2pMessage) => {
     if (m.senderRole === "system") return "System";
     if (m.senderRole === "admin") return "Admin";
     if (m.senderId === buyerId) return "Buyer";
@@ -160,33 +160,35 @@ function DisputeChatHistory({ orderId, buyerId, sellerId }: { orderId: number; b
   );
 }
 
-function DisputesTab({ canModerate }: { canModerate: boolean }) {
+function DisputesTab({ canModerate, toast }: { canModerate: boolean; toast: ReturnType<typeof useToast>["toast"] }) {
   const qc = useQueryClient();
-  const { toast } = useToast();
-  const [resolveTarget, setResolveTarget] = useState<Order | null>(null);
+  const [resolveTarget, setResolveTarget] = useState<P2pAdminDispute | null>(null);
   const [action, setAction] = useState<"release" | "refund">("release");
   const [notes, setNotes] = useState("");
 
-  const disputesQ = useQuery<Order[]>({
-    queryKey: ["/admin/p2p/disputes"],
-    queryFn: () => get<Order[]>("/admin/p2p/disputes"),
-    refetchInterval: 10_000,
+  const disputesQ = useListP2pAdminDisputes({
+    request: COOKIE_REQ,
+    query: {
+      queryKey: ["/admin/p2p/disputes"],
+      refetchInterval: 10_000,
+    },
   });
 
-  const resolveMut = useMutation({
-    mutationFn: (a: { id: number; action: "release" | "refund"; notes: string }) =>
-      post(`/admin/p2p/disputes/${a.id}/resolve`, { action: a.action, notes: a.notes }),
-    onSuccess: () => {
-      toast({ title: "Dispute resolved" });
-      qc.invalidateQueries({ queryKey: ["/admin/p2p/disputes"] });
-      qc.invalidateQueries({ queryKey: ["/admin/p2p/stats"] });
-      setResolveTarget(null); setNotes("");
+  const resolveMut = useResolveP2pDispute({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Dispute resolved" });
+        qc.invalidateQueries({ queryKey: ["/admin/p2p/disputes"] });
+        qc.invalidateQueries({ queryKey: ["/admin/p2p/stats"] });
+        setResolveTarget(null); setNotes("");
+      },
+      onError: onErr(toast, "Resolve failed"),
     },
-    onError: (e: ApiError) => toast({ title: "Resolve failed", description: e.message, variant: "destructive" }),
   });
 
   if (disputesQ.isLoading) return <Skeleton className="h-32" />;
-  const rows = disputesQ.data ?? [];
+  const rows = (disputesQ.data ?? []) as P2pAdminDispute[];
   if (rows.length === 0) {
     return (
       <div className="premium-card rounded-xl">
@@ -204,6 +206,7 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
             <th className="text-left p-3">Parties</th>
             <th className="text-right p-3">Amount</th>
             <th className="text-left p-3">Reason</th>
+            <th className="text-left p-3">Evidence</th>
             <th className="text-left p-3">Opened</th>
             <th className="text-right p-3">Action</th>
           </tr>
@@ -228,8 +231,23 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
                 <div className="font-bold">₹{fmtINR(o.fiatAmount)}</div>
                 <div className="text-xs text-muted-foreground">{fmtCrypto(o.qty)} {o.coin?.symbol}</div>
               </td>
-              <td className="p-3 text-xs max-w-[280px]">
+              <td className="p-3 text-xs max-w-[260px]">
                 <div className="line-clamp-3" title={o.disputeReason || ""}>{o.disputeReason || "—"}</div>
+              </td>
+              <td className="p-3 text-xs">
+                {o.disputeEvidenceUrl ? (
+                  <a
+                    href={o.disputeEvidenceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    className="inline-flex items-center gap-1 text-amber-300 hover:underline break-all"
+                    data-testid={`p2padmin-dispute-evidence-${o.id}`}
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0" /> View
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground italic">none</span>
+                )}
               </td>
               <td className="p-3 text-xs text-muted-foreground">{relTime(o.disputeOpenedAt)}</td>
               <td className="p-3 text-right">
@@ -276,6 +294,24 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
                 </div>
                 <div className="text-muted-foreground whitespace-pre-wrap">{resolveTarget.disputeReason}</div>
               </div>
+              {resolveTarget.disputeEvidenceUrl && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                  <div className="font-semibold mb-1 text-amber-300">Evidence submitted</div>
+                  <a
+                    href={resolveTarget.disputeEvidenceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    className="inline-flex items-center gap-1 text-amber-300 hover:underline break-all"
+                    data-testid="p2padmin-resolve-evidence-link"
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                    {resolveTarget.disputeEvidenceUrl}
+                  </a>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    External link supplied by the disputer — open in a new tab and review with care.
+                  </p>
+                </div>
+              )}
               <div className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs">
                 <div className="font-semibold mb-1">Payment claim</div>
                 <div className="grid grid-cols-3 gap-2 text-muted-foreground">
@@ -324,7 +360,10 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
             <DialogFooter>
               <Button variant="outline" onClick={() => setResolveTarget(null)}>Cancel</Button>
               <Button
-                onClick={() => resolveMut.mutate({ id: resolveTarget.id, action, notes })}
+                onClick={() => resolveMut.mutate({
+                  id: resolveTarget.id,
+                  data: { action, ...(notes ? { notes } : {}) },
+                })}
                 disabled={resolveMut.isPending}
                 data-testid="p2padmin-resolve-submit"
               >
@@ -344,14 +383,15 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
 function OrdersTab() {
   const [status, setStatus] = useState("all");
 
-  const ordersQ = useQuery<Order[]>({
-    queryKey: ["/admin/p2p/orders", status],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      if (status !== "all") p.set("status", status);
-      return get<Order[]>(`/admin/p2p/orders${p.toString() ? "?" + p.toString() : ""}`);
+  const ordersQ = useListP2pAdminOrders(
+    status !== "all"
+      ? { status: status as "pending" | "paid" | "released" | "cancelled" | "disputed" | "expired" }
+      : undefined,
+    {
+      request: COOKIE_REQ,
+      query: { queryKey: ["/admin/p2p/orders", status] },
     },
-  });
+  );
 
   return (
     <div className="space-y-3">
@@ -420,28 +460,29 @@ function OrdersTab() {
 
 // ─── Offers ────────────────────────────────────────────────────────────
 
-function OffersTab({ canModerate }: { canModerate: boolean }) {
+function OffersTab({ canModerate, toast }: { canModerate: boolean; toast: ReturnType<typeof useToast>["toast"] }) {
   const [status, setStatus] = useState("all");
   const qc = useQueryClient();
-  const { toast } = useToast();
 
-  const offersQ = useQuery<Offer[]>({
-    queryKey: ["/admin/p2p/offers", status],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      if (status !== "all") p.set("status", status);
-      return get<Offer[]>(`/admin/p2p/offers${p.toString() ? "?" + p.toString() : ""}`);
+  const offersQ = useListP2pAdminOffers(
+    status !== "all"
+      ? { status: status as "online" | "offline" | "suspended" | "closed" }
+      : undefined,
+    {
+      request: COOKIE_REQ,
+      query: { queryKey: ["/admin/p2p/offers", status] },
     },
-  });
+  );
 
-  const setStatusMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) =>
-      patch(`/admin/p2p/offers/${id}`, { status }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/admin/p2p/offers"] });
-      toast({ title: "Status updated" });
+  const setStatusMut = useUpdateP2pAdminOffer({
+    request: COOKIE_REQ,
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["/admin/p2p/offers"] });
+        toast({ title: "Status updated" });
+      },
+      onError: onErr(toast, "Update failed"),
     },
-    onError: (e: ApiError) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -502,7 +543,7 @@ function OffersTab({ canModerate }: { canModerate: boolean }) {
                         {o.status !== "suspended" ? (
                           <Button
                             size="sm" variant="outline"
-                            onClick={() => { if (confirm(`Suspend offer #${o.id}? Merchant will not be able to edit.`)) setStatusMut.mutate({ id: o.id, status: "suspended" }); }}
+                            onClick={() => { if (confirm(`Suspend offer #${o.id}? Merchant will not be able to edit.`)) setStatusMut.mutate({ id: o.id, data: { status: "suspended" } }); }}
                             disabled={setStatusMut.isPending}
                             data-testid={`p2padmin-suspend-${o.id}`}
                           >
@@ -511,7 +552,7 @@ function OffersTab({ canModerate }: { canModerate: boolean }) {
                         ) : (
                           <Button
                             size="sm" variant="outline"
-                            onClick={() => setStatusMut.mutate({ id: o.id, status: "online" })}
+                            onClick={() => setStatusMut.mutate({ id: o.id, data: { status: "online" } })}
                             disabled={setStatusMut.isPending}
                             data-testid={`p2padmin-unsuspend-${o.id}`}
                           >

@@ -7,6 +7,6 @@
  */
 
 export interface P2pMarkPaidInput {
-  /** @maxLength 64 */
+  /** @maxLength 60 */
   utr?: string;
 }

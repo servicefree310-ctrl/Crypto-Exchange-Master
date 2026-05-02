@@ -10,8 +10,15 @@ import type { P2pOfferInputSide } from "./p2pOfferInputSide";
 
 export interface P2pOfferInput {
   side: P2pOfferInputSide;
-  /** @minimum 1 */
-  coinId: number;
+  /**
+   * @minLength 1
+   * @maxLength 20
+   */
+  coinSymbol: string;
+  /**
+   * @minLength 2
+   * @maxLength 8
+   */
   fiat?: string;
   /** @exclusiveMinimum 0 */
   price: number;
@@ -21,20 +28,26 @@ export interface P2pOfferInput {
   minFiat: number;
   /** @exclusiveMinimum 0 */
   maxFiat: number;
-  /** @minItems 1 */
+  /**
+   * @minItems 1
+   * @maxItems 7
+   */
   paymentMethods: P2pOfferInputPaymentMethodsItem[];
   /**
    * @minimum 5
-   * @maximum 240
+   * @maximum 120
    */
   payWindowMins?: number;
-  /** @maxLength 2000 */
+  /** @maxLength 500 */
   terms?: string;
   /**
    * @minimum 0
    * @maximum 3
    */
   minKycLevel?: number;
-  /** @minimum 0 */
+  /**
+   * @minimum 0
+   * @maximum 10000
+   */
   minTrades?: number;
 }

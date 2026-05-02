@@ -416,19 +416,15 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
       const buyerId = offer.side === "sell" ? me.id : offer.userId;
       const sellerId = offer.side === "sell" ? offer.userId : me.id;
 
-      // The seller's payment method is irrelevant — we use the BUYER's
-      // payment method as the destination the buyer will send fiat from
-      // (and the seller will look at to confirm). For symmetry we let
-      // the merchant's offer dictate the channel (matching by type), but
-      // we always resolve the actual payee account from the SELLER side
-      // because that's who the fiat goes TO.
-      // The seller's payment method is what matters — that's the account
-      // the buyer pays TO. The `paymentMethodId` posted by the client
-      // must reference an active method belonging to the seller.
-      // For SELL offers: seller is the merchant who already saved methods
-      // on the offer creation flow. For BUY offers: seller is the opener
-      // (they're selling crypto for fiat) — they posted their OWN method
-      // when opening the order, so the merchant knows where to pay.
+      // The buyer pays fiat TO the seller, so paymentMethodId must
+      // reference an active method owned by the SELLER. The way we get
+      // there depends on which side opened the order:
+      //   • SELL offer (merchant sells crypto): the seller IS the merchant
+      //     and saved methods at offer-creation time. The buyer (opener)
+      //     picks one via /p2p/offers/{id}/seller-methods.
+      //   • BUY offer (merchant buys crypto): the seller IS the opener
+      //     and posts ONE OF THEIR OWN saved method ids so the merchant
+      //     knows where to send the fiat.
       const [pm] = await tx.select().from(p2pPaymentMethodsTable)
         .where(and(eq(p2pPaymentMethodsTable.id, d.paymentMethodId), eq(p2pPaymentMethodsTable.userId, sellerId), eq(p2pPaymentMethodsTable.active, true)))
         .limit(1);
@@ -694,12 +690,22 @@ async function cancelOrder(orderId: number, actorId: number, actorRole: string) 
   });
 }
 
-// Open a dispute — flip status, capture reason, notify admin queue.
+// Open a dispute. Optionally accepts an `evidenceUrl` pointing at a
+// hosted screenshot or document (e.g. payment confirmation, bank
+// statement). We don't host uploads here — the URL is treated as
+// untrusted external content; the admin UI just renders it as a link
+// for moderators to review.
+const DisputeBody = z.object({
+  reason: z.string().trim().min(10, "Please describe the issue (min 10 chars)").max(500),
+  evidenceUrl: z.string().trim().url("Evidence URL must be a valid http(s) URL").max(500).optional(),
+}).strict();
+
 router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const reason = String(req.body?.reason || "").trim().slice(0, 500);
-  if (reason.length < 10) { res.status(400).json({ error: "Please describe the issue (min 10 chars)" }); return; }
+  const parsed = DisputeBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }); return; }
+  const { reason, evidenceUrl } = parsed.data;
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -726,18 +732,28 @@ router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<vo
         buyerId: o.buyerId,
         sellerId: o.sellerId,
         reason,
+        evidenceUrl: evidenceUrl ?? null,
         status: "open",
       }).onConflictDoUpdate({
         target: p2pDisputesTable.orderId,
-        set: { status: "open", reason, openedBy: req.user!.id, openedAt: new Date(), updatedAt: new Date() },
+        set: {
+          status: "open",
+          reason,
+          openedBy: req.user!.id,
+          openedAt: new Date(),
+          evidenceUrl: evidenceUrl ?? null,
+          updatedAt: new Date(),
+        },
       });
       await tx.insert(p2pMessagesTable).values({
         orderId: id, senderId: req.user!.id, senderRole: "system",
-        body: `Dispute opened: ${reason.slice(0, 200)}`,
+        body: evidenceUrl
+          ? `Dispute opened: ${reason.slice(0, 200)} (evidence attached)`
+          : `Dispute opened: ${reason.slice(0, 200)}`,
       });
       return updated;
     });
-    req.log.warn({ orderId: id, openedBy: req.user!.id, reasonLen: reason.length }, "p2p dispute opened");
+    req.log.warn({ orderId: id, openedBy: req.user!.id, reasonLen: reason.length, hasEvidence: !!evidenceUrl }, "p2p dispute opened");
     res.json(result);
   } catch (e) {
     if (sendError(res, e)) return;
@@ -849,11 +865,20 @@ router.get("/admin/p2p/orders", supportPlus, async (req, res): Promise<void> => 
 });
 
 router.get("/admin/p2p/disputes", supportPlus, async (_req, res): Promise<void> => {
-  const rows = await db.select().from(p2pOrdersTable)
+  // Left-join p2p_disputes so the admin moderation panel can render the
+  // evidence_url attached at dispute-open time. Falls back gracefully to
+  // null for legacy disputes that pre-date migration 008.
+  const rows = await db.select({
+    order: p2pOrdersTable,
+    evidenceUrl: p2pDisputesTable.evidenceUrl,
+  }).from(p2pOrdersTable)
+    .leftJoin(p2pDisputesTable, eq(p2pDisputesTable.orderId, p2pOrdersTable.id))
     .where(eq(p2pOrdersTable.status, "disputed"))
     .orderBy(asc(p2pOrdersTable.disputeOpenedAt))
     .limit(200);
-  res.json(await hydrateOrders(rows, -1));
+  const evidenceByOrder = new Map(rows.map(r => [r.order.id, r.evidenceUrl ?? null]));
+  const hydrated = await hydrateOrders(rows.map(r => r.order), -1);
+  res.json(hydrated.map(o => ({ ...o, disputeEvidenceUrl: evidenceByOrder.get(o.id) ?? null })));
 });
 
 // Resolve dispute: "release" → push escrow to buyer. "refund" → return to seller.

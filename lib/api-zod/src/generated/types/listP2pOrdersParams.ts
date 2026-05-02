@@ -5,8 +5,10 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ListP2pOrdersRole } from "./listP2pOrdersRole";
 import type { ListP2pOrdersStatus } from "./listP2pOrdersStatus";
 
 export type ListP2pOrdersParams = {
+  role?: ListP2pOrdersRole;
   status?: ListP2pOrdersStatus;
 };

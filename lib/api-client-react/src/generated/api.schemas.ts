@@ -82,6 +82,28 @@ export interface P2pPaymentMethodInput {
   holderName?: string;
 }
 
+export type P2pSellerMethodMethod =
+  (typeof P2pSellerMethodMethod)[keyof typeof P2pSellerMethodMethod];
+
+export const P2pSellerMethodMethod = {
+  upi: "upi",
+  imps: "imps",
+  neft: "neft",
+  bank: "bank",
+  paytm: "paytm",
+  phonepe: "phonepe",
+  gpay: "gpay",
+} as const;
+
+/**
+ * Privacy-preserving view of a seller's payment method (no account number).
+ */
+export interface P2pSellerMethod {
+  id: number;
+  method: P2pSellerMethodMethod;
+  label: string;
+}
+
 export type P2pOfferSide = (typeof P2pOfferSide)[keyof typeof P2pOfferSide];
 
 export const P2pOfferSide = {
@@ -144,8 +166,15 @@ export const P2pOfferInputPaymentMethodsItem = {
 
 export interface P2pOfferInput {
   side: P2pOfferInputSide;
-  /** @minimum 1 */
-  coinId: number;
+  /**
+   * @minLength 1
+   * @maxLength 20
+   */
+  coinSymbol: string;
+  /**
+   * @minLength 2
+   * @maxLength 8
+   */
   fiat?: string;
   /** @exclusiveMinimum 0 */
   price: number;
@@ -155,36 +184,29 @@ export interface P2pOfferInput {
   minFiat: number;
   /** @exclusiveMinimum 0 */
   maxFiat: number;
-  /** @minItems 1 */
+  /**
+   * @minItems 1
+   * @maxItems 7
+   */
   paymentMethods: P2pOfferInputPaymentMethodsItem[];
   /**
    * @minimum 5
-   * @maximum 240
+   * @maximum 120
    */
   payWindowMins?: number;
-  /** @maxLength 2000 */
+  /** @maxLength 500 */
   terms?: string;
   /**
    * @minimum 0
    * @maximum 3
    */
   minKycLevel?: number;
-  /** @minimum 0 */
+  /**
+   * @minimum 0
+   * @maximum 10000
+   */
   minTrades?: number;
 }
-
-export type P2pOfferPatchPaymentMethodsItem =
-  (typeof P2pOfferPatchPaymentMethodsItem)[keyof typeof P2pOfferPatchPaymentMethodsItem];
-
-export const P2pOfferPatchPaymentMethodsItem = {
-  upi: "upi",
-  imps: "imps",
-  neft: "neft",
-  bank: "bank",
-  paytm: "paytm",
-  phonepe: "phonepe",
-  gpay: "gpay",
-} as const;
 
 export type P2pOfferPatchStatus =
   (typeof P2pOfferPatchStatus)[keyof typeof P2pOfferPatchStatus];
@@ -196,30 +218,29 @@ export const P2pOfferPatchStatus = {
 } as const;
 
 export interface P2pOfferPatch {
+  status?: P2pOfferPatchStatus;
   /** @exclusiveMinimum 0 */
   price?: number;
-  /** @exclusiveMinimum 0 */
-  totalQty?: number;
   /** @exclusiveMinimum 0 */
   minFiat?: number;
   /** @exclusiveMinimum 0 */
   maxFiat?: number;
-  paymentMethods?: P2pOfferPatchPaymentMethodsItem[];
-  /**
-   * @minimum 5
-   * @maximum 240
-   */
-  payWindowMins?: number;
-  /** @maxLength 2000 */
+  /** @maxLength 500 */
   terms?: string;
-  status?: P2pOfferPatchStatus;
-  /**
-   * @minimum 0
-   * @maximum 3
-   */
-  minKycLevel?: number;
-  /** @minimum 0 */
-  minTrades?: number;
+}
+
+export type P2pAdminOfferPatchStatus =
+  (typeof P2pAdminOfferPatchStatus)[keyof typeof P2pAdminOfferPatchStatus];
+
+export const P2pAdminOfferPatchStatus = {
+  online: "online",
+  offline: "offline",
+  suspended: "suspended",
+  closed: "closed",
+} as const;
+
+export interface P2pAdminOfferPatch {
+  status: P2pAdminOfferPatchStatus;
 }
 
 export type P2pOrderStatus =
@@ -239,6 +260,7 @@ export type P2pOrderRole = (typeof P2pOrderRole)[keyof typeof P2pOrderRole];
 export const P2pOrderRole = {
   buyer: "buyer",
   seller: "seller",
+  admin: "admin",
 } as const;
 
 export interface P2pOrder {
@@ -265,17 +287,30 @@ export interface P2pOrder {
   createdAt: string;
   disputeReason?: string | null;
   disputeOpenedBy?: number | null;
+  disputeOpenedAt?: string | null;
   role: P2pOrderRole;
   coin?: Coin | null;
   buyer: Merchant;
   seller: Merchant;
 }
 
+export type P2pAdminDispute = P2pOrder & {
+  disputeEvidenceUrl?: string | null;
+};
+
 export interface P2pOrderInput {
   /** @minimum 1 */
   offerId: number;
-  /** @exclusiveMinimum 0 */
-  qty: number;
+  /**
+   * Provide EITHER fiatAmount OR qty (exactly one).
+   * @exclusiveMinimum 0
+   */
+  fiatAmount?: number;
+  /**
+   * Provide EITHER fiatAmount OR qty (exactly one).
+   * @exclusiveMinimum 0
+   */
+  qty?: number;
   /** @minimum 1 */
   paymentMethodId: number;
 }
@@ -300,24 +335,50 @@ export interface P2pMessage {
 }
 
 export interface P2pMarkPaidInput {
-  /** @maxLength 64 */
+  /** @maxLength 60 */
   utr?: string;
 }
 
 export interface P2pDisputeInput {
   /**
-   * @minLength 8
-   * @maxLength 1000
+   * @minLength 10
+   * @maxLength 500
    */
   reason: string;
+  /**
+   * Optional http(s) URL to a screenshot or document supporting the claim.
+   * @maxLength 500
+   */
+  evidenceUrl?: string;
 }
 
 export interface P2pMessageInput {
   /**
    * @minLength 1
-   * @maxLength 2000
+   * @maxLength 1000
    */
   body: string;
+}
+
+export interface P2pAdminStats {
+  onlineOffers: number;
+  activeOrders: number;
+  openDisputes: number;
+  completedOrders: number;
+}
+
+export type P2pResolveDisputeInputAction =
+  (typeof P2pResolveDisputeInputAction)[keyof typeof P2pResolveDisputeInputAction];
+
+export const P2pResolveDisputeInputAction = {
+  release: "release",
+  refund: "refund",
+} as const;
+
+export interface P2pResolveDisputeInput {
+  action: P2pResolveDisputeInputAction;
+  /** @maxLength 500 */
+  notes?: string;
 }
 
 export type ListP2pOffersParams = {
@@ -326,11 +387,19 @@ export type ListP2pOffersParams = {
    */
   side?: ListP2pOffersSide;
   /**
-   * @minimum 1
+   * Coin SYMBOL (e.g. BTC, USDT) — case insensitive, server uppercases
    */
-  coinId?: number;
+  coin?: string;
   fiat?: string;
-  paymentMethod?: string;
+  /**
+   * Filter to offers accepting this payment method type
+   */
+  method?: ListP2pOffersMethod;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListP2pOffersSide =
@@ -341,14 +410,70 @@ export const ListP2pOffersSide = {
   sell: "sell",
 } as const;
 
+export type ListP2pOffersMethod =
+  (typeof ListP2pOffersMethod)[keyof typeof ListP2pOffersMethod];
+
+export const ListP2pOffersMethod = {
+  upi: "upi",
+  imps: "imps",
+  neft: "neft",
+  bank: "bank",
+  paytm: "paytm",
+  phonepe: "phonepe",
+  gpay: "gpay",
+} as const;
+
 export type ListP2pOrdersParams = {
+  role?: ListP2pOrdersRole;
   status?: ListP2pOrdersStatus;
 };
+
+export type ListP2pOrdersRole =
+  (typeof ListP2pOrdersRole)[keyof typeof ListP2pOrdersRole];
+
+export const ListP2pOrdersRole = {
+  buyer: "buyer",
+  seller: "seller",
+  all: "all",
+} as const;
 
 export type ListP2pOrdersStatus =
   (typeof ListP2pOrdersStatus)[keyof typeof ListP2pOrdersStatus];
 
 export const ListP2pOrdersStatus = {
+  all: "all",
+  pending: "pending",
+  paid: "paid",
+  released: "released",
+  cancelled: "cancelled",
+  disputed: "disputed",
+  expired: "expired",
+} as const;
+
+export type ListP2pAdminOffersParams = {
+  status?: ListP2pAdminOffersStatus;
+};
+
+export type ListP2pAdminOffersStatus =
+  (typeof ListP2pAdminOffersStatus)[keyof typeof ListP2pAdminOffersStatus];
+
+export const ListP2pAdminOffersStatus = {
+  all: "all",
+  online: "online",
+  offline: "offline",
+  suspended: "suspended",
+  closed: "closed",
+} as const;
+
+export type ListP2pAdminOrdersParams = {
+  status?: ListP2pAdminOrdersStatus;
+};
+
+export type ListP2pAdminOrdersStatus =
+  (typeof ListP2pAdminOrdersStatus)[keyof typeof ListP2pAdminOrdersStatus];
+
+export const ListP2pAdminOrdersStatus = {
+  all: "all",
   pending: "pending",
   paid: "paid",
   released: "released",
