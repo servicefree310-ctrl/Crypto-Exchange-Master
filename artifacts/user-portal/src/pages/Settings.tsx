@@ -5,6 +5,7 @@ import {
   Smartphone, Monitor, AlertCircle, CheckCircle2, ShieldAlert, Sun, Moon,
   RefreshCw, Mail, Save, ChevronRight, Trash2, User as UserIcon,
 } from "lucide-react";
+import ApiKeysTab from "@/components/settings/ApiKeysTab";
 import { useAuth } from "@/lib/auth";
 import { get, post, put, ApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -86,9 +87,10 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="security" className="space-y-4">
-        <TabsList className="grid grid-cols-4 w-full lg:w-auto lg:inline-grid">
+        <TabsList className="grid grid-cols-5 w-full lg:w-auto lg:inline-grid">
           <TabsTrigger value="account" data-testid="tab-account"><UserIcon className="h-4 w-4 mr-1.5" />Account</TabsTrigger>
           <TabsTrigger value="security" data-testid="tab-security"><Shield className="h-4 w-4 mr-1.5" />Security</TabsTrigger>
+          <TabsTrigger value="api-keys" data-testid="tab-api-keys"><KeyRound className="h-4 w-4 mr-1.5" />API keys</TabsTrigger>
           <TabsTrigger value="notifications" data-testid="tab-notifications"><Bell className="h-4 w-4 mr-1.5" />Notifications</TabsTrigger>
           <TabsTrigger value="preferences" data-testid="tab-preferences"><Globe className="h-4 w-4 mr-1.5" />Preferences</TabsTrigger>
         </TabsList>
@@ -240,6 +242,11 @@ export default function Settings() {
               </div>
             )}
           </Card>
+        </TabsContent>
+
+        {/* ─────────────── API KEYS ─────────────── */}
+        <TabsContent value="api-keys" className="space-y-4 mt-0">
+          <ApiKeysTab />
         </TabsContent>
 
         {/* ─────────────── NOTIFICATIONS ─────────────── */}

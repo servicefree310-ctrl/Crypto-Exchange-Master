@@ -263,7 +263,16 @@ app.use(cookieParser());
 // gateway callbacks aren't throttled or blocked.
 app.use("/api", webhooksRouter);
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({
+  limit: "2mb",
+  // Capture the raw request body so HMAC-signed API key requests can recompute
+  // the signature against the EXACT bytes the client sent. Reconstructing from
+  // req.body via JSON.stringify is unsafe — key order and whitespace differences
+  // would break the signature.
+  verify: (req, _res, buf) => {
+    if (buf?.length) (req as unknown as { rawBody?: string }).rawBody = buf.toString("utf8");
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // CSRF/origin guard on every /api write.

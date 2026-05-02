@@ -24,6 +24,8 @@ import adminContentRouter from "./admin-content";
 import adminSourceRouter from "./admin-source";
 import inmemEngineRouter from "./inmem-engine";
 import inmemEngineProdRouter from "./inmem-engine-prod";
+import accountApiKeysRouter from "./account-api-keys";
+import v1Router from "./v1";
 
 const router: IRouter = Router();
 
@@ -61,5 +63,7 @@ router.use(adminContentRouter);
 router.use(adminSourceRouter);
 router.use(inmemEngineRouter);
 router.use(inmemEngineProdRouter);
+router.use(accountApiKeysRouter);
+router.use(v1Router);
 
 export default router;

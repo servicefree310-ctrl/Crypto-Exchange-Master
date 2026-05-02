@@ -15,3 +15,4 @@ export * from "./wallet-addresses";
 export * from "./funding-rates";
 export * from "./market-bots";
 export * from "./futures";
+export * from "./user-api-keys";
