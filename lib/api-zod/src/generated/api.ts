@@ -167,9 +167,6 @@ export const createP2pOfferBodyMaxFiatExclusiveMin = 0;
 export const createP2pOfferBodyPaymentMethodsMax = 7;
 
 export const createP2pOfferBodyPayWindowMinsDefault = 15;
-export const createP2pOfferBodyPayWindowMinsMin = 5;
-export const createP2pOfferBodyPayWindowMinsMax = 120;
-
 export const createP2pOfferBodyTermsMax = 500;
 
 export const createP2pOfferBodyMinKycLevelDefault = 1;
@@ -199,10 +196,9 @@ export const CreateP2pOfferBody = zod.object({
     .min(1)
     .max(createP2pOfferBodyPaymentMethodsMax),
   payWindowMins: zod
-    .number()
-    .min(createP2pOfferBodyPayWindowMinsMin)
-    .max(createP2pOfferBodyPayWindowMinsMax)
-    .default(createP2pOfferBodyPayWindowMinsDefault),
+    .literal(15)
+    .default(createP2pOfferBodyPayWindowMinsDefault)
+    .describe("Pay window is fixed at 15 minutes in this release."),
   terms: zod.string().max(createP2pOfferBodyTermsMax).optional(),
   minKycLevel: zod
     .number()

@@ -32,6 +32,7 @@ export * from "./p2pMessageSenderRole";
 export * from "./p2pOffer";
 export * from "./p2pOfferInput";
 export * from "./p2pOfferInputPaymentMethodsItem";
+export * from "./p2pOfferInputPayWindowMins";
 export * from "./p2pOfferInputSide";
 export * from "./p2pOfferPatch";
 export * from "./p2pOfferPatchStatus";

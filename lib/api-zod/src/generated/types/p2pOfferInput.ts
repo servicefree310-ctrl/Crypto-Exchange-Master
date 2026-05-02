@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { P2pOfferInputPaymentMethodsItem } from "./p2pOfferInputPaymentMethodsItem";
+import type { P2pOfferInputPayWindowMins } from "./p2pOfferInputPayWindowMins";
 import type { P2pOfferInputSide } from "./p2pOfferInputSide";
 
 export interface P2pOfferInput {
@@ -33,11 +34,8 @@ export interface P2pOfferInput {
    * @maxItems 7
    */
   paymentMethods: P2pOfferInputPaymentMethodsItem[];
-  /**
-   * @minimum 5
-   * @maximum 120
-   */
-  payWindowMins?: number;
+  /** Pay window is fixed at 15 minutes in this release. */
+  payWindowMins?: P2pOfferInputPayWindowMins;
   /** @maxLength 500 */
   terms?: string;
   /**

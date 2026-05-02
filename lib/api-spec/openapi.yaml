@@ -610,7 +610,7 @@ components:
           minItems: 1
           maxItems: 7
           items: { type: string, enum: [upi, imps, neft, bank, paytm, phonepe, gpay] }
-        payWindowMins: { type: integer, minimum: 5, maximum: 120, default: 15 }
+        payWindowMins: { type: integer, enum: [15], default: 15, description: "Pay window is fixed at 15 minutes in this release." }
         terms: { type: string, maxLength: 500 }
         minKycLevel: { type: integer, minimum: 0, maximum: 3, default: 1 }
         minTrades: { type: integer, minimum: 0, maximum: 10000, default: 0 }

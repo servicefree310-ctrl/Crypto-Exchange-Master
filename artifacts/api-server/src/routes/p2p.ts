@@ -251,7 +251,10 @@ const OfferBody = z.object({
   minFiat: z.coerce.number().finite().positive(),
   maxFiat: z.coerce.number().finite().positive(),
   paymentMethods: z.array(z.enum(PAYMENT_METHOD_TYPES)).min(1).max(7),
-  payWindowMins: z.coerce.number().int().min(5).max(120).default(15),
+  // Initial rollout fixes the pay window at 15 minutes (matches the
+  // task spec). Schema is a literal so the API can't be used to widen
+  // or shrink it; widen this when configurable windows ship.
+  payWindowMins: z.literal(15).default(15),
   terms: z.string().max(500).optional(),
   minKycLevel: z.coerce.number().int().min(0).max(3).default(1),
   minTrades: z.coerce.number().int().min(0).max(10000).default(0),

@@ -625,7 +625,6 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
   const [minFiat, setMinFiat] = useState("");
   const [maxFiat, setMaxFiat] = useState("");
   const [methods, setMethods] = useState<string[]>(["upi"]);
-  const [payWindowMins, setPayWindowMins] = useState("15");
   const [terms, setTerms] = useState("");
 
   const coinsQ = useQuery<Coin[]>({
@@ -722,8 +721,8 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <Label>Pay window (minutes)</Label>
-            <Input type="number" value={payWindowMins} onChange={(e) => setPayWindowMins(e.target.value)} min="5" max="120" data-testid="p2p-ad-window" />
+            <Label>Pay window</Label>
+            <p className="text-sm text-muted-foreground">Fixed at 15 minutes for this release.</p>
           </div>
 
           <div>
@@ -751,7 +750,7 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
                 minFiat: Number(minFiat),
                 maxFiat: Number(maxFiat),
                 paymentMethods: methods as Array<"upi" | "imps" | "neft" | "bank" | "paytm" | "phonepe" | "gpay">,
-                payWindowMins: Number(payWindowMins),
+                payWindowMins: 15,
                 ...(terms ? { terms } : {}),
               },
             })}
