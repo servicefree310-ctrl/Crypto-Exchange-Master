@@ -328,6 +328,22 @@ router.patch("/p2p/offers/:id", requireAuth, async (req, res): Promise<void> => 
   if (!existing) { res.status(404).json({ error: "Offer not found" }); return; }
   if (existing.status === "suspended") { res.status(403).json({ error: "Suspended by admin — cannot edit" }); return; }
 
+  // Re-run the same invariants OfferBody enforces on create, against the
+  // post-patch view of the offer (patched fields overlaid on existing
+  // values). Prevents direct API callers from PATCHing into states the
+  // creation form would have rejected (e.g. maxFiat < minFiat,
+  // minFiat > totalQty*price).
+  const newPrice    = parsed.data.price   ?? Number(existing.price);
+  const newMinFiat  = parsed.data.minFiat ?? Number(existing.minFiat);
+  const newMaxFiat  = parsed.data.maxFiat ?? Number(existing.maxFiat);
+  const totalQty    = Number(existing.totalQty);
+  if (newMaxFiat < newMinFiat) {
+    res.status(400).json({ error: "maxFiat must be >= minFiat" }); return;
+  }
+  if (newMinFiat > totalQty * newPrice) {
+    res.status(400).json({ error: "minFiat exceeds total liquidity (totalQty*price)" }); return;
+  }
+
   const upd: Partial<typeof p2pOffersTable.$inferInsert> = { updatedAt: new Date() };
   if (parsed.data.status) upd.status = parsed.data.status;
   if (parsed.data.price != null) upd.price = String(parsed.data.price);
