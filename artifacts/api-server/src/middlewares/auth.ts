@@ -2,9 +2,11 @@ import type { Request, Response, NextFunction } from "express";
 import { getUserBySession, readSessionCookie } from "../lib/auth";
 import type { User } from "@workspace/db";
 
-declare module "express-serve-static-core" {
-  interface Request {
-    user?: User;
+declare global {
+  namespace Express {
+    interface Request {
+      user?: User;
+    }
   }
 }
 

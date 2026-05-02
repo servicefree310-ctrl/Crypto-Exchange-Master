@@ -10,6 +10,8 @@ import Home from "@/pages/Home";
 import Markets from "@/pages/Markets";
 import Trade from "@/pages/Trade";
 import Futures from "@/pages/Futures";
+import Options from "@/pages/Options";
+import Web3 from "@/pages/Web3";
 import Wallet from "@/pages/Wallet";
 import Orders from "@/pages/Orders";
 import Invoice from "@/pages/Invoice";
@@ -66,6 +68,8 @@ function App() {
                 <Route path="/markets" component={Markets} />
                 <Route path="/trade/:symbol?" component={Trade} />
                 <Route path="/futures/:symbol?" component={Futures} />
+                <Route path="/options" component={Options} />
+                <Route path="/web3" component={Web3} />
                 
                 <Route path="/wallet">
                   {() => <RequireAuth><Wallet /></RequireAuth>}

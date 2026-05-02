@@ -24,6 +24,8 @@ import EarnPage from "@/pages/earn";
 import LegalPage from "@/pages/legal";
 import SettingsPage from "@/pages/settings";
 import LoginLogsPage from "@/pages/login-logs";
+import OptionsAdminPage from "@/pages/options-admin";
+import Web3AdminPage from "@/pages/web3-admin";
 import OtpProvidersPage from "@/pages/otp-providers";
 import ChatPage from "@/pages/chat";
 import FundingRatesPage from "@/pages/funding-rates";
@@ -102,6 +104,8 @@ function Protected() {
         <Route path="/pairs" component={PairsPage} />
         <Route path="/funding-rates" component={FundingRatesPage} />
         <Route path="/futures-positions" component={FuturesPositionsPage} />
+        <Route path="/options-admin" component={OptionsAdminPage} />
+        <Route path="/web3-admin" component={Web3AdminPage} />
         <Route path="/api-keys" component={ApiKeysPage} />
         <Route path="/bots" component={BotsPage} />
         <Route path="/orders" component={OrdersPage} />
