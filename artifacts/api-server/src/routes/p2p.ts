@@ -49,9 +49,15 @@ async function getCoinBySymbol(sym: string) {
 }
 
 function sendError(res: import("express").Response, e: unknown): boolean {
-  if (e instanceof AppError) {
-    res.status(e.httpStatus).json({ error: e.message });
-    return true;
+  // Accept any error that carries a numeric `httpStatus` — covers AppError
+  // (this file) and EscrowError (lib/p2p-escrow) so business-rule failures
+  // like "insufficient seller balance" surface as clean 4xx instead of 500s.
+  if (e && typeof e === "object" && e instanceof Error) {
+    const status = (e as Error & { httpStatus?: unknown }).httpStatus;
+    if (typeof status === "number" && status >= 400 && status < 600) {
+      res.status(status).json({ error: e.message });
+      return true;
+    }
   }
   return false;
 }

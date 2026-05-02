@@ -23,7 +23,12 @@ export function quantizeQty(qty: string | number): string {
   if (!Number.isFinite(n) || n <= 0) {
     throw new EscrowError(400, "Invalid escrow quantity");
   }
-  return n.toFixed(8);
+  const q = n.toFixed(8);
+  // Guard against sub-satoshi inputs (e.g. 1e-9) that round to 0.00000000.
+  if (Number(q) <= 0) {
+    throw new EscrowError(400, "Order quantity is below the minimum (0.00000001)");
+  }
+  return q;
 }
 
 export async function ensureSpotWalletForUpdate(tx: Tx, userId: number, coinId: number) {
