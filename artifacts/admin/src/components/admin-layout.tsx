@@ -5,7 +5,7 @@ import {
   ShieldCheck, Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark,
   PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
   KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Sigma, Globe2, Radar,
-  Megaphone, Trophy, Database, Server, Search, Command as CommandIcon,
+  Megaphone, Trophy, Database, Server, Search, Command as CommandIcon, Crown,
   ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, History, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -68,6 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
       { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
       { href: "/p2p", label: "P2P Marketplace", icon: Users, roles: ["support", "admin", "superadmin"] },
+      { href: "/fees", label: "Fees & VIP Tiers", icon: Crown, roles: ["admin", "superadmin"] },
       { href: "/trading-engine", label: "Trading Engine", icon: Cpu, roles: ["admin", "superadmin"] },
     ],
   },

@@ -5,6 +5,7 @@ import {
   User as UserIcon, Shield, Wallet as WalletIcon, Building2, Settings as SettingsIcon,
   Coins, Copy, Check, Pencil, Mail, Phone, Hash, BadgeCheck, Sparkles, ArrowRight,
   TrendingUp, Activity, ExternalLink, Save, X, Award, Gift, AlertCircle, Loader2,
+  Crown, ArrowLeftRight, Percent,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { get, put, patch } from "@/lib/api";
@@ -63,6 +64,18 @@ export default function Profile() {
   const referQ = useQuery<ReferStats>({
     queryKey: ["/refer/stats"],
     queryFn: () => get<ReferStats>("/refer/stats"),
+    retry: false,
+  });
+
+  type FeesMy = {
+    volume30dUsdt: number;
+    totalFeesUsdt: number;
+    currentTier: { level: number; name: string; minVolume: number; spotMaker: number; spotTaker: number; futuresMaker: number; futuresTaker: number; convertFee: number; withdrawDiscount: number };
+    nextTier: FeesMy["currentTier"] | null;
+  };
+  const feesQ = useQuery<FeesMy>({
+    queryKey: ["/fees/my"],
+    queryFn: () => get<FeesMy>("/fees/my"),
     retry: false,
   });
 
@@ -280,6 +293,9 @@ export default function Profile() {
         />
       </div>
 
+      {/* ──────── VIP Tier ──────── */}
+      <VipTierCard fees={feesQ.data} loading={feesQ.isLoading} />
+
       {/* ──────── Login Preferences ──────── */}
       <LoginPrefsCard sec={securityQ.data} onSaved={() => securityQ.refetch()} />
 
@@ -383,6 +399,114 @@ export default function Profile() {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ──────── VIP card ────────
+
+function VipTierCard({
+  fees,
+  loading,
+}: {
+  fees?: {
+    volume30dUsdt: number;
+    totalFeesUsdt: number;
+    currentTier: { level: number; name: string; minVolume: number; spotMaker: number; spotTaker: number; futuresMaker: number; futuresTaker: number; convertFee: number; withdrawDiscount: number };
+    nextTier: { level: number; name: string; minVolume: number; convertFee: number } | null;
+  };
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <Card className="p-5 border-border/60">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading VIP status…
+        </div>
+      </Card>
+    );
+  }
+  if (!fees) return null;
+
+  const t = fees.currentTier;
+  const next = fees.nextTier;
+  const vol = Number(fees.volume30dUsdt) || 0;
+  const toNext = next ? Math.max(0, next.minVolume - vol) : 0;
+  const pct = next && next.minVolume > t.minVolume
+    ? Math.max(0, Math.min(100, ((vol - t.minVolume) / (next.minVolume - t.minVolume)) * 100))
+    : 100;
+
+  return (
+    <Card className="overflow-hidden border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-card" data-testid="card-vip-tier">
+      <div className="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Tier badge + headline */}
+        <div className="lg:col-span-1 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Crown className="h-4 w-4 text-amber-400" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">VIP Status</span>
+          </div>
+          <div>
+            <div className="text-3xl font-extrabold tracking-tight" data-testid="vip-tier-name">{t.name}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">Level {t.level} · {fmtUsd(vol)} traded last 30d</div>
+          </div>
+          {next ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">Progress to <span className="text-amber-400 font-semibold">{next.name}</span></span>
+                <span className="font-mono tabular-nums text-amber-300">{pct.toFixed(0)}%</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted/30 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-[width]" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {fmtUsd(toNext)} more volume → save {((t.convertFee - next.convertFee)).toFixed(3)}% on every convert
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+              Top tier unlocked — best fees across the board.
+            </div>
+          )}
+        </div>
+
+        {/* Fee row */}
+        <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <FeeStat label="Spot Maker" value={`${t.spotMaker.toFixed(2)}%`} icon={<Percent className="h-3 w-3" />} />
+          <FeeStat label="Spot Taker" value={`${t.spotTaker.toFixed(2)}%`} icon={<Percent className="h-3 w-3" />} />
+          <FeeStat label="Futures Taker" value={`${t.futuresTaker.toFixed(3)}%`} icon={<TrendingUp className="h-3 w-3" />} />
+          <FeeStat
+            label="Convert"
+            value={`${t.convertFee.toFixed(3)}%`}
+            icon={<ArrowLeftRight className="h-3 w-3" />}
+            highlight
+            testId="vip-convert-fee"
+          />
+        </div>
+      </div>
+      <div className="border-t border-border/40 bg-muted/10 px-5 py-3 text-[11px] text-muted-foreground flex items-center justify-between gap-2">
+        <span>30d volume excludes bot/maker liquidity. Tier resets monthly.</span>
+        <Link href="/convert" className="text-amber-400 hover:underline inline-flex items-center gap-1">
+          Try Quick Convert <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+function FeeStat({
+  label, value, icon, highlight, testId,
+}: {
+  label: string; value: string; icon: React.ReactNode; highlight?: boolean; testId?: string;
+}) {
+  return (
+    <div
+      className={`rounded-lg border p-3 ${highlight ? "border-amber-500/40 bg-amber-500/10" : "border-border/60 bg-muted/10"}`}
+      data-testid={testId}
+    >
+      <div className={`flex items-center gap-1 text-[10px] uppercase tracking-wider ${highlight ? "text-amber-400" : "text-muted-foreground"}`}>
+        {icon}<span>{label}</span>
+      </div>
+      <div className={`text-xl font-bold tabular-nums mt-1 ${highlight ? "text-amber-300" : "text-foreground"}`}>{value}</div>
     </div>
   );
 }

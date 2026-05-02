@@ -38,6 +38,7 @@ import portfolioAnalyticsRouter from "./portfolio-analytics";
 import dashboardRouter from "./dashboard";
 import v1Router from "./v1";
 import p2pRouter from "./p2p";
+import convertRouter from "./convert";
 
 const router: IRouter = Router();
 
@@ -88,6 +89,7 @@ router.use(copyTradingRouter);
 router.use(portfolioAnalyticsRouter);
 router.use(dashboardRouter);
 router.use(p2pRouter);
+router.use(convertRouter);
 router.use(v1Router);
 
 export default router;

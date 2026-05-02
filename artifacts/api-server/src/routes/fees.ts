@@ -1,7 +1,9 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, sql } from "drizzle-orm";
+import { z } from "zod/v4";
 import { db, ordersTable, tradesTable, pairsTable, coinsTable, usersTable, settingsTable } from "@workspace/db";
-import { requireAuth, optionalAuth } from "../middlewares/auth";
+import { requireAuth, optionalAuth, requireRole } from "../middlewares/auth";
+import { logAdminAction } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -9,16 +11,18 @@ export interface VipTier {
   level: number; name: string; minVolume: number;
   spotMaker: number; spotTaker: number;
   futuresMaker: number; futuresTaker: number;
+  /** Convert flow fee % (flat, no GST overlay) charged on the OUT side. */
+  convertFee: number;
   withdrawDiscount: number;
 }
 
 export const DEFAULT_VIP_TIERS: VipTier[] = [
-  { level: 0, name: "Regular", minVolume: 0,        spotMaker: 0.20, spotTaker: 0.25, futuresMaker: 0.05, futuresTaker: 0.07, withdrawDiscount: 0 },
-  { level: 1, name: "VIP 1",   minVolume: 100000,   spotMaker: 0.16, spotTaker: 0.20, futuresMaker: 0.04, futuresTaker: 0.06, withdrawDiscount: 5 },
-  { level: 2, name: "VIP 2",   minVolume: 500000,   spotMaker: 0.12, spotTaker: 0.15, futuresMaker: 0.03, futuresTaker: 0.05, withdrawDiscount: 10 },
-  { level: 3, name: "VIP 3",   minVolume: 2500000,  spotMaker: 0.08, spotTaker: 0.10, futuresMaker: 0.02, futuresTaker: 0.04, withdrawDiscount: 15 },
-  { level: 4, name: "VIP 4",   minVolume: 10000000, spotMaker: 0.06, spotTaker: 0.08, futuresMaker: 0.015,futuresTaker: 0.03, withdrawDiscount: 20 },
-  { level: 5, name: "VIP 5",   minVolume: 50000000, spotMaker: 0.04, spotTaker: 0.06, futuresMaker: 0.01, futuresTaker: 0.025,withdrawDiscount: 25 },
+  { level: 0, name: "Regular", minVolume: 0,        spotMaker: 0.20, spotTaker: 0.25, futuresMaker: 0.05, futuresTaker: 0.07, convertFee: 0.300, withdrawDiscount: 0 },
+  { level: 1, name: "VIP 1",   minVolume: 100000,   spotMaker: 0.16, spotTaker: 0.20, futuresMaker: 0.04, futuresTaker: 0.06, convertFee: 0.250, withdrawDiscount: 5 },
+  { level: 2, name: "VIP 2",   minVolume: 500000,   spotMaker: 0.12, spotTaker: 0.15, futuresMaker: 0.03, futuresTaker: 0.05, convertFee: 0.200, withdrawDiscount: 10 },
+  { level: 3, name: "VIP 3",   minVolume: 2500000,  spotMaker: 0.08, spotTaker: 0.10, futuresMaker: 0.02, futuresTaker: 0.04, convertFee: 0.150, withdrawDiscount: 15 },
+  { level: 4, name: "VIP 4",   minVolume: 10000000, spotMaker: 0.06, spotTaker: 0.08, futuresMaker: 0.015,futuresTaker: 0.03, convertFee: 0.100, withdrawDiscount: 20 },
+  { level: 5, name: "VIP 5",   minVolume: 50000000, spotMaker: 0.04, spotTaker: 0.06, futuresMaker: 0.01, futuresTaker: 0.025,convertFee: 0.075, withdrawDiscount: 25 },
 ];
 
 const TIERS_KEY = "fees.vip_tiers";
@@ -29,7 +33,16 @@ export async function loadVipTiers(): Promise<VipTier[]> {
     if (row?.value) {
       const arr = JSON.parse(row.value);
       if (Array.isArray(arr) && arr.length > 0 && arr.every((t: any) => typeof t.level === "number")) {
-        return arr.sort((a: VipTier, b: VipTier) => a.level - b.level);
+        // Backfill `convertFee` for tiers persisted before this field existed,
+        // so older settings rows continue to resolve a sane convert rate
+        // instead of NaN. We pick the matching default tier by level when
+        // possible, else fall back to a reasonable 0.30%.
+        const sorted = (arr as VipTier[]).sort((a, b) => a.level - b.level);
+        return sorted.map((t) => {
+          if (typeof t.convertFee === "number" && Number.isFinite(t.convertFee) && t.convertFee >= 0) return t;
+          const def = DEFAULT_VIP_TIERS.find((d) => d.level === t.level);
+          return { ...t, convertFee: def?.convertFee ?? 0.30 };
+        });
       }
     }
   } catch (e) { /* fallthrough */ }
@@ -87,6 +100,75 @@ export async function getSpotFeeRates(vipTier: number): Promise<{ maker: number;
 }
 
 router.get("/fees/tiers", async (_req, res) => { res.json(await loadVipTiers()); });
+
+/**
+ * Resolve the effective convert fee rate for a user's VIP tier. Pure read
+ * — kept here (next to the spot/futures resolvers) so all three fee paths
+ * share one source of truth: the JSON tier ladder in `app_settings`.
+ *
+ * Returns the rate as a fraction (e.g. 0.003 = 0.30%) plus the same value
+ * in basis points so the UI can display "30 bps" without re-converting.
+ */
+export async function getConvertFeeRate(vipTier: number): Promise<{ rate: number; bps: number; tier: VipTier }> {
+  const tiers = await loadVipTiers();
+  const idx = Math.max(0, Math.min(tiers.length - 1, vipTier ?? 0));
+  const t = tiers[idx] ?? tiers[0];
+  const pct = Number(t.convertFee ?? 0);
+  const safe = Number.isFinite(pct) && pct >= 0 ? pct : 0;
+  return { rate: safe / 100, bps: Math.round(safe * 100), tier: t };
+}
+
+// ─── Admin: edit the VIP tier matrix (audit-logged) ──────────────────────
+
+const AdminTierSchema = z.object({
+  level: z.number().int().min(0).max(50),
+  name: z.string().trim().min(1).max(40),
+  minVolume: z.number().min(0).max(1e15),
+  spotMaker: z.number().min(0).max(5),
+  spotTaker: z.number().min(0).max(5),
+  futuresMaker: z.number().min(0).max(5),
+  futuresTaker: z.number().min(0).max(5),
+  convertFee: z.number().min(0).max(5),
+  withdrawDiscount: z.number().min(0).max(100),
+});
+const AdminTiersBody = z.object({
+  tiers: z.array(AdminTierSchema).min(1).max(20),
+});
+
+router.get("/admin/fees/tiers", requireAuth, requireRole("admin", "superadmin"), async (req, res): Promise<void> => {
+  req.log.debug({ userId: req.user!.id }, "admin list vip tiers");
+  res.json(await loadVipTiers());
+});
+
+router.put("/admin/fees/tiers", requireAuth, requireRole("admin", "superadmin"), async (req, res): Promise<void> => {
+  const parsed = AdminTiersBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid tiers payload" });
+    return;
+  }
+  // Ensure tiers form a strictly-increasing ladder (level + minVolume) so the
+  // resolver's "find by index" logic stays predictable.
+  const sorted = [...parsed.data.tiers].sort((a, b) => a.level - b.level);
+  const levels = new Set<number>();
+  for (let i = 0; i < sorted.length; i++) {
+    if (levels.has(sorted[i].level)) {
+      res.status(400).json({ error: `Duplicate level ${sorted[i].level}` }); return;
+    }
+    levels.add(sorted[i].level);
+    if (i > 0 && sorted[i].minVolume < sorted[i - 1].minVolume) {
+      res.status(400).json({ error: "minVolume must be non-decreasing across tiers" }); return;
+    }
+  }
+  const value = JSON.stringify(sorted);
+  await db.insert(settingsTable).values({ key: TIERS_KEY, value })
+    .onConflictDoUpdate({ target: settingsTable.key, set: { value, updatedAt: new Date() } });
+  await logAdminAction(req, {
+    action: "fees.tiers.update",
+    entity: "vip_tiers",
+    payload: { count: sorted.length, levels: sorted.map((t) => t.level) },
+  });
+  res.json({ ok: true, tiers: sorted });
+});
 
 router.get("/fees/my", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.id;
