@@ -24,6 +24,8 @@ import {
   Coins,
   Users,
   ArrowLeftRight,
+  IndianRupee,
+  TrendingDown,
   Globe,
   Check,
   ChevronDown,
@@ -94,32 +96,119 @@ const LANGUAGES: Language[] = [
 
 const LANG_STORAGE_KEY = "zebvix:lang";
 
-type NavItem = {
+type NavBadgeTone = "hot" | "new";
+
+type NavLink = {
+  kind: "link";
   href: string;
   label: string;
-  icon: typeof BarChart3;
+  icon: LucideIcon;
   match: (l: string) => boolean;
   badge?: string;
-  badgeTone?: "hot" | "new";
+  badgeTone?: NavBadgeTone;
   priority: number;
 };
 
-const navItems: NavItem[] = [
-  { href: "/markets", label: "Markets", icon: BarChart3, match: (l) => l === "/markets" || l.startsWith("/markets/"), priority: 1 },
-  { href: "/trade", label: "Trade", icon: TrendingUp, match: (l) => l.startsWith("/trade"), priority: 1 },
-  { href: "/futures", label: "Futures", icon: Zap, match: (l) => l.startsWith("/futures"), badge: "100×", badgeTone: "hot", priority: 1 },
-  { href: "/options", label: "Options", icon: Sigma, match: (l) => l.startsWith("/options"), badge: "NEW", badgeTone: "new", priority: 1 },
-  { href: "/web3", label: "Web3", icon: Globe2, match: (l) => l.startsWith("/web3"), badge: "NEW", badgeTone: "new", priority: 2 },
-  { href: "/discover", label: "Discover", icon: Radar, match: (l) => l.startsWith("/discover"), badge: "HOT", badgeTone: "hot", priority: 2 },
-  { href: "/earn", label: "Earn", icon: Coins, match: (l) => l.startsWith("/earn"), badge: "NEW", badgeTone: "new", priority: 2 },
+type NavGroupSubItem = {
+  href: string;
+  label: string;
+  desc: string;
+  icon: LucideIcon;
+  badge?: string;
+  badgeTone?: NavBadgeTone;
+};
+
+type NavGroup = {
+  kind: "group";
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  match: (l: string) => boolean;
+  badge?: string;
+  badgeTone?: NavBadgeTone;
+  priority: number;
+  items: NavGroupSubItem[];
+  itemGates?: Record<string, FeatureGate>;
+  width?: string;
+};
+
+type NavEntry = NavLink | NavGroup;
+
+const navItems: NavEntry[] = [
+  {
+    kind: "group",
+    id: "markets",
+    label: "Markets",
+    icon: BarChart3,
+    match: (l) => l === "/markets" || l.startsWith("/markets/"),
+    priority: 1,
+    width: "w-[360px]",
+    items: [
+      { href: "/markets",                  label: "All Markets",   desc: "Browse 200+ live crypto pairs in real-time",       icon: BarChart3 },
+      { href: "/markets?category=gainers", label: "Top Gainers",   desc: "Best performers in the last 24 hours",             icon: TrendingUp },
+      { href: "/markets?category=losers",  label: "Top Losers",    desc: "Worst performers in the last 24 hours",            icon: TrendingDown },
+      { href: "/markets?category=new",     label: "New Listings",  desc: "Recently added pairs and tokens",                  icon: Sparkles, badge: "NEW", badgeTone: "new" },
+      { href: "/markets?quote=INR",        label: "INR Markets",   desc: "Trade crypto with Indian Rupee",                   icon: IndianRupee },
+    ],
+  },
+  {
+    kind: "group",
+    id: "trade",
+    label: "Trade",
+    icon: TrendingUp,
+    match: (l) =>
+      l.startsWith("/trade") ||
+      l.startsWith("/futures") ||
+      l.startsWith("/options") ||
+      l.startsWith("/p2p") ||
+      l.startsWith("/convert"),
+    priority: 1,
+    width: "w-[420px]",
+    items: [
+      { href: "/trade",   label: "Spot Trading",     desc: "Buy and sell crypto with deep liquidity",          icon: TrendingUp },
+      { href: "/futures", label: "Futures",          desc: "Up to 100× leverage on perpetual contracts",       icon: Zap,           badge: "100×", badgeTone: "hot" },
+      { href: "/options", label: "Options",          desc: "Hedge or speculate with crypto options",           icon: Sigma,         badge: "NEW",  badgeTone: "new" },
+      { href: "/p2p",     label: "P2P Trading",      desc: "Buy and sell crypto directly with other users",    icon: Users },
+      { href: "/convert", label: "Instant Convert",  desc: "One-click swap between any two supported assets",  icon: ArrowLeftRight },
+    ],
+    itemGates: {
+      "/futures": (f) => f.showFutures,
+      "/p2p":     (f) => f.showP2P,
+      "/convert": (f) => f.showConvert,
+    },
+  },
+  {
+    kind: "group",
+    id: "earn",
+    label: "Earn",
+    icon: Coins,
+    match: (l) => l.startsWith("/earn"),
+    badge: "NEW",
+    badgeTone: "new",
+    priority: 2,
+    width: "w-[380px]",
+    items: [
+      { href: "/earn",            label: "Earn Hub",         desc: "Browse all earning products in one place",           icon: Coins },
+      { href: "/earn?type=simple",   label: "Flexible Savings", desc: "Earn while you sleep — withdraw anytime",          icon: WalletIcon },
+      { href: "/earn?type=advanced", label: "Locked Staking",   desc: "Higher APY with fixed-duration commitments",       icon: Shield },
+      { href: "/leagues",         label: "Trading Leagues",  desc: "Compete and earn rewards in trading contests",       icon: Trophy, badge: "NEW", badgeTone: "new" },
+    ],
+    itemGates: {
+      "/leagues": (f) => f.showLeagues,
+    },
+  },
+  { kind: "link", href: "/web3",     label: "Web3",     icon: Globe2, match: (l) => l.startsWith("/web3"),     badge: "NEW", badgeTone: "new", priority: 2 },
+  { kind: "link", href: "/discover", label: "Discover", icon: Radar,  match: (l) => l.startsWith("/discover"), badge: "HOT", badgeTone: "hot", priority: 2 },
 ];
 
-const userNavItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, match: (l) => l === "/dashboard", badge: "PRO", badgeTone: "new", priority: 2 },
-  { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l) => l === "/wallet", priority: 2 },
-  { href: "/bots", label: "Bots", icon: BotIcon, match: (l) => l.startsWith("/bots"), badge: "NEW", badgeTone: "new", priority: 2 },
-  { href: "/copy-trading", label: "Copy", icon: Star, match: (l) => l.startsWith("/copy-trading"), priority: 2 },
+const userNavItems: NavEntry[] = [
+  { kind: "link", href: "/dashboard",    label: "Dashboard", icon: LayoutDashboard, match: (l) => l === "/dashboard",          badge: "PRO", badgeTone: "new", priority: 2 },
+  { kind: "link", href: "/wallet",       label: "Wallet",    icon: WalletIcon,      match: (l) => l === "/wallet",                                              priority: 2 },
+  { kind: "link", href: "/bots",         label: "Bots",      icon: BotIcon,         match: (l) => l.startsWith("/bots"),        badge: "NEW", badgeTone: "new", priority: 2 },
+  { kind: "link", href: "/copy-trading", label: "Copy",      icon: Star,            match: (l) => l.startsWith("/copy-trading"),                                priority: 2 },
 ];
+
+type FeatureGate = (f: ReturnType<typeof useFeatures>) => boolean;
 
 type MoreItem = {
   href: string;
@@ -129,24 +218,9 @@ type MoreItem = {
   badge?: string;
 };
 type MoreSection = { id: string; label: string; icon: LucideIcon; items: MoreItem[] };
-
-type FeatureGate = (f: ReturnType<typeof useFeatures>) => boolean;
 type MoreSectionDef = MoreSection & { gate?: FeatureGate; itemGates?: Record<string, FeatureGate> };
 
 const MORE_MENU: MoreSectionDef[] = [
-  {
-    id: "trade-extras",
-    label: "Trade",
-    icon: TrendingUp,
-    items: [
-      { href: "/p2p",     label: "P2P Trading",     desc: "Buy and sell crypto directly with other users",       icon: Users },
-      { href: "/convert", label: "Instant Convert", desc: "One-click swap between any two supported assets",     icon: ArrowLeftRight },
-    ],
-    itemGates: {
-      "/p2p": (f) => f.showP2P,
-      "/convert": (f) => f.showConvert,
-    },
-  },
   {
     id: "tools",
     label: "Tools",
@@ -170,17 +244,6 @@ const MORE_MENU: MoreSectionDef[] = [
     itemGates: {
       "/announcements": (f) => f.showAnnouncements,
       "/news": (f) => f.showNews,
-    },
-  },
-  {
-    id: "explore",
-    label: "Explore",
-    icon: Compass,
-    items: [
-      { href: "/leagues", label: "Leagues", desc: "Compete and earn rewards in crypto trading contests", icon: Trophy, badge: "NEW" },
-    ],
-    itemGates: {
-      "/leagues": (f) => f.showLeagues,
     },
   },
 ];
@@ -314,13 +377,22 @@ export function AppHeader() {
     setMode(next);
   };
 
-  // Apply feature-flag gating to nav items
-  const featureGate: Record<string, boolean> = {
+  // Apply feature-flag gating to nav links and group sub-items.
+  const linkGate: Record<string, boolean> = {
     "/futures": features.showFutures,
     "/earn":    features.showEarn,
   };
-  const baseItems = navItems.filter((it) => featureGate[it.href] !== false);
-  const items = user ? [...baseItems, ...userNavItems] : baseItems;
+  const baseItems: NavEntry[] = navItems
+    .filter((it) => it.kind !== "link" || linkGate[it.href] !== false)
+    .map((it) => {
+      if (it.kind !== "group") return it;
+      const filteredSubs = it.items.filter(
+        (sub) => !it.itemGates?.[sub.href] || it.itemGates[sub.href](features),
+      );
+      return { ...it, items: filteredSubs };
+    })
+    .filter((it) => it.kind !== "group" || it.items.length > 0);
+  const items: NavEntry[] = user ? [...baseItems, ...userNavItems] : baseItems;
   const moreSections = MORE_MENU
     .filter((s) => !s.gate || s.gate(features))
     .map((s) => ({ ...s, items: s.items.filter((it) => !s.itemGates?.[it.href] || s.itemGates[it.href](features)) }))
@@ -396,15 +468,87 @@ export function AppHeader() {
                 item.badgeTone === "new"
                   ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                   : "bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/20";
+              const triggerCls = `relative ${visibility} items-center gap-1.5 px-2 xl:px-3 h-9 rounded-md font-medium whitespace-nowrap transition-colors ${
+                active
+                  ? "text-primary bg-primary/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`;
+
+              if (item.kind === "group") {
+                const popoverWidth = item.width ?? "w-[380px]";
+                return (
+                  <DropdownMenu key={item.id}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={triggerCls}
+                        aria-label={`${item.label} menu`}
+                      >
+                        <Icon className="h-4 w-4 flex-shrink-0" />
+                        {item.label}
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                        {item.badge && (
+                          <Badge className={`ml-0.5 h-4 px-1.5 text-[9px] font-bold ${badgeClass}`}>
+                            {item.badge}
+                          </Badge>
+                        )}
+                        {active && (
+                          <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+                        )}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className={`${popoverWidth} p-2`}>
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-400">
+                        <Icon className="h-3 w-3" />
+                        {item.label}
+                      </div>
+                      <div className="space-y-0.5">
+                        {item.items.map((sub) => {
+                          const SubIcon = sub.icon;
+                          const subActive = sub.href === location || (sub.href !== "/" && location.startsWith(sub.href.split("?")[0]));
+                          const subBadgeClass =
+                            sub.badgeTone === "hot"
+                              ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                              : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                          return (
+                            <DropdownMenuItem key={sub.href} asChild>
+                              <Link
+                                href={sub.href}
+                                className={`flex items-start gap-3 px-2 py-2 rounded-md cursor-pointer ${
+                                  subActive ? "bg-primary/10" : ""
+                                }`}
+                              >
+                                <div className="h-9 w-9 rounded-lg bg-muted/60 border border-border flex items-center justify-center flex-shrink-0">
+                                  <SubIcon className="h-4 w-4 text-amber-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-semibold text-foreground">{sub.label}</span>
+                                    {sub.badge && (
+                                      <Badge className={`h-4 px-1.5 text-[9px] font-bold ${subBadgeClass}`}>
+                                        {sub.badge}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                                    {sub.desc}
+                                  </p>
+                                </div>
+                              </Link>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              }
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`relative ${visibility} items-center gap-1.5 px-2 xl:px-3 h-9 rounded-md font-medium whitespace-nowrap transition-colors ${
-                    active
-                      ? "text-primary bg-primary/10"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  }`}
+                  className={triggerCls}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
                   {item.label}
@@ -768,6 +912,51 @@ export function AppHeader() {
                 {items.map((item) => {
                   const Icon = item.icon;
                   const active = item.match(location);
+                  const badgeCls = item.badgeTone === "new"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                    : "bg-rose-500/15 text-rose-400 border-rose-500/30";
+
+                  if (item.kind === "group") {
+                    return (
+                      <div key={item.id} className="pt-2 first:pt-0">
+                        <div className="px-3 pb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-400">
+                          <Icon className="h-3 w-3" />
+                          <span className="flex-1">{item.label}</span>
+                          {item.badge && (
+                            <Badge className={`h-4 px-1.5 text-[9px] font-bold ${badgeCls}`}>
+                              {item.badge}
+                            </Badge>
+                          )}
+                        </div>
+                        {item.items.map((sub) => {
+                          const SubIcon = sub.icon;
+                          const subActive = sub.href === location || (sub.href !== "/" && location.startsWith(sub.href.split("?")[0]));
+                          const subBadgeCls = sub.badgeTone === "hot"
+                            ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                            : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                          return (
+                            <Link
+                              key={sub.href}
+                              href={sub.href}
+                              onClick={() => setMobileOpen(false)}
+                              className={`flex items-center gap-3 px-3 h-11 rounded-lg text-sm font-medium transition-colors ${
+                                subActive ? "bg-primary/15 text-primary" : "text-foreground hover:bg-muted/50"
+                              }`}
+                            >
+                              <SubIcon className="h-4 w-4" />
+                              <span className="flex-1 truncate">{sub.label}</span>
+                              {sub.badge && (
+                                <Badge className={`h-4 px-1.5 text-[9px] font-bold ${subBadgeCls}`}>
+                                  {sub.badge}
+                                </Badge>
+                              )}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+
                   return (
                     <Link
                       key={item.href}
@@ -780,13 +969,7 @@ export function AppHeader() {
                       <Icon className="h-4 w-4" />
                       <span className="flex-1">{item.label}</span>
                       {item.badge && (
-                        <Badge
-                          className={`h-4 px-1.5 text-[9px] font-bold ${
-                            item.badgeTone === "new"
-                              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                              : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-                          }`}
-                        >
+                        <Badge className={`h-4 px-1.5 text-[9px] font-bold ${badgeCls}`}>
                           {item.badge}
                         </Badge>
                       )}

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Link, useSearch } from "wouter";
+import { Link } from "wouter";
 import {
   Search,
   Star,
@@ -14,8 +14,6 @@ import {
   Coins,
 } from "lucide-react";
 import { useTickers, encodeSymbol, type NormalizedTicker } from "@/lib/marketSocket";
-import { useMarketCatalog } from "@/lib/marketCatalog";
-import { buildUsdRates, quoteVolUsd } from "@/lib/volumeUsd";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -259,70 +257,23 @@ export default function Markets() {
   const tickers = useTickers();
   const { favs, toggle: toggleFav } = useFavorites();
 
-  // Read initial filters from URL query params (?category=gainers, ?quote=INR)
-  // so deep-links from the header Markets dropdown land on the right view.
-  const initialFilters = useMemo(() => {
-    if (typeof window === "undefined") return { category: "all" as Category, quote: "ALL" as Quote };
-    const params = new URLSearchParams(window.location.search);
-    const rawCat = params.get("category");
-    const rawQuote = params.get("quote");
-    const validCats: Category[] = ["all", "favorites", "hot", "gainers", "losers", "new"];
-    const cat = validCats.includes(rawCat as Category) ? (rawCat as Category) : "all";
-    const quoteVal = (QUOTE_FILTERS as readonly string[]).includes(rawQuote ?? "")
-      ? (rawQuote as Quote)
-      : "ALL";
-    return { category: cat, quote: quoteVal };
-  }, []);
-
   const [search, setSearch] = useState("");
-  const [quote, setQuote] = useState<Quote>(initialFilters.quote);
-  const [category, setCategory] = useState<Category>(initialFilters.category);
+  const [quote, setQuote] = useState<Quote>("ALL");
+  const [category, setCategory] = useState<Category>("all");
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortDesc, setSortDesc] = useState(true);
 
-  // Re-apply filters when URL query string changes (e.g. user clicks
-  // another item in the header Markets dropdown while already on /markets,
-  // or navigates back to plain /markets which should reset to defaults).
-  const search$ = useSearch();
-  useEffect(() => {
-    const params = new URLSearchParams(search$);
-    const rawCat = params.get("category");
-    const rawQuote = params.get("quote");
-    const validCats: Category[] = ["all", "favorites", "hot", "gainers", "losers", "new"];
-    setCategory(rawCat && validCats.includes(rawCat as Category) ? (rawCat as Category) : "all");
-    setQuote(
-      rawQuote && (QUOTE_FILTERS as readonly string[]).includes(rawQuote)
-        ? (rawQuote as Quote)
-        : "ALL",
-    );
-  }, [search$]);
-
-  // Only show pairs the admin has actually enabled in the DB
-  // (status='active' AND tradingEnabled or futuresEnabled). Without
-  // this we'd display every spot ticker the WS feed knows about.
-  const { all: enabledSet } = useMarketCatalog();
-  const all = useMemo(
-    () => Object.values(tickers).filter((t) => enabledSet.has(t.symbol)),
-    [tickers, enabledSet],
-  );
-
-  // USD rates derived from the live tickers — used everywhere we need
-  // to sort or sum volume across mixed quote currencies (INR / USDT /
-  // BTC etc.). Without this, raw `quoteVolume` numbers can't be
-  // compared because a BTC/INR pair's lakhs of rupees dominate any
-  // USDT-quoted pair's thousands of dollars.
-  const usdRates = useMemo(() => buildUsdRates(all), [all]);
-  const volUsd = (t: NormalizedTicker) => quoteVolUsd(t, usdRates);
+  const all = useMemo(() => Object.values(tickers), [tickers]);
 
   // Aggregate stats
   const stats = useMemo(() => {
     const total = all.length;
-    const totalQuoteVol = all.reduce((s, t) => s + volUsd(t), 0);
+    const totalQuoteVol = all.reduce((s, t) => s + (t.quoteVolume || 0), 0);
     const gainers = all.filter((t) => t.priceChangePercent > 0).length;
     const losers = all.filter((t) => t.priceChangePercent < 0).length;
     const sentiment = total === 0 ? 50 : Math.round((gainers / total) * 100);
     return { total, totalQuoteVol, gainers, losers, sentiment };
-  }, [all, usdRates]);
+  }, [all]);
 
   // Top movers
   const topGainers = useMemo(
@@ -334,8 +285,8 @@ export default function Markets() {
     [all]
   );
   const topVolume = useMemo(
-    () => [...all].sort((a, b) => volUsd(b) - volUsd(a)).slice(0, 3),
-    [all, usdRates]
+    () => [...all].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 3),
+    [all]
   );
 
   // Filtered + sorted main list
@@ -352,7 +303,7 @@ export default function Markets() {
           if (!favs.has(t.symbol)) return false;
           break;
         case "hot":
-          // Hot = top quartile by USD-normalised quote volume
+          // Hot = top quartile by quote volume
           break;
         case "gainers":
           if (!(t.priceChangePercent > 0)) return false;
@@ -367,12 +318,12 @@ export default function Markets() {
       return true;
     });
     if (category === "hot") {
-      arr = arr.sort((a, b) => volUsd(b) - volUsd(a)).slice(0, Math.max(20, Math.ceil(arr.length * 0.25)));
+      arr = arr.sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, Math.max(20, Math.ceil(arr.length * 0.25)));
     }
     const dir = sortDesc ? -1 : 1;
     arr.sort((a, b) => {
       switch (sortKey) {
-        case "volume": return dir * (volUsd(a) - volUsd(b));
+        case "volume": return dir * ((a.quoteVolume || 0) - (b.quoteVolume || 0));
         case "change": return dir * (a.priceChangePercent - b.priceChangePercent);
         case "price": return dir * (a.lastPrice - b.lastPrice);
         case "name": return dir * a.symbol.localeCompare(b.symbol) * -1;
