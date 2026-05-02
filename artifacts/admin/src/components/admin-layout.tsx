@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Coins as CoinsIcon, Network, ArrowLeftRight, Wallet,
   ShieldCheck, Banknote, ArrowDownToLine, ArrowUpFromLine, Bitcoin, Landmark,
   PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
-  KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Sigma, Globe2,
+  KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Sigma, Globe2, Radar,
   Megaphone, Trophy, Database, Server, Search, Command as CommandIcon,
   ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, History, type LucideIcon,
 } from "lucide-react";
@@ -64,6 +64,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/futures-positions", label: "Futures Positions", icon: TrendingUp, roles: ["support", "admin", "superadmin"] },
       { href: "/options-admin", label: "Options", icon: Sigma, roles: ["admin", "superadmin"] },
       { href: "/web3-admin", label: "Web3 / Multi-chain", icon: Globe2, roles: ["admin", "superadmin"] },
+      { href: "/listings-admin", label: "Auto-Listings", icon: Radar, roles: ["admin", "superadmin"] },
       { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
       { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
       { href: "/trading-engine", label: "Trading Engine", icon: Cpu, roles: ["admin", "superadmin"] },

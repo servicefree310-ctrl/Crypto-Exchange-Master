@@ -36,6 +36,7 @@ import {
   Compass,
   Sigma,
   Globe2,
+  Radar,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -99,6 +100,7 @@ const navItems: NavItem[] = [
   { href: "/futures", label: "Futures", icon: Zap, match: (l) => l.startsWith("/futures"), badge: "100×", badgeTone: "hot", priority: 1 },
   { href: "/options", label: "Options", icon: Sigma, match: (l) => l.startsWith("/options"), badge: "NEW", badgeTone: "new", priority: 1 },
   { href: "/web3", label: "Web3", icon: Globe2, match: (l) => l.startsWith("/web3"), badge: "NEW", badgeTone: "new", priority: 1 },
+  { href: "/discover", label: "Discover", icon: Radar, match: (l) => l.startsWith("/discover"), badge: "HOT", badgeTone: "hot", priority: 1 },
   { href: "/earn", label: "Earn", icon: Coins, match: (l) => l.startsWith("/earn"), badge: "NEW", badgeTone: "new", priority: 1 },
   { href: "/p2p", label: "P2P", icon: Users, match: (l) => l.startsWith("/p2p"), priority: 2 },
   { href: "/convert", label: "Convert", icon: ArrowLeftRight, match: (l) => l.startsWith("/convert"), priority: 2 },

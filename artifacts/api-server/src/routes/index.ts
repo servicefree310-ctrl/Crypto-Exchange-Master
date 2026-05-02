@@ -29,6 +29,8 @@ import optionsRouter from "./options";
 import optionsAdminRouter from "./options-admin";
 import web3Router from "./web3";
 import web3AdminRouter from "./web3-admin";
+import listingsRouter from "./listings";
+import listingsAdminRouter from "./listings-admin";
 import v1Router from "./v1";
 
 const router: IRouter = Router();
@@ -72,6 +74,8 @@ router.use(optionsRouter);
 router.use(optionsAdminRouter);
 router.use(web3Router);
 router.use(web3AdminRouter);
+router.use(listingsRouter);
+router.use(listingsAdminRouter);
 router.use(v1Router);
 
 export default router;
