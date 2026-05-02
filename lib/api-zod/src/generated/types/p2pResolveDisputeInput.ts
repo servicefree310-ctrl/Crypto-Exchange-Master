@@ -9,6 +9,10 @@ import type { P2pResolveDisputeInputAction } from "./p2pResolveDisputeInputActio
 
 export interface P2pResolveDisputeInput {
   action: P2pResolveDisputeInputAction;
-  /** @maxLength 500 */
-  notes?: string;
+  /**
+   * Mandatory written rationale for the resolution. Stored on the dispute and posted as an admin chat message visible to both parties.
+   * @minLength 10
+   * @maxLength 500
+   */
+  notes: string;
 }

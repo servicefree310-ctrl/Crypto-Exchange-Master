@@ -20,10 +20,6 @@ const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
 const supportPlus = requireRole("admin", "superadmin", "support");
 
-// ─── Typed error helper ─────────────────────────────────────────────────
-// Centralises the "throw with HTTP status" pattern so route handlers can
-// `try { ... } catch (e) { if (e instanceof AppError) ... }` cleanly,
-// instead of stamping `.code` onto plain Errors with `as any`.
 class AppError extends Error {
   constructor(public readonly httpStatus: number, message: string) {
     super(message);
@@ -34,7 +30,6 @@ const bad = (msg: string) => new AppError(400, msg);
 const notFound = (msg: string) => new AppError(404, msg);
 const forbidden = (msg: string) => new AppError(403, msg);
 
-// ─── Constants ──────────────────────────────────────────────────────────
 const PAYMENT_METHOD_TYPES = ["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"] as const;
 type PaymentMethodType = (typeof PAYMENT_METHOD_TYPES)[number];
 const OFFER_SIDES = ["buy", "sell"] as const;
@@ -42,22 +37,17 @@ type OfferSide = (typeof OFFER_SIDES)[number];
 const ORDER_STATUSES = ["pending", "paid", "released", "cancelled", "disputed", "expired"] as const;
 type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-// ─── Drizzle row aliases ────────────────────────────────────────────────
 type OfferRow = typeof p2pOffersTable.$inferSelect;
 type OrderRow = typeof p2pOrdersTable.$inferSelect;
 type UserRow = typeof usersTable.$inferSelect;
 type MerchantRow = Pick<UserRow, "id" | "name" | "email" | "kycLevel" | "vipTier" | "createdAt">;
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-
-/** Resolve a coin row by symbol (e.g. "BTC"); throws AppError(404) on miss. */
 async function getCoinBySymbol(sym: string) {
   const [coin] = await db.select().from(coinsTable).where(eq(coinsTable.symbol, sym.toUpperCase())).limit(1);
   if (!coin) throw notFound(`Coin ${sym} not found`);
   return coin;
 }
 
-/** Translate an AppError thrown by a handler into a JSON response. */
 function sendError(res: import("express").Response, e: unknown): boolean {
   if (e instanceof AppError) {
     res.status(e.httpStatus).json({ error: e.message });
@@ -66,14 +56,12 @@ function sendError(res: import("express").Response, e: unknown): boolean {
   return false;
 }
 
-/** Hide PII (phone/email) from non-counterparty users in marketplace browsing. */
 function publicMerchantView(u: MerchantRow | undefined) {
   const rawName = (u?.name ?? "").trim();
   const name = rawName || (u?.email ? u.email.split("@")[0] : "Trader");
   return {
     id: u?.id,
     name,
-    // Reveal only first letter + masked
     handle: name.length > 1 ? `${name[0]}${"*".repeat(Math.max(2, name.length - 2))}${name[name.length - 1]}` : name,
     kycLevel: u?.kycLevel ?? 0,
     vipTier: u?.vipTier ?? 0,
@@ -81,8 +69,6 @@ function publicMerchantView(u: MerchantRow | undefined) {
   };
 }
 
-/** Offer view for marketplace listing (joins coin + merchant). Accepts
- *  bare OfferRow[] or admin queries (which select the full row too). */
 async function hydrateOffers(rows: OfferRow[]) {
   if (!rows.length) return [];
   const coinIds = Array.from(new Set(rows.map(r => r.coinId)));
@@ -110,9 +96,7 @@ async function hydrateOffers(rows: OfferRow[]) {
   }));
 }
 
-// ═══════════════════════════════════════════════════════════════════════
 // Payment methods (per-user)
-// ═══════════════════════════════════════════════════════════════════════
 
 router.get("/p2p/payment-methods", requireAuth, async (req, res): Promise<void> => {
   const rows = await db.select().from(p2pPaymentMethodsTable)
@@ -163,12 +147,7 @@ router.delete("/p2p/payment-methods/:id", requireAuth, async (req, res): Promise
   res.json({ ok: true });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// Offers (Ads)
-// ═══════════════════════════════════════════════════════════════════════
-
-// Public marketplace browse — anyone (auth required for detail/order, but
-// browse is gated to logged-in users so we can hide PII consistently).
+// Offers (Ads) — browse is auth-gated so we can hide PII consistently.
 router.get("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
   const side = String(req.query.side || "sell").toLowerCase();
   const coin = String(req.query.coin || "").toUpperCase();
@@ -367,9 +346,7 @@ router.delete("/p2p/offers/:id", requireAuth, async (req, res): Promise<void> =>
   res.json({ ok: true });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
 // Orders (Deals) — escrow-backed P2P trades
-// ═══════════════════════════════════════════════════════════════════════
 
 const OpenOrderBody = z.object({
   offerId: z.coerce.number().int().positive(),
@@ -690,11 +667,8 @@ async function cancelOrder(orderId: number, actorId: number, actorRole: string) 
   });
 }
 
-// Open a dispute. Optionally accepts an `evidenceUrl` pointing at a
-// hosted screenshot or document (e.g. payment confirmation, bank
-// statement). We don't host uploads here — the URL is treated as
-// untrusted external content; the admin UI just renders it as a link
-// for moderators to review.
+// Open a dispute. evidenceUrl is an untrusted external link rendered
+// for moderators in the admin UI; we don't host uploads.
 const DisputeBody = z.object({
   reason: z.string().trim().min(10, "Please describe the issue (min 10 chars)").max(500),
   evidenceUrl: z.string().trim().url("Evidence URL must be a valid http(s) URL").max(500).optional(),
@@ -762,9 +736,7 @@ router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<vo
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════
 // Chat
-// ═══════════════════════════════════════════════════════════════════════
 
 router.get("/p2p/orders/:id/messages", requireAuth, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
@@ -805,9 +777,7 @@ router.post("/p2p/orders/:id/messages", requireAuth, async (req, res): Promise<v
   res.status(201).json(created);
 });
 
-// ═══════════════════════════════════════════════════════════════════════
 // Admin / moderation
-// ═══════════════════════════════════════════════════════════════════════
 
 router.get("/admin/p2p/stats", supportPlus, async (_req, res): Promise<void> => {
   const [open] = await db.select({ c: sql<number>`count(*)::int` }).from(p2pOffersTable).where(eq(p2pOffersTable.status, "online"));
@@ -881,13 +851,21 @@ router.get("/admin/p2p/disputes", supportPlus, async (_req, res): Promise<void> 
   res.json(hydrated.map(o => ({ ...o, disputeEvidenceUrl: evidenceByOrder.get(o.id) ?? null })));
 });
 
-// Resolve dispute: "release" → push escrow to buyer. "refund" → return to seller.
+const ResolveDisputeBody = z.object({
+  action: z.enum(["release", "refund"]),
+  notes: z.string().trim().min(10, "Resolution notes must be at least 10 characters").max(500),
+});
+
 router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const action = String(req.body?.action || "");
-  const notes = String(req.body?.notes || "").slice(0, 500);
-  if (!["release", "refund"].includes(action)) { res.status(400).json({ error: "action must be release/refund" }); return; }
+  const parsed = ResolveDisputeBody.safeParse(req.body);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    res.status(400).json({ error: first.message, field: first.path.join(".") });
+    return;
+  }
+  const { action, notes } = parsed.data;
 
   try {
     const [o] = await db.select().from(p2pOrdersTable).where(eq(p2pOrdersTable.id, id)).limit(1);
@@ -898,17 +876,14 @@ router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Prom
       ? await releaseOrder(id, req.user!.id, req.user!.role)
       : await cancelOrder(id, req.user!.id, req.user!.role);
 
-    if (notes) {
-      await db.update(p2pOrdersTable)
-        .set({ disputeNotes: notes, updatedAt: new Date() })
-        .where(eq(p2pOrdersTable.id, id));
-      await db.insert(p2pMessagesTable).values({
-        orderId: id, senderId: req.user!.id, senderRole: "admin",
-        body: `Admin notes: ${notes.slice(0, 300)}`,
-      });
-    }
-    // Close the row in p2p_disputes — UPDATE-then-INSERT-on-miss covers
-    // legacy disputes opened before migration 008 landed.
+    await db.update(p2pOrdersTable)
+      .set({ disputeNotes: notes, updatedAt: new Date() })
+      .where(eq(p2pOrdersTable.id, id));
+    await db.insert(p2pMessagesTable).values({
+      orderId: id, senderId: req.user!.id, senderRole: "admin",
+      body: `Admin notes: ${notes.slice(0, 300)}`,
+    });
+    // Close the dispute row; legacy orders disputed pre-migration-008 may not have one.
     const [existingDispute] = await db.select({ id: p2pDisputesTable.id })
       .from(p2pDisputesTable).where(eq(p2pDisputesTable.orderId, id)).limit(1);
     if (existingDispute) {
@@ -917,7 +892,7 @@ router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Prom
         resolution: action,
         resolvedBy: req.user!.id,
         resolvedAt: new Date(),
-        notes: notes || null,
+        notes,
         updatedAt: new Date(),
       }).where(eq(p2pDisputesTable.id, existingDispute.id));
     } else {
@@ -931,15 +906,15 @@ router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Prom
         resolution: action,
         resolvedBy: req.user!.id,
         resolvedAt: new Date(),
-        notes: notes || null,
+        notes,
       });
     }
-    req.log.info({ adminId: req.user!.id, orderId: id, action, hasNotes: notes.length > 0 }, "admin resolved p2p dispute");
+    req.log.info({ adminId: req.user!.id, orderId: id, action }, "admin resolved p2p dispute");
     await logAdminAction(req, {
       action: action === "release" ? "p2p.dispute.resolve_release" : "p2p.dispute.resolve_refund",
       entity: "p2p_order",
       entityId: id,
-      payload: { action, notes: notes ? notes.slice(0, 200) : undefined },
+      payload: { action, notes: notes.slice(0, 200) },
     });
     res.json(result);
   } catch (e) {

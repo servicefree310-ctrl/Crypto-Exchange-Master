@@ -1,15 +1,5 @@
-/**
- * P2P engine — periodic background tick that auto-cancels stale orders.
- *
- * Runs once per minute. For every `pending` order whose `expiresAt` has
- * elapsed, we refund the seller's locked escrow back to spendable balance,
- * restore the offer's available liquidity, and flip the order to `expired`.
- * Each transition is recorded in `p2p_messages` so the chat audit shows it.
- *
- * Multi-replica safety: only the elected leader executes the work. The
- * timer fires on every replica but the body is leader-gated, matching the
- * `futures-engine` and `deposit-sweeper` patterns.
- */
+// Auto-cancel stale pending orders: refund escrow, restore offer liquidity,
+// flip status to "expired". Leader-gated, runs once per minute.
 
 import { and, eq, lte, sql } from "drizzle-orm";
 import {
@@ -39,8 +29,6 @@ async function tickExpireOrders(): Promise<{ checked: number; expired: number }>
   let checked = 0, expired = 0;
   try {
     const now = new Date();
-    // Batch: pull a chunk of overdue pending orders. Each one is processed
-    // in its own transaction so a single bad row doesn't poison the rest.
     const overdue = await db.select({ id: p2pOrdersTable.id })
       .from(p2pOrdersTable)
       .where(and(eq(p2pOrdersTable.status, "pending"), lte(p2pOrdersTable.expiresAt, now)))
@@ -50,8 +38,6 @@ async function tickExpireOrders(): Promise<{ checked: number; expired: number }>
     for (const { id } of overdue) {
       try {
         await db.transaction(async (tx) => {
-          // Re-read with FOR UPDATE to guard against races with mark-paid /
-          // manual cancel / dispute that may have flipped the row already.
           const [o] = await tx.select().from(p2pOrdersTable)
             .where(eq(p2pOrdersTable.id, id))
             .for("update").limit(1);
@@ -108,7 +94,6 @@ export function startP2PEngine(intervalMs: number = TICK_MS): void {
     }
   };
   timer = setInterval(() => { void guard(); }, intervalMs);
-  // Initial best-effort tick on boot (still leader-gated).
   void guard();
 }
 
@@ -121,5 +106,4 @@ export function getP2PEngineStatus() {
   return { ...stats, intervalMs: TICK_MS };
 }
 
-/** Exposed for tests + admin "force run" buttons. */
 export const _internal = { tickExpireOrders };

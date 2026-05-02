@@ -1306,11 +1306,18 @@ export const ResolveP2pDisputeParams = zod.object({
   id: zod.coerce.number().min(1),
 });
 
+export const resolveP2pDisputeBodyNotesMin = 10;
 export const resolveP2pDisputeBodyNotesMax = 500;
 
 export const ResolveP2pDisputeBody = zod.object({
   action: zod.enum(["release", "refund"]),
-  notes: zod.string().max(resolveP2pDisputeBodyNotesMax).optional(),
+  notes: zod
+    .string()
+    .min(resolveP2pDisputeBodyNotesMin)
+    .max(resolveP2pDisputeBodyNotesMax)
+    .describe(
+      "Mandatory written rationale for the resolution. Stored on the dispute and posted as an admin chat message visible to both parties.",
+    ),
 });
 
 export const ResolveP2pDisputeResponse = zod.object({

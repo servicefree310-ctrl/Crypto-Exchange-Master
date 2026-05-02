@@ -735,7 +735,11 @@ components:
 
     P2pResolveDisputeInput:
       type: object
-      required: [action]
+      required: [action, notes]
       properties:
         action: { type: string, enum: [release, refund] }
-        notes: { type: string, maxLength: 500 }
+        notes:
+          type: string
+          minLength: 10
+          maxLength: 500
+          description: Mandatory written rationale for the resolution. Stored on the dispute and posted as an admin chat message visible to both parties.

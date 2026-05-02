@@ -29,10 +29,8 @@ import {
   useDeleteP2pPaymentMethod,
 } from "@workspace/api-client-react";
 
-// Generated hooks use the shared `customFetch` from @workspace/api-client-react
-// which doesn't default cookie credentials (so the same client can be used
-// from Expo with bearer tokens). The user-portal needs the session cookie,
-// so we pass `credentials: "include"` per-call via the `request` option.
+// customFetch in @workspace/api-client-react doesn't default credentials
+// (Expo uses bearer tokens), so opt cookie-auth in per-call here.
 const COOKIE_REQ = { credentials: "include" as const };
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,7 +52,6 @@ import { StatusPill } from "@/components/premium/StatusPill";
 import { toast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 
-// ─── Types ──────────────────────────────────────────────────────────────
 type PaymentMethod = {
   id: number; method: string; label: string; account: string;
   ifsc: string | null; holderName: string | null; active: boolean;
@@ -131,9 +128,6 @@ function methodLabel(m: string): string {
   return PAYMENT_METHODS.find(p => p.value === m)?.label ?? m.toUpperCase();
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// MAIN PAGE
-// ════════════════════════════════════════════════════════════════════════
 
 export default function P2P() {
   const { user } = useAuth();
@@ -204,16 +198,10 @@ export default function P2P() {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// MARKETPLACE
-// ════════════════════════════════════════════════════════════════════════
 
 function MarketplaceTab() {
-  // Marketplace shows the OPPOSITE intent of what the user is shopping for.
-  //   - User wants to BUY crypto → list SELL ads (merchants offering to sell).
-  //   - User wants to SELL crypto → list BUY ads (merchants offering to buy).
-  // We keep the toggle labelled from the USER's perspective so it reads
-  // naturally; offerSide is derived as the inverse.
+  // Toggle is labelled from the user's perspective; offerSide is the inverse
+  // (user wants to BUY → list SELL ads, and vice versa).
   const [intent, setIntent] = useState<"buy" | "sell">("buy");
   const offerSide = intent === "buy" ? "sell" : "buy";
   const [coin, setCoin] = useState<string>("");
@@ -232,7 +220,6 @@ function MarketplaceTab() {
     },
   );
 
-  // Coin list for filter — pulled from public coins endpoint.
   const coinsQ = useQuery<Coin[]>({
     queryKey: ["/coins"],
     queryFn: () => get<Coin[]>("/coins"),
@@ -375,9 +362,6 @@ function MarketplaceTab() {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// OPEN ORDER DIALOG (counterparty opens an order against an offer)
-// ════════════════════════════════════════════════════════════════════════
 
 function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void }) {
   const qc = useQueryClient();
@@ -385,16 +369,10 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
   const [fiatAmount, setFiatAmount] = useState<string>("");
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
 
-  // For SELL ads: I'm the buyer, seller is the merchant (offer.userId).
-  //   I pick from the merchant's saved methods (offer.paymentMethods type).
-  // For BUY ads: I'm the seller, merchant is buyer.
-  //   I pick from MY OWN saved methods so the merchant knows where to pay.
+  // SELL ads: I'm the buyer → pick from the merchant's saved methods.
+  // BUY ads:  I'm the seller → pick from MY OWN saved methods.
   const iAmSeller = offer.side === "buy";
 
-  // BUY-ad opener (iAmSeller=true) picks one of THEIR own saved methods
-  // — the merchant will pay them there. We use the generated payment-methods
-  // hook and rely on react-query's `enabled` to skip the request entirely
-  // for SELL ads (where it's irrelevant).
   const myMethodsQ = useListP2pPaymentMethods({
     request: COOKIE_REQ,
     query: {
@@ -403,11 +381,7 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
     },
   });
 
-  // For SELL ads, the merchant's payment methods are exposed via the
-  // dedicated `/p2p/offers/:id/seller-methods` endpoint, which only
-  // returns id+type+label (no account number) so the buyer can pick
-  // which of the seller's methods to pay into. The server enforces
-  // that the chosen paymentMethodId actually belongs to the seller.
+  // Seller methods come via /p2p/offers/:id/seller-methods (id+type+label only).
   const offerMethodsQ = useListP2pOfferSellerMethods(offer.id, {
     request: COOKIE_REQ,
     query: {
@@ -519,9 +493,6 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// MY ADS
-// ════════════════════════════════════════════════════════════════════════
 
 function MyAdsTab() {
   const qc = useQueryClient();
@@ -796,9 +767,6 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// MY ORDERS (deals)
-// ════════════════════════════════════════════════════════════════════════
 
 function MyOrdersTab() {
   const [statusFilter, setStatusFilter] = useState("all");
@@ -907,9 +875,6 @@ function MyOrdersTab() {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// ORDER DETAIL DIALOG (chat + actions)
-// ════════════════════════════════════════════════════════════════════════
 
 function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClose: () => void }) {
   const qc = useQueryClient();
@@ -919,7 +884,6 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
   const [showDispute, setShowDispute] = useState(false);
   const [chatBody, setChatBody] = useState("");
 
-  // Refetch the order so live-status changes (other side acted) appear.
   const orderQ = useGetP2pOrder(initial.id, {
     request: COOKIE_REQ,
     query: {
@@ -938,12 +902,6 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
     },
   });
 
-  // ─── Order-action mutations (generated from OpenAPI) ──────────────────
-  // These five hooks come from @workspace/api-client-react which is
-  // produced by orval against lib/api-spec/openapi.yaml. The shape is
-  // `mutation.mutate({ id, data })` — body shape is enforced by the
-  // generated `BodyType<P2pMarkPaidInput | P2pDisputeInput | P2pMessageInput>`
-  // type so a typo on the wire is caught at compile time.
   const onActionFail = (e: unknown) =>
     toast({ title: "Failed", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" });
 
@@ -1224,9 +1182,6 @@ function Row({ label, value, mono, bold, accent }: { label: string; value: strin
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// PAYMENT METHODS
-// ════════════════════════════════════════════════════════════════════════
 
 function PaymentMethodsTab() {
   const qc = useQueryClient();

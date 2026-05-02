@@ -347,14 +347,28 @@ function DisputesTab({ canModerate, toast }: { canModerate: boolean; toast: Retu
                 </Select>
               </div>
               <div>
-                <label className="text-xs font-medium">Internal notes</label>
+                <label className="text-xs font-medium">
+                  Resolution notes <span className="text-destructive">*</span>
+                </label>
                 <Textarea
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Decision rationale, evidence reviewed, etc."
+                  placeholder="Required: decision rationale, evidence reviewed, etc. (min 10 characters)"
                   data-testid="p2padmin-resolve-notes"
+                  aria-invalid={notes.trim().length > 0 && notes.trim().length < 10}
                 />
+                <div className="flex justify-between mt-1 text-[11px]">
+                  <span
+                    className={notes.trim().length < 10 ? "text-destructive" : "text-muted-foreground"}
+                    data-testid="p2padmin-resolve-notes-help"
+                  >
+                    {notes.trim().length < 10
+                      ? `At least 10 characters required (${notes.trim().length}/10)`
+                      : "Notes will be saved on the dispute and posted to the order chat for both parties."}
+                  </span>
+                  <span className="text-muted-foreground">{notes.length}/500</span>
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -362,9 +376,9 @@ function DisputesTab({ canModerate, toast }: { canModerate: boolean; toast: Retu
               <Button
                 onClick={() => resolveMut.mutate({
                   id: resolveTarget.id,
-                  data: { action, ...(notes ? { notes } : {}) },
+                  data: { action, notes: notes.trim() },
                 })}
-                disabled={resolveMut.isPending}
+                disabled={resolveMut.isPending || notes.trim().length < 10 || notes.trim().length > 500}
                 data-testid="p2padmin-resolve-submit"
               >
                 {resolveMut.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
