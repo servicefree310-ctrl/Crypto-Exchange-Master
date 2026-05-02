@@ -41,12 +41,12 @@ import {
   Bot as BotIcon,
   Star,
   LayoutDashboard,
-  Activity,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   Info,
   CheckCheck,
+  MoreHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -109,15 +109,13 @@ const navItems: NavItem[] = [
   { href: "/trade", label: "Trade", icon: TrendingUp, match: (l) => l.startsWith("/trade"), priority: 1 },
   { href: "/futures", label: "Futures", icon: Zap, match: (l) => l.startsWith("/futures"), badge: "100×", badgeTone: "hot", priority: 1 },
   { href: "/options", label: "Options", icon: Sigma, match: (l) => l.startsWith("/options"), badge: "NEW", badgeTone: "new", priority: 1 },
-  { href: "/web3", label: "Web3", icon: Globe2, match: (l) => l.startsWith("/web3"), badge: "NEW", badgeTone: "new", priority: 1 },
-  { href: "/discover", label: "Discover", icon: Radar, match: (l) => l.startsWith("/discover"), badge: "HOT", badgeTone: "hot", priority: 1 },
-  { href: "/earn", label: "Earn", icon: Coins, match: (l) => l.startsWith("/earn"), badge: "NEW", badgeTone: "new", priority: 1 },
-  { href: "/p2p", label: "P2P", icon: Users, match: (l) => l.startsWith("/p2p"), priority: 2 },
-  { href: "/convert", label: "Convert", icon: ArrowLeftRight, match: (l) => l.startsWith("/convert"), priority: 2 },
+  { href: "/web3", label: "Web3", icon: Globe2, match: (l) => l.startsWith("/web3"), badge: "NEW", badgeTone: "new", priority: 2 },
+  { href: "/discover", label: "Discover", icon: Radar, match: (l) => l.startsWith("/discover"), badge: "HOT", badgeTone: "hot", priority: 2 },
+  { href: "/earn", label: "Earn", icon: Coins, match: (l) => l.startsWith("/earn"), badge: "NEW", badgeTone: "new", priority: 2 },
 ];
 
 const userNavItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, match: (l) => l === "/dashboard", badge: "PRO", badgeTone: "new", priority: 1 },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, match: (l) => l === "/dashboard", badge: "PRO", badgeTone: "new", priority: 2 },
   { href: "/wallet", label: "Wallet", icon: WalletIcon, match: (l) => l === "/wallet", priority: 2 },
   { href: "/bots", label: "Bots", icon: BotIcon, match: (l) => l.startsWith("/bots"), badge: "NEW", badgeTone: "new", priority: 2 },
   { href: "/copy-trading", label: "Copy", icon: Star, match: (l) => l.startsWith("/copy-trading"), priority: 2 },
@@ -136,6 +134,19 @@ type FeatureGate = (f: ReturnType<typeof useFeatures>) => boolean;
 type MoreSectionDef = MoreSection & { gate?: FeatureGate; itemGates?: Record<string, FeatureGate> };
 
 const MORE_MENU: MoreSectionDef[] = [
+  {
+    id: "trade-extras",
+    label: "Trade",
+    icon: TrendingUp,
+    items: [
+      { href: "/p2p",     label: "P2P Trading",     desc: "Buy and sell crypto directly with other users",       icon: Users },
+      { href: "/convert", label: "Instant Convert", desc: "One-click swap between any two supported assets",     icon: ArrowLeftRight },
+    ],
+    itemGates: {
+      "/p2p": (f) => f.showP2P,
+      "/convert": (f) => f.showConvert,
+    },
+  },
   {
     id: "tools",
     label: "Tools",
@@ -307,8 +318,6 @@ export function AppHeader() {
   const featureGate: Record<string, boolean> = {
     "/futures": features.showFutures,
     "/earn":    features.showEarn,
-    "/p2p":     features.showP2P,
-    "/convert": features.showConvert,
   };
   const baseItems = navItems.filter((it) => featureGate[it.href] !== false);
   const items = user ? [...baseItems, ...userNavItems] : baseItems;
@@ -372,15 +381,16 @@ export function AppHeader() {
           </div>
 
           {/* Desktop nav — auto-fits via priority-based progressive disclosure */}
-          <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1 text-sm min-w-0">
+          <nav className="hidden xl:flex items-center gap-0.5 xl:gap-1 text-sm min-w-0">
             {items.map((item) => {
               const Icon = item.icon;
               const active = item.match(location);
+              // Nav itself is hidden < xl. priority 1 always shows when the
+              // nav is visible; priority 2 only at 2xl+ where there's room.
+              // Keeps xl widths (1280–1535) compact: 4–5 items + More button.
               const visibility =
                 item.priority === 1
                   ? "inline-flex"
-                  : item.priority === 2
-                  ? "hidden xl:inline-flex"
                   : "hidden 2xl:inline-flex";
               const badgeClass =
                 item.badgeTone === "new"
@@ -483,32 +493,79 @@ export function AppHeader() {
 
         {/* ── Right: search + actions ─────────────── */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Quick search — full box only at 2xl+ (avoids cramping the 6-item nav at xl) */}
-          <Link
-            href="/markets"
-            className="hidden 2xl:flex items-center gap-2 h-9 px-3 rounded-md bg-muted/50 border border-border text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-56 flex-shrink min-w-0"
-          >
-            <Search className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="flex-1 text-left truncate">Search markets…</span>
-            <kbd className="inline-flex h-5 items-center gap-0.5 rounded border border-border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-              ⌘K
-            </kbd>
-          </Link>
-
-          {/* Search icon — shown whenever the full box is hidden */}
-          <Button asChild variant="ghost" size="icon" className="2xl:hidden h-9 w-9 flex-shrink-0">
+          {/* Search icon — shown at xl+ (where the full desktop nav is also
+              visible). Below xl the Quick Actions dropdown absorbs it. */}
+          <Button asChild variant="ghost" size="icon" className="hidden xl:inline-flex h-9 w-9 flex-shrink-0">
             <Link href="/markets" aria-label="Search markets">
               <Search className="h-4 w-4" />
             </Link>
           </Button>
 
-          {/* Language switcher (always visible from sm+) */}
+          {/* Quick Actions dropdown — consolidates Search + Language on
+              sm → lg widths so the user-panel area never overflows. Hidden
+              at xl+ where Search and Language each get their own icon. */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="hidden sm:inline-flex relative h-9 w-9 flex-shrink-0"
+                className="hidden sm:inline-flex xl:hidden relative h-9 w-9 flex-shrink-0"
+                aria-label="Quick actions"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center h-3.5 min-w-[1.05rem] px-1 rounded-full bg-primary text-[8px] font-bold text-primary-foreground uppercase tracking-tight ring-2 ring-card">
+                  {currentLang.code}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64 p-0">
+              <div className="p-1">
+                <DropdownMenuItem asChild>
+                  <Link href="/markets" className="cursor-pointer">
+                    <Search className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span className="flex-1">Search markets</span>
+                    <kbd className="inline-flex h-4 items-center rounded border border-border bg-muted/40 px-1 font-mono text-[9px] font-medium text-muted-foreground">
+                      ⌘K
+                    </kbd>
+                  </Link>
+                </DropdownMenuItem>
+              </div>
+              <DropdownMenuSeparator className="my-0" />
+              <DropdownMenuLabel className="flex items-center gap-2 px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-400">
+                <Globe className="h-3 w-3" />
+                <span>Language · {currentLang.native}</span>
+              </DropdownMenuLabel>
+              <div className="max-h-64 overflow-y-auto p-1">
+                {LANGUAGES.map((lang) => {
+                  const active = lang.code === langCode;
+                  return (
+                    <DropdownMenuItem
+                      key={lang.code}
+                      onClick={() => handleLanguageChange(lang.code)}
+                      className="cursor-pointer flex items-center gap-2"
+                    >
+                      <span className="text-base leading-none">{lang.flag}</span>
+                      <span className="flex-1 flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{lang.native}</span>
+                        {lang.native !== lang.label && (
+                          <span className="text-[10px] text-muted-foreground">({lang.label})</span>
+                        )}
+                      </span>
+                      {active && <Check className="h-4 w-4 text-primary" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Standalone Language switcher — only at xl+ where there's room. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden xl:inline-flex relative h-9 w-9 flex-shrink-0"
                 aria-label={`Language: ${currentLang.label}`}
               >
                 <Globe className="h-4 w-4" />
@@ -661,7 +718,7 @@ export function AppHeader() {
           {/* Mobile menu trigger */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden h-9 w-9">
+              <Button variant="ghost" size="icon" className="xl:hidden h-9 w-9">
                 {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </Button>
             </SheetTrigger>
