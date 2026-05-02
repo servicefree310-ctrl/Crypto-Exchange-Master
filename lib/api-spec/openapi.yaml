@@ -496,10 +496,10 @@ paths:
             schema: { $ref: "#/components/schemas/P2pResolveDisputeInput" }
       responses:
         "200":
-          description: Resolved
+          description: Resolved — returns the updated order
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/OkResponse" }
+              schema: { $ref: "#/components/schemas/P2pOrder" }
 
 components:
   schemas:

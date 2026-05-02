@@ -2203,8 +2203,8 @@ export const resolveP2pDispute = async (
   id: number,
   p2pResolveDisputeInput: P2pResolveDisputeInput,
   options?: RequestInit,
-): Promise<OkResponse> => {
-  return customFetch<OkResponse>(getResolveP2pDisputeUrl(id), {
+): Promise<P2pOrder> => {
+  return customFetch<P2pOrder>(getResolveP2pDisputeUrl(id), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },

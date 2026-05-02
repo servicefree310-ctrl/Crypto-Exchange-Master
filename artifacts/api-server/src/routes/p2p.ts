@@ -162,6 +162,9 @@ router.get("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
 
   if (!(OFFER_SIDES as readonly string[]).includes(side)) { res.status(400).json({ error: "side must be buy/sell" }); return; }
+  // Initial rollout is INR-only — reject other fiats at the listing boundary
+  // so callers can't fish for offers in unsupported currencies.
+  if (fiat !== "INR") { res.status(400).json({ error: "Only INR is supported in this release" }); return; }
 
   const conds: SQL[] = [
     eq(p2pOffersTable.side, side),
@@ -239,7 +242,10 @@ router.get("/p2p/offers/:id/seller-methods", requireAuth, async (req, res): Prom
 const OfferBody = z.object({
   side: z.enum(OFFER_SIDES),
   coinSymbol: z.string().min(1).max(20),
-  fiat: z.string().min(2).max(8).default("INR"),
+  // Initial rollout is INR-only — locked to a single literal so the API
+  // can't be used to seed offers in unsupported currencies. Widen this
+  // enum when multi-fiat support lands.
+  fiat: z.literal("INR").default("INR"),
   price: z.coerce.number().finite().positive(),
   totalQty: z.coerce.number().finite().positive(),
   minFiat: z.coerce.number().finite().positive(),

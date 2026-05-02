@@ -1324,5 +1324,62 @@ export const ResolveP2pDisputeBody = zod.object({
 });
 
 export const ResolveP2pDisputeResponse = zod.object({
-  ok: zod.boolean(),
+  id: zod.number(),
+  uid: zod.string(),
+  offerId: zod.number(),
+  buyerId: zod.number(),
+  sellerId: zod.number(),
+  fiat: zod.string(),
+  price: zod.number(),
+  qty: zod.number(),
+  fiatAmount: zod.number(),
+  paymentMethod: zod.string(),
+  paymentAccount: zod.string(),
+  paymentLabel: zod.string(),
+  paymentIfsc: zod.string().nullish(),
+  paymentHolderName: zod.string().nullish(),
+  paymentUtr: zod.string().nullish(),
+  status: zod.enum([
+    "pending",
+    "paid",
+    "released",
+    "cancelled",
+    "disputed",
+    "expired",
+  ]),
+  paidAt: zod.coerce.date().nullish(),
+  releasedAt: zod.coerce.date().nullish(),
+  cancelledAt: zod.coerce.date().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  disputeReason: zod.string().nullish(),
+  disputeOpenedBy: zod.number().nullish(),
+  disputeOpenedAt: zod.coerce.date().nullish(),
+  role: zod.enum(["buyer", "seller", "admin"]),
+  coin: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        symbol: zod.string(),
+        name: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  buyer: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
+  seller: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    handle: zod.string(),
+    kycLevel: zod.number(),
+    vipTier: zod.number(),
+    createdAt: zod.coerce.date(),
+  }),
 });
