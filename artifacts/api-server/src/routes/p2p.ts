@@ -669,9 +669,24 @@ async function cancelOrder(orderId: number, actorId: number, actorRole: string) 
 
 // Open a dispute. evidenceUrl is an untrusted external link rendered
 // for moderators in the admin UI; we don't host uploads.
+// Restrict evidenceUrl to http(s) schemes only — z.string().url() also accepts
+// `javascript:` / `data:` / `file:` which would be rendered as a clickable link
+// in the admin dashboard. We parse and require the protocol explicitly.
+const httpUrl = z.string().trim().max(500).refine(
+  (s) => {
+    try {
+      const u = new URL(s);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+      return false;
+    }
+  },
+  { message: "Evidence URL must be a valid http(s) URL" },
+);
+
 const DisputeBody = z.object({
   reason: z.string().trim().min(10, "Please describe the issue (min 10 chars)").max(500),
-  evidenceUrl: z.string().trim().url("Evidence URL must be a valid http(s) URL").max(500).optional(),
+  evidenceUrl: httpUrl.optional(),
 }).strict();
 
 router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<void> => {

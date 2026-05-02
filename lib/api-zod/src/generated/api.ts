@@ -913,6 +913,8 @@ export const openP2pDisputeBodyReasonMax = 500;
 
 export const openP2pDisputeBodyEvidenceUrlMax = 500;
 
+export const openP2pDisputeBodyEvidenceUrlRegExp = new RegExp("^https?:\/");
+
 export const OpenP2pDisputeBody = zod.object({
   reason: zod
     .string()
@@ -922,9 +924,10 @@ export const OpenP2pDisputeBody = zod.object({
     .string()
     .url()
     .max(openP2pDisputeBodyEvidenceUrlMax)
+    .regex(openP2pDisputeBodyEvidenceUrlRegExp)
     .optional()
     .describe(
-      "Optional http(s) URL to a screenshot or document supporting the claim.",
+      "Optional http(s) URL to a screenshot or document supporting the claim. Only http and https schemes are accepted; other schemes (e.g. javascript:, data:, file:) are rejected by the server to prevent admin-facing link injection.",
     ),
 });
 

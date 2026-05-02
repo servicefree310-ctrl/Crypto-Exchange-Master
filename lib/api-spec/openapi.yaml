@@ -716,7 +716,8 @@ components:
           type: string
           format: uri
           maxLength: 500
-          description: Optional http(s) URL to a screenshot or document supporting the claim.
+          pattern: '^https?://'
+          description: Optional http(s) URL to a screenshot or document supporting the claim. Only http and https schemes are accepted; other schemes (e.g. javascript:, data:, file:) are rejected by the server to prevent admin-facing link injection.
 
     P2pMessageInput:
       type: object

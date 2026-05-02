@@ -346,8 +346,9 @@ export interface P2pDisputeInput {
    */
   reason: string;
   /**
-   * Optional http(s) URL to a screenshot or document supporting the claim.
+   * Optional http(s) URL to a screenshot or document supporting the claim. Only http and https schemes are accepted; other schemes (e.g. javascript:, data:, file:) are rejected by the server to prevent admin-facing link injection.
    * @maxLength 500
+   * @pattern ^https?://
    */
   evidenceUrl?: string;
 }
