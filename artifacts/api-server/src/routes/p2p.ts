@@ -12,6 +12,8 @@ import {
   usersTable,
 } from "@workspace/db";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { lockEscrow, releaseEscrow, refundEscrow, quantizeQty } from "../lib/p2p-escrow";
+import { logAdminAction } from "../lib/audit";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -29,19 +31,6 @@ async function getCoinBySymbol(sym: string) {
   const [coin] = await db.select().from(coinsTable).where(eq(coinsTable.symbol, sym.toUpperCase())).limit(1);
   if (!coin) { const e: any = new Error(`Coin ${sym} not found`); e.code = 404; throw e; }
   return coin;
-}
-
-/** Locate-or-create a user's spot wallet for a coin, taking row lock. */
-async function ensureSpotWallet(tx: any, userId: number, coinId: number) {
-  const [w] = await tx.select().from(walletsTable)
-    .where(and(eq(walletsTable.userId, userId), eq(walletsTable.coinId, coinId), eq(walletsTable.walletType, "spot")))
-    .for("update").limit(1);
-  if (w) return w;
-  const [created] = await tx.insert(walletsTable).values({
-    userId, coinId, walletType: "spot", balance: "0", locked: "0",
-  }).returning();
-  const [locked] = await tx.select().from(walletsTable).where(eq(walletsTable.id, created.id)).for("update").limit(1);
-  return locked;
 }
 
 /** Hide PII (phone/email) from non-counterparty users in marketplace browsing. */
@@ -121,6 +110,7 @@ router.post("/p2p/payment-methods", requireAuth, async (req, res): Promise<void>
     ifsc: parsed.data.ifsc ?? null,
     holderName: parsed.data.holderName ?? null,
   }).returning();
+  req.log.info({ userId: req.user!.id, paymentMethodId: created.id, method: parsed.data.method }, "p2p payment method created");
   res.status(201).json(created);
 });
 
@@ -281,10 +271,12 @@ router.post("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
       minTrades: d.minTrades,
       status: "online",
     }).returning();
+    req.log.info({ offerId: created.id, userId: u.id, side: d.side, coin: coin.symbol, qty: d.totalQty }, "p2p offer created");
     const [hydrated] = await hydrateOffers([created]);
     res.status(201).json(hydrated);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    req.log.error({ err: e?.message }, "p2p offer create failed");
     throw e;
   }
 });
@@ -410,20 +402,15 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
         const e: any = new Error(`This offer doesn't accept ${pm.method}`); e.code = 400; throw e;
       }
 
-      // ─── Escrow lock — reduce seller's spot.balance, add to spot.locked
-      const sellerWallet = await ensureSpotWallet(tx, sellerId, offer.coinId);
-      if (Number(sellerWallet.balance) < qty) {
-        const e: any = new Error("Seller has insufficient balance — try a smaller order"); e.code = 400; throw e;
-      }
-      await tx.update(walletsTable).set({
-        balance: sql`${walletsTable.balance} - ${qty}`,
-        locked: sql`${walletsTable.locked} + ${qty}`,
-        updatedAt: new Date(),
-      }).where(eq(walletsTable.id, sellerWallet.id));
+      // ─── Escrow lock via shared helper — keeps wallet math centralised
+      // alongside release/refund and `routes/transfer.ts` patterns.
+      const qtyStr = quantizeQty(qty);
+      const fiatStr = fiatAmount.toFixed(2);
+      await lockEscrow(tx, sellerId, offer.coinId, qtyStr);
 
       // Decrement available liquidity on the offer.
       await tx.update(p2pOffersTable).set({
-        availableQty: sql`${p2pOffersTable.availableQty} - ${qty}`,
+        availableQty: sql`${p2pOffersTable.availableQty} - ${qtyStr}::numeric`,
         updatedAt: new Date(),
       }).where(eq(p2pOffersTable.id, offer.id));
 
@@ -434,13 +421,13 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
         coinId: offer.coinId,
         fiat: offer.fiat,
         price: String(price),
-        qty: String(qty),
-        fiatAmount: String(fiatAmount),
-        paymentMethod: (pm as any).method,
-        paymentAccount: (pm as any).account,
-        paymentLabel: (pm as any).label,
-        paymentIfsc: (pm as any).ifsc,
-        paymentHolderName: (pm as any).holderName,
+        qty: qtyStr,
+        fiatAmount: fiatStr,
+        paymentMethod: pm.method,
+        paymentAccount: pm.account,
+        paymentLabel: pm.label,
+        paymentIfsc: pm.ifsc,
+        paymentHolderName: pm.holderName,
         status: "pending",
         expiresAt,
       }).returning();
@@ -451,14 +438,15 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
         orderId: order.id,
         senderId: me.id,
         senderRole: "system",
-        body: `Order opened — buyer must pay ₹${fiatAmount.toFixed(2)} within ${offer.payWindowMins} minutes.`,
+        body: `Order opened — buyer must pay ₹${fiatStr} within ${offer.payWindowMins} minutes.`,
       });
       return order;
     });
+    req.log.info({ orderId: created.id, offerId: d.offerId, buyerId: created.buyerId, sellerId: created.sellerId, qty: created.qty, fiatAmount: created.fiatAmount }, "p2p order opened");
     res.status(201).json(created);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
-    req.log?.error?.({ err: e }, "p2p order create failed");
+    req.log.error({ err: e?.message }, "p2p order create failed");
     throw e;
   }
 });
@@ -581,21 +569,8 @@ async function releaseOrder(orderId: number, actorId: number, actorRole: string)
     if (!isAdmin && o.status !== "paid") { const e: any = new Error("Buyer hasn't marked as paid yet"); e.code = 400; throw e; }
     if (o.status === "cancelled" || o.status === "expired") { const e: any = new Error("Cannot release a cancelled/expired order"); e.code = 400; throw e; }
 
-    // Move crypto: seller.locked -= qty ; buyer.balance += qty.
-    const sellerWallet = await ensureSpotWallet(tx, o.sellerId, o.coinId);
-    const buyerWallet = await ensureSpotWallet(tx, o.buyerId, o.coinId);
-    const qty = Number(o.qty);
-    if (Number(sellerWallet.locked) < qty - 1e-12) {
-      const e: any = new Error("Escrow accounting error — locked < qty"); e.code = 500; throw e;
-    }
-    await tx.update(walletsTable).set({
-      locked: sql`${walletsTable.locked} - ${qty}`,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, sellerWallet.id));
-    await tx.update(walletsTable).set({
-      balance: sql`${walletsTable.balance} + ${qty}`,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, buyerWallet.id));
+    // Move crypto via shared helper: seller.locked → buyer.balance.
+    await releaseEscrow(tx, o.sellerId, o.buyerId, o.coinId, o.qty);
 
     const [updated] = await tx.update(p2pOrdersTable).set({
       status: "released",
@@ -648,18 +623,13 @@ async function cancelOrder(orderId: number, actorId: number, actorRole: string) 
       const e: any = new Error(msg); e.code = 400; throw e;
     }
 
-    // Refund seller's escrow.
-    const sellerWallet = await ensureSpotWallet(tx, o.sellerId, o.coinId);
-    const qty = Number(o.qty);
-    await tx.update(walletsTable).set({
-      balance: sql`${walletsTable.balance} + ${qty}`,
-      locked: sql`${walletsTable.locked} - ${qty}`,
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.id, sellerWallet.id));
+    // Refund seller's escrow via shared helper.
+    const qtyStr = quantizeQty(o.qty);
+    await refundEscrow(tx, o.sellerId, o.coinId, qtyStr);
 
     // Restore offer's available liquidity.
     await tx.update(p2pOffersTable).set({
-      availableQty: sql`${p2pOffersTable.availableQty} + ${qty}`,
+      availableQty: sql`${p2pOffersTable.availableQty} + ${qtyStr}::numeric`,
       updatedAt: new Date(),
     }).where(eq(p2pOffersTable.id, o.offerId));
 
@@ -800,6 +770,8 @@ router.patch("/admin/p2p/offers/:id", adminOnly, async (req, res): Promise<void>
     .where(eq(p2pOffersTable.id, id))
     .returning();
   if (!updated) { res.status(404).json({ error: "Offer not found" }); return; }
+  req.log.info({ adminId: req.user!.id, offerId: id, newStatus: status }, "admin updated p2p offer status");
+  await logAdminAction(req, { action: "p2p.offer.status_change", entity: "p2p_offer", entityId: id, payload: { newStatus: status } });
   const [hydrated] = await hydrateOffers([updated]);
   res.json(hydrated);
 });
@@ -851,9 +823,17 @@ router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Prom
         body: `Admin notes: ${notes.slice(0, 300)}`,
       });
     }
+    req.log.info({ adminId: req.user!.id, orderId: id, action, hasNotes: notes.length > 0 }, "admin resolved p2p dispute");
+    await logAdminAction(req, {
+      action: action === "release" ? "p2p.dispute.resolve_release" : "p2p.dispute.resolve_refund",
+      entity: "p2p_order",
+      entityId: id,
+      payload: { action, notes: notes ? notes.slice(0, 200) : undefined },
+    });
     res.json(result);
   } catch (e: any) {
     if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    req.log.error({ err: e?.message, orderId: id, action }, "admin dispute resolve failed");
     throw e;
   }
 });

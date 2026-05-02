@@ -666,7 +666,7 @@ function CreateAdDialog({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>I want to</Label>
-              <Select value={side} onValueChange={(v: any) => setSide(v)}>
+              <Select value={side} onValueChange={(v) => setSide(v as "buy" | "sell")}>
                 <SelectTrigger data-testid="p2p-ad-side"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sell">Sell crypto for INR</SelectItem>

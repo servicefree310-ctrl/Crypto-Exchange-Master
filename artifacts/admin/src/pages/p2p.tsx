@@ -94,10 +94,10 @@ export default function P2PAdminPage() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <PremiumStatCard label="Online Offers" value={statsQ.data?.onlineOffers ?? "—"} icon={ShoppingCart} accent="success" />
-        <PremiumStatCard label="Active Orders" value={statsQ.data?.activeOrders ?? "—"} icon={Users} accent="info" />
-        <PremiumStatCard label="Open Disputes" value={statsQ.data?.openDisputes ?? "—"} icon={AlertTriangle} accent={statsQ.data?.openDisputes ? "warning" : "neutral"} />
-        <PremiumStatCard label="Completed (all-time)" value={statsQ.data?.completedOrders ?? "—"} icon={Check} accent="gold" />
+        <PremiumStatCard title="Online Offers" value={statsQ.data?.onlineOffers ?? "—"} icon={ShoppingCart} />
+        <PremiumStatCard title="Active Orders" value={statsQ.data?.activeOrders ?? "—"} icon={Users} />
+        <PremiumStatCard title="Open Disputes" value={statsQ.data?.openDisputes ?? "—"} icon={AlertTriangle} accent={!!statsQ.data?.openDisputes} />
+        <PremiumStatCard title="Completed (all-time)" value={statsQ.data?.completedOrders ?? "—"} icon={Check} accent />
       </div>
 
       <Tabs defaultValue="disputes" className="space-y-4">
@@ -118,6 +118,47 @@ export default function P2PAdminPage() {
 }
 
 // ─── Disputes ──────────────────────────────────────────────────────────
+
+type ChatMessage = {
+  id: number; orderId: number; senderId: number; senderRole: string;
+  body: string; createdAt: string;
+};
+
+function DisputeChatHistory({ orderId, buyerId, sellerId }: { orderId: number; buyerId: number; sellerId: number }) {
+  const msgsQ = useQuery<ChatMessage[]>({
+    queryKey: ["/p2p/orders", orderId, "messages"],
+    queryFn: () => get<ChatMessage[]>(`/p2p/orders/${orderId}/messages`),
+    refetchInterval: 8_000,
+  });
+  if (msgsQ.isLoading) return <Skeleton className="h-32" />;
+  const msgs = msgsQ.data ?? [];
+  if (!msgs.length) return <div className="text-xs text-muted-foreground italic px-1">No chat history yet.</div>;
+  const labelFor = (m: ChatMessage) => {
+    if (m.senderRole === "system") return "System";
+    if (m.senderRole === "admin") return "Admin";
+    if (m.senderId === buyerId) return "Buyer";
+    if (m.senderId === sellerId) return "Seller";
+    return m.senderRole;
+  };
+  const colorFor = (role: string) => {
+    if (role === "system") return "text-muted-foreground bg-muted/40";
+    if (role === "admin") return "text-amber-300 bg-amber-500/10";
+    return "text-foreground bg-card/60";
+  };
+  return (
+    <div className="max-h-64 overflow-y-auto space-y-1.5 rounded-md border border-border/50 bg-background/40 p-2" data-testid="p2padmin-dispute-chat">
+      {msgs.map(m => (
+        <div key={m.id} className={`rounded px-2 py-1.5 text-xs ${colorFor(m.senderRole)}`}>
+          <div className="flex justify-between items-baseline mb-0.5">
+            <span className="font-semibold">{labelFor(m)}</span>
+            <span className="text-[10px] opacity-60">{relTime(m.createdAt)}</span>
+          </div>
+          <div className="whitespace-pre-wrap break-words">{m.body}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function DisputesTab({ canModerate }: { canModerate: boolean }) {
   const qc = useQueryClient();
@@ -211,7 +252,7 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
 
       {resolveTarget && (
         <Dialog open onOpenChange={() => setResolveTarget(null)}>
-          <DialogContent data-testid="p2padmin-resolve-dialog">
+          <DialogContent data-testid="p2padmin-resolve-dialog" className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Resolve Dispute #{resolveTarget.id}</DialogTitle>
               <DialogDescription>
@@ -219,13 +260,47 @@ function DisputesTab({ canModerate }: { canModerate: boolean }) {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-md border border-border/60 bg-muted/30 p-2">
+                  <div className="font-semibold mb-0.5">Buyer</div>
+                  <div className="text-muted-foreground">{resolveTarget.buyer.name} · KYC L{resolveTarget.buyer.kycLevel}</div>
+                </div>
+                <div className="rounded-md border border-border/60 bg-muted/30 p-2">
+                  <div className="font-semibold mb-0.5">Seller</div>
+                  <div className="text-muted-foreground">{resolveTarget.seller.name} · KYC L{resolveTarget.seller.kycLevel}</div>
+                </div>
+              </div>
               <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
-                <div className="font-semibold mb-1">Buyer's claim / reason</div>
-                <div className="text-muted-foreground">{resolveTarget.disputeReason}</div>
+                <div className="font-semibold mb-1">
+                  Claim by {resolveTarget.disputeOpenedBy === resolveTarget.buyerId ? "Buyer" : "Seller"}
+                </div>
+                <div className="text-muted-foreground whitespace-pre-wrap">{resolveTarget.disputeReason}</div>
+              </div>
+              <div className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs">
+                <div className="font-semibold mb-1">Payment claim</div>
+                <div className="grid grid-cols-3 gap-2 text-muted-foreground">
+                  <div><span className="opacity-70">Method:</span> {methodLabel(resolveTarget.paymentMethod)}</div>
+                  <div className="col-span-2 truncate">
+                    <span className="opacity-70">UTR / ref:</span>{" "}
+                    {resolveTarget.paymentUtr ? (
+                      <span className="font-mono">{resolveTarget.paymentUtr}</span>
+                    ) : (
+                      <span className="italic">Buyer hasn't supplied UTR</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-medium mb-1.5">Chat history</div>
+                <DisputeChatHistory
+                  orderId={resolveTarget.id}
+                  buyerId={resolveTarget.buyerId}
+                  sellerId={resolveTarget.sellerId}
+                />
               </div>
               <div>
                 <label className="text-xs font-medium">Resolution</label>
-                <Select value={action} onValueChange={(v: any) => setAction(v)}>
+                <Select value={action} onValueChange={(v) => setAction(v as "release" | "refund")}>
                   <SelectTrigger data-testid="p2padmin-resolve-action">
                     <SelectValue />
                   </SelectTrigger>
