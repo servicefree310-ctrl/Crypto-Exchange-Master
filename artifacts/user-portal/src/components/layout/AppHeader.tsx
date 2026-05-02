@@ -242,8 +242,18 @@ export function AppHeader() {
   });
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
+    // Edge-trigger only: avoid setting state on every scroll pixel, which
+    // otherwise causes the sticky header to re-render constantly and feel
+    // like it's "jumping" as transitions retrigger near the threshold.
+    let isScrolled = window.scrollY > 8;
+    setScrolled(isScrolled);
+    const onScroll = () => {
+      const next = window.scrollY > 8;
+      if (next !== isScrolled) {
+        isScrolled = next;
+        setScrolled(next);
+      }
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -309,10 +319,10 @@ export function AppHeader() {
 
   return (
     <header
-      className={`sticky top-0 z-40 transition-all duration-300 ${
+      className={`sticky top-0 left-0 right-0 z-40 border-b backdrop-blur-xl transform-gpu will-change-[background-color,box-shadow] transition-[background-color,box-shadow,border-color] duration-200 ${
         scrolled
-          ? "border-b border-border bg-card/80 backdrop-blur-xl shadow-sm"
-          : "border-b border-border/50 bg-card/60 backdrop-blur-md"
+          ? "border-border bg-card/85 shadow-sm"
+          : "border-border/60 bg-card/70 shadow-none"
       }`}
     >
       <div className="container mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-3 sm:gap-4 lg:gap-6 xl:gap-8">
@@ -394,7 +404,7 @@ export function AppHeader() {
                     </Badge>
                   )}
                   {active && (
-                    <span className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
                   )}
                 </Link>
               );
@@ -415,7 +425,7 @@ export function AppHeader() {
                   More
                   <ChevronDown className="h-3.5 w-3.5" />
                   {isMoreActive(location, moreSections) && (
-                    <span className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
                   )}
                 </button>
               </DropdownMenuTrigger>
