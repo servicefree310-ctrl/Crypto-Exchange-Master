@@ -15,6 +15,7 @@ import {
 import {
   Code2, Copy, Check, FileCode2, Folder, FolderOpen, ChevronRight,
   Search, Loader2, FileText, Sparkles, Database, Table as TableIcon, Key,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -629,13 +630,35 @@ export default function CodeReferencePage() {
     <div className="space-y-6">
       <PageHeader
         title="Code Reference"
-        subtitle="Browse the admin, user-portal, api-server, lib/db source trees and live database tables."
-        icon={Code2}
+        description="Browse the admin, user-portal, api-server, lib/db source trees and live database tables. Download any root as a ZIP or the database as a schema-only .sql file."
         actions={
-          <Badge variant="outline" className="gap-1">
-            <Sparkles className="h-3.5 w-3.5" />
-            {isDb ? "Live database" : (activeFileRoot?.label ?? rootKey)}
-          </Badge>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Badge variant="outline" className="gap-1">
+              <Sparkles className="h-3.5 w-3.5" />
+              {isDb ? "Live database" : (activeFileRoot?.label ?? rootKey)}
+            </Badge>
+            {isDb ? (
+              // Download the live schema as a single .sql file. Browser sends the
+              // session cookie automatically with same-origin GETs, so a plain
+              // anchor works — no need for a fetch-blob-revoke dance.
+              <Button asChild size="sm" variant="default" className="gap-1.5">
+                <a href="/api/admin/source/db/download" download>
+                  <Download className="h-4 w-4" />
+                  Download schema (.sql)
+                </a>
+              </Button>
+            ) : (
+              <Button asChild size="sm" variant="default" className="gap-1.5">
+                <a
+                  href={`/api/admin/source/download?root=${encodeURIComponent(rootKey)}`}
+                  download
+                >
+                  <Download className="h-4 w-4" />
+                  Download {activeFileRoot?.label.replace(/^artifacts\//, "") ?? rootKey} (.zip)
+                </a>
+              </Button>
+            )}
+          </div>
         }
       />
 
