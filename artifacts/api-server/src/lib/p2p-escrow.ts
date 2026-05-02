@@ -1,5 +1,9 @@
-// P2P escrow helpers — all reads/writes of wallets.{balance,p2pLocked}
-// for P2P trades must go through these to keep accounting consistent.
+// P2P escrow helpers — the single chokepoint for P2P balance moves.
+// All P2P routes must call lockEscrow / releaseEscrow / refundEscrow
+// rather than mutating wallets.{balance,p2pLocked} directly. Internally
+// we use the same atomic pattern as routes/transfer.ts: open a
+// db.transaction, SELECT FOR UPDATE the wallet row, and apply numeric
+// deltas via parameterised drizzle `sql` templates.
 // Amounts are strings to align with numeric(28,8) and avoid float drift.
 
 import { and, eq, sql } from "drizzle-orm";
