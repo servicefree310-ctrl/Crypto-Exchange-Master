@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, or, desc, asc, sql, ne, gt, gte, inArray } from "drizzle-orm";
+import { eq, and, or, desc, asc, sql, ne, gt, inArray, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -19,23 +19,56 @@ const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
 const supportPlus = requireRole("admin", "superadmin", "support");
 
+// ─── Typed error helper ─────────────────────────────────────────────────
+// Centralises the "throw with HTTP status" pattern so route handlers can
+// `try { ... } catch (e) { if (e instanceof AppError) ... }` cleanly,
+// instead of stamping `.code` onto plain Errors with `as any`.
+class AppError extends Error {
+  constructor(public readonly httpStatus: number, message: string) {
+    super(message);
+    this.name = "AppError";
+  }
+}
+const bad = (msg: string) => new AppError(400, msg);
+const notFound = (msg: string) => new AppError(404, msg);
+const forbidden = (msg: string) => new AppError(403, msg);
+
 // ─── Constants ──────────────────────────────────────────────────────────
 const PAYMENT_METHOD_TYPES = ["upi", "imps", "neft", "bank", "paytm", "phonepe", "gpay"] as const;
+type PaymentMethodType = (typeof PAYMENT_METHOD_TYPES)[number];
 const OFFER_SIDES = ["buy", "sell"] as const;
+type OfferSide = (typeof OFFER_SIDES)[number];
 const ORDER_STATUSES = ["pending", "paid", "released", "cancelled", "disputed", "expired"] as const;
+type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+// ─── Drizzle row aliases ────────────────────────────────────────────────
+type OfferRow = typeof p2pOffersTable.$inferSelect;
+type OrderRow = typeof p2pOrdersTable.$inferSelect;
+type UserRow = typeof usersTable.$inferSelect;
+type MerchantRow = Pick<UserRow, "id" | "name" | "email" | "kycLevel" | "vipTier" | "createdAt">;
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-/** Resolve a coin row by symbol (e.g. "BTC"); throws 404 with .code on miss. */
+/** Resolve a coin row by symbol (e.g. "BTC"); throws AppError(404) on miss. */
 async function getCoinBySymbol(sym: string) {
   const [coin] = await db.select().from(coinsTable).where(eq(coinsTable.symbol, sym.toUpperCase())).limit(1);
-  if (!coin) { const e: any = new Error(`Coin ${sym} not found`); e.code = 404; throw e; }
+  if (!coin) throw notFound(`Coin ${sym} not found`);
   return coin;
 }
 
+/** Translate an AppError thrown by a handler into a JSON response. */
+function sendError(res: import("express").Response, e: unknown): boolean {
+  if (e instanceof AppError) {
+    res.status(e.httpStatus).json({ error: e.message });
+    return true;
+  }
+  return false;
+}
+
 /** Hide PII (phone/email) from non-counterparty users in marketplace browsing. */
-function publicMerchantView(u: any) {
-  const name = u?.name?.trim() || (u?.email ? u.email.split("@")[0] : "Trader");
+function publicMerchantView(u: MerchantRow | undefined) {
+  const rawName = (u?.name ?? "").trim();
+  const name = rawName || (u?.email ? u.email.split("@")[0] : "Trader");
   return {
     id: u?.id,
     name,
@@ -47,8 +80,9 @@ function publicMerchantView(u: any) {
   };
 }
 
-/** Offer view for marketplace listing (joins coin + merchant). */
-async function hydrateOffers(rows: any[]) {
+/** Offer view for marketplace listing (joins coin + merchant). Accepts
+ *  bare OfferRow[] or admin queries (which select the full row too). */
+async function hydrateOffers(rows: OfferRow[]) {
   if (!rows.length) return [];
   const coinIds = Array.from(new Set(rows.map(r => r.coinId)));
   const userIds = Array.from(new Set(rows.map(r => r.userId)));
@@ -124,6 +158,7 @@ router.delete("/p2p/payment-methods/:id", requireAuth, async (req, res): Promise
     .where(and(eq(p2pPaymentMethodsTable.id, id), eq(p2pPaymentMethodsTable.userId, req.user!.id)))
     .returning();
   if (!updated) { res.status(404).json({ error: "Payment method not found" }); return; }
+  req.log.info({ userId: req.user!.id, paymentMethodId: id }, "p2p payment method deactivated");
   res.json({ ok: true });
 });
 
@@ -140,9 +175,9 @@ router.get("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
   const method = String(req.query.method || "").toLowerCase();
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
 
-  if (!OFFER_SIDES.includes(side as any)) { res.status(400).json({ error: "side must be buy/sell" }); return; }
+  if (!(OFFER_SIDES as readonly string[]).includes(side)) { res.status(400).json({ error: "side must be buy/sell" }); return; }
 
-  const conds: any[] = [
+  const conds: SQL[] = [
     eq(p2pOffersTable.side, side),
     eq(p2pOffersTable.fiat, fiat),
     eq(p2pOffersTable.status, "online"),
@@ -156,7 +191,7 @@ router.get("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
     conds.push(eq(p2pOffersTable.coinId, c[0].id));
   }
   if (method) {
-    if (!PAYMENT_METHOD_TYPES.includes(method as any)) { res.status(400).json({ error: "Invalid method" }); return; }
+    if (!(PAYMENT_METHOD_TYPES as readonly string[]).includes(method)) { res.status(400).json({ error: "Invalid method" }); return; }
     // payment_methods stored as comma-list — match via ILIKE on the joined string.
     conds.push(sql`${p2pOffersTable.paymentMethods} ILIKE ${'%' + method + '%'}`);
   }
@@ -274,9 +309,9 @@ router.post("/p2p/offers", requireAuth, async (req, res): Promise<void> => {
     req.log.info({ offerId: created.id, userId: u.id, side: d.side, coin: coin.symbol, qty: d.totalQty }, "p2p offer created");
     const [hydrated] = await hydrateOffers([created]);
     res.status(201).json(hydrated);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
-    req.log.error({ err: e?.message }, "p2p offer create failed");
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message }, "p2p offer create failed");
     throw e;
   }
 });
@@ -301,13 +336,14 @@ router.patch("/p2p/offers/:id", requireAuth, async (req, res): Promise<void> => 
   if (!existing) { res.status(404).json({ error: "Offer not found" }); return; }
   if (existing.status === "suspended") { res.status(403).json({ error: "Suspended by admin — cannot edit" }); return; }
 
-  const upd: Record<string, any> = { updatedAt: new Date() };
+  const upd: Partial<typeof p2pOffersTable.$inferInsert> = { updatedAt: new Date() };
   if (parsed.data.status) upd.status = parsed.data.status;
   if (parsed.data.price != null) upd.price = String(parsed.data.price);
   if (parsed.data.minFiat != null) upd.minFiat = String(parsed.data.minFiat);
   if (parsed.data.maxFiat != null) upd.maxFiat = String(parsed.data.maxFiat);
   if (parsed.data.terms !== undefined) upd.terms = parsed.data.terms || null;
   const [updated] = await db.update(p2pOffersTable).set(upd).where(eq(p2pOffersTable.id, id)).returning();
+  req.log.info({ offerId: id, userId: req.user!.id, fields: Object.keys(upd) }, "p2p offer patched");
   const [hydrated] = await hydrateOffers([updated]);
   res.json(hydrated);
 });
@@ -326,6 +362,7 @@ router.delete("/p2p/offers/:id", requireAuth, async (req, res): Promise<void> =>
     .where(and(eq(p2pOffersTable.id, id), eq(p2pOffersTable.userId, req.user!.id)))
     .returning();
   if (!updated) { res.status(404).json({ error: "Offer not found" }); return; }
+  req.log.info({ offerId: id, userId: req.user!.id }, "p2p offer closed by owner");
   res.json({ ok: true });
 });
 
@@ -357,21 +394,19 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
       const [offer] = await tx.select().from(p2pOffersTable)
         .where(eq(p2pOffersTable.id, d.offerId))
         .for("update").limit(1);
-      if (!offer) { const e: any = new Error("Offer not found"); e.code = 404; throw e; }
-      if (offer.status !== "online") { const e: any = new Error(`Offer is ${offer.status}`); e.code = 400; throw e; }
-      if (offer.userId === me.id) { const e: any = new Error("Cannot trade your own offer"); e.code = 400; throw e; }
-      if (me.kycLevel < offer.minKycLevel) {
-        const e: any = new Error(`KYC Level ${offer.minKycLevel} required by this merchant`); e.code = 403; throw e;
-      }
+      if (!offer) throw notFound("Offer not found");
+      if (offer.status !== "online") throw bad(`Offer is ${offer.status}`);
+      if (offer.userId === me.id) throw bad("Cannot trade your own offer");
+      if (me.kycLevel < offer.minKycLevel) throw forbidden(`KYC Level ${offer.minKycLevel} required by this merchant`);
 
       // Resolve qty + fiat amount, snapshot price.
       const price = Number(offer.price);
       const qty = d.qty != null ? Number(d.qty) : (d.fiatAmount! / price);
       const fiatAmount = d.fiatAmount != null ? Number(d.fiatAmount) : (qty * price);
       const minF = Number(offer.minFiat), maxF = Number(offer.maxFiat);
-      if (fiatAmount < minF) { const e: any = new Error(`Below min order amount (₹${minF})`); e.code = 400; throw e; }
-      if (fiatAmount > maxF) { const e: any = new Error(`Above max order amount (₹${maxF})`); e.code = 400; throw e; }
-      if (qty > Number(offer.availableQty)) { const e: any = new Error("Not enough liquidity remaining"); e.code = 400; throw e; }
+      if (fiatAmount < minF) throw bad(`Below min order amount (₹${minF})`);
+      if (fiatAmount > maxF) throw bad(`Above max order amount (₹${maxF})`);
+      if (qty > Number(offer.availableQty)) throw bad("Not enough liquidity remaining");
 
       // Resolve buyer / seller from offer side. Offer side is the
       // MERCHANT's intent; the order opener is the counterparty.
@@ -396,11 +431,9 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
       const [pm] = await tx.select().from(p2pPaymentMethodsTable)
         .where(and(eq(p2pPaymentMethodsTable.id, d.paymentMethodId), eq(p2pPaymentMethodsTable.userId, sellerId), eq(p2pPaymentMethodsTable.active, true)))
         .limit(1);
-      if (!pm) { const e: any = new Error("Payment method not found or not owned by the seller"); e.code = 404; throw e; }
+      if (!pm) throw notFound("Payment method not found or not owned by the seller");
       const acceptedMethods = String(offer.paymentMethods || "").split(",").filter(Boolean);
-      if (!acceptedMethods.includes(pm.method)) {
-        const e: any = new Error(`This offer doesn't accept ${pm.method}`); e.code = 400; throw e;
-      }
+      if (!acceptedMethods.includes(pm.method)) throw bad(`This offer doesn't accept ${pm.method}`);
 
       // ─── Escrow lock via shared helper — keeps wallet math centralised
       // alongside release/refund and `routes/transfer.ts` patterns.
@@ -444,9 +477,9 @@ router.post("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
     });
     req.log.info({ orderId: created.id, offerId: d.offerId, buyerId: created.buyerId, sellerId: created.sellerId, qty: created.qty, fiatAmount: created.fiatAmount }, "p2p order opened");
     res.status(201).json(created);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
-    req.log.error({ err: e?.message }, "p2p order create failed");
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message }, "p2p order create failed");
     throw e;
   }
 });
@@ -456,11 +489,14 @@ router.get("/p2p/orders", requireAuth, async (req, res): Promise<void> => {
   const status = String(req.query.status || "all");
   const me = req.user!.id;
 
-  const conds: any[] = [];
+  const conds: SQL[] = [];
   if (role === "buyer") conds.push(eq(p2pOrdersTable.buyerId, me));
   else if (role === "seller") conds.push(eq(p2pOrdersTable.sellerId, me));
-  else conds.push(or(eq(p2pOrdersTable.buyerId, me), eq(p2pOrdersTable.sellerId, me)));
-  if (status !== "all" && ORDER_STATUSES.includes(status as any)) {
+  else {
+    const either = or(eq(p2pOrdersTable.buyerId, me), eq(p2pOrdersTable.sellerId, me));
+    if (either) conds.push(either);
+  }
+  if (status !== "all" && (ORDER_STATUSES as readonly string[]).includes(status)) {
     conds.push(eq(p2pOrdersTable.status, status));
   }
 
@@ -481,7 +517,7 @@ router.get("/p2p/orders/:id", requireAuth, async (req, res): Promise<void> => {
   res.json(hydrated);
 });
 
-async function hydrateOrders(rows: any[], myId: number) {
+async function hydrateOrders(rows: OrderRow[], myId: number) {
   if (!rows.length) return [];
   const userIds = Array.from(new Set(rows.flatMap(r => [r.buyerId, r.sellerId])));
   const coinIds = Array.from(new Set(rows.map(r => r.coinId)));
@@ -512,13 +548,13 @@ router.post("/p2p/orders/:id/mark-paid", requireAuth, async (req, res): Promise<
   try {
     const result = await db.transaction(async (tx) => {
       const [o] = await tx.select().from(p2pOrdersTable).where(eq(p2pOrdersTable.id, id)).for("update").limit(1);
-      if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
-      if (o.buyerId !== req.user!.id) { const e: any = new Error("Only the buyer can mark paid"); e.code = 403; throw e; }
-      if (o.status !== "pending") { const e: any = new Error(`Cannot mark paid — order is ${o.status}`); e.code = 400; throw e; }
+      if (!o) throw notFound("Order not found");
+      if (o.buyerId !== req.user!.id) throw forbidden("Only the buyer can mark paid");
+      if (o.status !== "pending") throw bad(`Cannot mark paid — order is ${o.status}`);
       // Window check — if the window has elapsed we don't accept the
       // paid claim; the buyer must talk to the seller via dispute.
       if (o.expiresAt && o.expiresAt.getTime() < Date.now()) {
-        const e: any = new Error("Pay window expired — open a dispute if you've already paid"); e.code = 400; throw e;
+        throw bad("Pay window expired — open a dispute if you've already paid");
       }
       const [updated] = await tx.update(p2pOrdersTable).set({
         status: "paid",
@@ -533,9 +569,11 @@ router.post("/p2p/orders/:id/mark-paid", requireAuth, async (req, res): Promise<
       });
       return updated;
     });
+    req.log.info({ orderId: id, buyerId: req.user!.id, hasUtr: !!utr }, "p2p order marked paid");
     res.json(result);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message, orderId: id }, "p2p mark-paid failed");
     throw e;
   }
 });
@@ -546,9 +584,11 @@ router.post("/p2p/orders/:id/release", requireAuth, async (req, res): Promise<vo
   if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   try {
     const result = await releaseOrder(id, req.user!.id, req.user!.role);
+    req.log.info({ orderId: id, actorId: req.user!.id, actorRole: req.user!.role }, "p2p order released");
     res.json(result);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message, orderId: id }, "p2p release failed");
     throw e;
   }
 });
@@ -562,12 +602,12 @@ router.post("/p2p/orders/:id/release", requireAuth, async (req, res): Promise<vo
 async function releaseOrder(orderId: number, actorId: number, actorRole: string) {
   return await db.transaction(async (tx) => {
     const [o] = await tx.select().from(p2pOrdersTable).where(eq(p2pOrdersTable.id, orderId)).for("update").limit(1);
-    if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
+    if (!o) throw notFound("Order not found");
     const isAdmin = actorRole === "admin" || actorRole === "superadmin";
-    if (!isAdmin && o.sellerId !== actorId) { const e: any = new Error("Only the seller or admin can release"); e.code = 403; throw e; }
-    if (o.status === "released") { const e: any = new Error("Already released"); e.code = 400; throw e; }
-    if (!isAdmin && o.status !== "paid") { const e: any = new Error("Buyer hasn't marked as paid yet"); e.code = 400; throw e; }
-    if (o.status === "cancelled" || o.status === "expired") { const e: any = new Error("Cannot release a cancelled/expired order"); e.code = 400; throw e; }
+    if (!isAdmin && o.sellerId !== actorId) throw forbidden("Only the seller or admin can release");
+    if (o.status === "released") throw bad("Already released");
+    if (!isAdmin && o.status !== "paid") throw bad("Buyer hasn't marked as paid yet");
+    if (o.status === "cancelled" || o.status === "expired") throw bad("Cannot release a cancelled/expired order");
 
     // Move crypto via shared helper: seller.locked → buyer.balance.
     await releaseEscrow(tx, o.sellerId, o.buyerId, o.coinId, o.qty);
@@ -595,9 +635,11 @@ router.post("/p2p/orders/:id/cancel", requireAuth, async (req, res): Promise<voi
   if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   try {
     const result = await cancelOrder(id, req.user!.id, req.user!.role);
+    req.log.info({ orderId: id, actorId: req.user!.id, actorRole: req.user!.role }, "p2p order cancelled");
     res.json(result);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message, orderId: id }, "p2p cancel failed");
     throw e;
   }
 });
@@ -605,22 +647,21 @@ router.post("/p2p/orders/:id/cancel", requireAuth, async (req, res): Promise<voi
 async function cancelOrder(orderId: number, actorId: number, actorRole: string) {
   return await db.transaction(async (tx) => {
     const [o] = await tx.select().from(p2pOrdersTable).where(eq(p2pOrdersTable.id, orderId)).for("update").limit(1);
-    if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
+    if (!o) throw notFound("Order not found");
     const isAdmin = actorRole === "admin" || actorRole === "superadmin";
     const isParty = o.buyerId === actorId || o.sellerId === actorId;
-    if (!isAdmin && !isParty) { const e: any = new Error("Forbidden"); e.code = 403; throw e; }
+    if (!isAdmin && !isParty) throw forbidden("Forbidden");
     if (o.status === "cancelled" || o.status === "released" || o.status === "expired") {
-      const e: any = new Error(`Cannot cancel — order is ${o.status}`); e.code = 400; throw e;
+      throw bad(`Cannot cancel — order is ${o.status}`);
     }
     // Non-admins can ONLY cancel a still-pending order. Once buyer marks
     // paid OR a dispute has been opened, only admin moderation can resolve
     // it — otherwise a malicious seller could escape via paid→disputed→cancel
     // and refund themselves AFTER the buyer has paid fiat.
     if (o.status !== "pending" && !isAdmin) {
-      const msg = o.status === "paid"
+      throw bad(o.status === "paid"
         ? "Buyer already marked as paid — open a dispute instead"
-        : "Order is under dispute — only an admin can cancel";
-      const e: any = new Error(msg); e.code = 400; throw e;
+        : "Order is under dispute — only an admin can cancel");
     }
 
     // Refund seller's escrow via shared helper.
@@ -662,11 +703,11 @@ router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<vo
   try {
     const result = await db.transaction(async (tx) => {
       const [o] = await tx.select().from(p2pOrdersTable).where(eq(p2pOrdersTable.id, id)).for("update").limit(1);
-      if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
+      if (!o) throw notFound("Order not found");
       const isParty = o.buyerId === req.user!.id || o.sellerId === req.user!.id;
-      if (!isParty) { const e: any = new Error("Forbidden"); e.code = 403; throw e; }
+      if (!isParty) throw forbidden("Forbidden");
       if (o.status !== "pending" && o.status !== "paid") {
-        const e: any = new Error(`Cannot dispute — order is ${o.status}`); e.code = 400; throw e;
+        throw bad(`Cannot dispute — order is ${o.status}`);
       }
       const [updated] = await tx.update(p2pOrdersTable).set({
         status: "disputed",
@@ -681,9 +722,11 @@ router.post("/p2p/orders/:id/dispute", requireAuth, async (req, res): Promise<vo
       });
       return updated;
     });
+    req.log.warn({ orderId: id, openedBy: req.user!.id, reasonLen: reason.length }, "p2p dispute opened");
     res.json(result);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message, orderId: id }, "p2p dispute open failed");
     throw e;
   }
 });
@@ -727,6 +770,7 @@ router.post("/p2p/orders/:id/messages", requireAuth, async (req, res): Promise<v
   const [created] = await db.insert(p2pMessagesTable).values({
     orderId: id, senderId: me, senderRole: role, body,
   }).returning();
+  req.log.info({ orderId: id, senderId: me, senderRole: role, len: body.length }, "p2p chat message");
   res.status(201).json(created);
 });
 
@@ -749,7 +793,7 @@ router.get("/admin/p2p/stats", supportPlus, async (_req, res): Promise<void> => 
 
 router.get("/admin/p2p/offers", supportPlus, async (req, res): Promise<void> => {
   const status = String(req.query.status || "all");
-  const conds: any[] = [];
+  const conds: SQL[] = [];
   if (status !== "all") conds.push(eq(p2pOffersTable.status, status));
   const rows = await db.select().from(p2pOffersTable)
     .where(conds.length ? and(...conds) : undefined)
@@ -778,8 +822,8 @@ router.patch("/admin/p2p/offers/:id", adminOnly, async (req, res): Promise<void>
 
 router.get("/admin/p2p/orders", supportPlus, async (req, res): Promise<void> => {
   const status = String(req.query.status || "all");
-  const conds: any[] = [];
-  if (status !== "all" && ORDER_STATUSES.includes(status as any)) {
+  const conds: SQL[] = [];
+  if (status !== "all" && (ORDER_STATUSES as readonly string[]).includes(status)) {
     conds.push(eq(p2pOrdersTable.status, status));
   }
   const rows = await db.select().from(p2pOrdersTable)
@@ -831,9 +875,9 @@ router.post("/admin/p2p/disputes/:id/resolve", adminOnly, async (req, res): Prom
       payload: { action, notes: notes ? notes.slice(0, 200) : undefined },
     });
     res.json(result);
-  } catch (e: any) {
-    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
-    req.log.error({ err: e?.message, orderId: id, action }, "admin dispute resolve failed");
+  } catch (e) {
+    if (sendError(res, e)) return;
+    req.log.error({ err: (e as Error)?.message, orderId: id, action }, "admin dispute resolve failed");
     throw e;
   }
 });
