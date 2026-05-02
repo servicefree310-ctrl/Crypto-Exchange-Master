@@ -67,6 +67,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/listings-admin", label: "Auto-Listings", icon: Radar, roles: ["admin", "superadmin"] },
       { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
       { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
+      { href: "/p2p", label: "P2P Marketplace", icon: Users, roles: ["support", "admin", "superadmin"] },
       { href: "/trading-engine", label: "Trading Engine", icon: Cpu, roles: ["admin", "superadmin"] },
     ],
   },

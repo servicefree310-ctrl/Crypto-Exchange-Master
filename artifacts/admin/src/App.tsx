@@ -34,6 +34,7 @@ import FuturesPositionsPage from "@/pages/futures-positions";
 import ApiKeysPage from "@/pages/api-keys";
 import BotsPage from "@/pages/bots";
 import OrdersPage from "@/pages/orders";
+import P2PAdminPage from "@/pages/p2p";
 import UserAddressesPage from "@/pages/user-addresses";
 import BannersPage from "@/pages/banners";
 import PromotionsPage from "@/pages/promotions";
@@ -111,6 +112,7 @@ function Protected() {
         <Route path="/api-keys" component={ApiKeysPage} />
         <Route path="/bots" component={BotsPage} />
         <Route path="/orders" component={OrdersPage} />
+        <Route path="/p2p" component={P2PAdminPage} />
         <Route path="/gateways" component={GatewaysPage} />
         <Route path="/inr-deposits" component={InrDepositsPage} />
         <Route path="/inr-withdrawals" component={InrWithdrawalsPage} />

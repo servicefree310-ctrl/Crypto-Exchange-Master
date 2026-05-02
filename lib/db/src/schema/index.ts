@@ -23,3 +23,4 @@ export * from "./notifications";
 export * from "./bots";
 export * from "./copy-trading";
 export * from "./dashboard";
+export * from "./p2p";
