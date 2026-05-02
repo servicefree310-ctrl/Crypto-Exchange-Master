@@ -588,6 +588,53 @@ router.post("/orders/:id/cancel", requireAuth, async (req, res): Promise<void> =
   }
 });
 
+/**
+ * Operator-only force-cancel. Mirrors {@link cancelSpotOrderById} but does
+ * NOT enforce userId match and DOES allow cancelling bot orders. The caller
+ * (admin route) is responsible for permission gating + audit logging.
+ *
+ * Returns the cancelled order; throws an Error with `.code` (404 / 400 / 500)
+ * for the route handler to translate into a status code.
+ */
+export async function adminCancelSpotOrderById(id: number): Promise<any> {
+  if (!id) { const e: any = new Error("id required"); e.code = 400; throw e; }
+  const cancelled = await db.transaction(async (tx) => {
+    const [o] = await tx.select().from(ordersTable)
+      .where(eq(ordersTable.id, id)).for("update").limit(1);
+    if (!o) { const e: any = new Error("Order not found"); e.code = 404; throw e; }
+    if (o.status !== "open" && o.status !== "partial") {
+      const e: any = new Error(`Cannot cancel — status is ${o.status}`); e.code = 400; throw e;
+    }
+    const [pair] = await tx.select().from(pairsTable).where(eq(pairsTable.id, o.pairId)).limit(1);
+    if (!pair) { const e: any = new Error("Pair missing"); e.code = 500; throw e; }
+    const remainingQty = Number(o.qty) - Number(o.filledQty);
+    const remainingPrice = Number(o.price);
+    if (o.side === "buy") {
+      const release = remainingQty * remainingPrice;
+      const w = await ensureWallet(tx, o.userId, pair.quoteCoinId, "spot");
+      await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} + ${release}`,
+        locked: sql`${walletsTable.locked} - ${release}`,
+        updatedAt: new Date(),
+      }).where(eq(walletsTable.id, w.id));
+    } else {
+      const w = await ensureWallet(tx, o.userId, pair.baseCoinId, "spot");
+      await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} + ${remainingQty}`,
+        locked: sql`${walletsTable.locked} - ${remainingQty}`,
+        updatedAt: new Date(),
+      }).where(eq(walletsTable.id, w.id));
+    }
+    const [updated] = await tx.update(ordersTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(ordersTable.id, id)).returning();
+    return { order: updated, pair };
+  });
+  const { order, pair } = cancelled as any;
+  await pushOrderToRedis(order, pair, "cancel");
+  return order;
+}
+
 // ====== Public orderbook + recent trades from Redis ======
 router.get("/orderbook/:symbol", async (req, res): Promise<void> => {
   const symbol = String(req.params.symbol || "").toUpperCase();

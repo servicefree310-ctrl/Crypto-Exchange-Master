@@ -196,6 +196,28 @@ const otpSendLimiter = rateLimit({
   message: { error: "Too many OTP requests, try again in 1 hour" },
 });
 
+// Per-session cap on order placement / cancel. The global 10/sec limiter is
+// far too loose for the trading hot path where every POST takes a wallet TX
+// + engine submit + redis push. Cap each session at 2/sec sustained with a
+// short burst window. Falls back to IP for unauthenticated probes.
+//
+// Keyed by the *session cookie* (last 16 chars) rather than user id because
+// the auth middleware runs per-route, after this middleware. We can't read
+// req.user here, but we can still tie throttling to a stable identifier.
+const orderLimiter = rateLimit({
+  store: makeStore("order"),
+  windowMs: 60 * 1000,
+  limit: 120, // 2/sec sustained, generous for serious traders
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  passOnStoreError: true,
+  message: { error: "Too many order requests, please slow down (2/sec sustained)" },
+  keyGenerator: (req) => {
+    const cookie = (req as unknown as { cookies?: Record<string, string> }).cookies?.session_token;
+    return cookie ? `s:${String(cookie).slice(-16)}` : `ip:${req.ip || "unknown"}`;
+  },
+});
+
 // ─── Middleware stack ────────────────────────────────────────────────────
 // Correlation ID first so every downstream log line carries `reqId`.
 app.use(requestId());
@@ -262,6 +284,17 @@ app.use(
   authLimiter,
 );
 app.use("/api/otp/send", otpSendLimiter);
+
+// Tight per-session order throttle. Mounted BEFORE the global limiter so the
+// tighter cap takes precedence; the global limiter then still acts as a
+// platform-wide ceiling.
+app.use("/api/exchange/order", orderLimiter);
+app.use("/api/orders", (req, res, next) => {
+  // Only throttle mutating verbs — order list / detail GETs are fine at the
+  // global cap. Polling order status shouldn't ever hit a placement limit.
+  if (req.method === "GET" || req.method === "HEAD") return next();
+  return orderLimiter(req, res, next);
+});
 
 // Global cap last — runs only if a request slipped past the specific limiters.
 app.use("/api", globalLimiter);

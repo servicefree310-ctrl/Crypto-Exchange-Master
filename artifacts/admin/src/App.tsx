@@ -43,6 +43,7 @@ import RedisPage from "@/pages/redis";
 import TradingEnginePage from "@/pages/trading-engine";
 import BackendStatusPage from "@/pages/backend-status";
 import CodeReferencePage from "@/pages/code-reference";
+import AuditLogPage from "@/pages/audit-log";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -131,6 +132,7 @@ function Protected() {
         <Route path="/settings" component={SettingsPage} />
         <Route path="/backend-status" component={BackendStatusPage} />
         <Route path="/code-reference" component={CodeReferencePage} />
+        <Route path="/audit-log" component={AuditLogPage} />
         <Route component={NotFound} />
       </Switch>
     </AdminLayout>

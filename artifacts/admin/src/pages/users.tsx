@@ -13,11 +13,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useAuth } from "@/lib/auth";
 import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Search, ShieldCheck, ShieldAlert, Eye, Wallet, ShieldOff, LogOut,
   TrendingUp, TrendingDown, MailCheck, Mail, Phone, PhoneCall,
   Users as UsersIcon, BadgeCheck, Sparkles, Activity, Crown,
-  CheckCircle2, XCircle, Filter, RefreshCw, Loader2, Copy,
+  CheckCircle2, XCircle, Filter, RefreshCw, Loader2, Copy, Lock, Unlock,
 } from "lucide-react";
 import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
@@ -150,6 +151,21 @@ export default function UsersPage() {
 
   const disable2fa = useMutation({
     mutationFn: (id: number) => post<{ ok: boolean }>(`/admin/users/${id}/disable-2fa`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/admin/users", view, "full"] });
+      qc.invalidateQueries({ queryKey: ["/admin/users-search"] });
+    },
+  });
+  const freeze = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      post<{ ok: boolean; status: string; sessionsRevoked: number }>(`/admin/users/${id}/freeze`, { reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/admin/users", view, "full"] });
+      qc.invalidateQueries({ queryKey: ["/admin/users-search"] });
+    },
+  });
+  const unfreeze = useMutation({
+    mutationFn: (id: number) => post<{ ok: boolean; status: string }>(`/admin/users/${id}/unfreeze`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/admin/users", view, "full"] });
       qc.invalidateQueries({ queryKey: ["/admin/users-search"] });
@@ -418,9 +434,15 @@ export default function UsersPage() {
           verifyPending={verify.isPending}
           onDisable2fa={() => view && disable2fa.mutate(view)}
           onForceLogout={() => view && forceLogout.mutate(view)}
+          onFreeze={(reason) => view && freeze.mutate({ id: view, reason })}
+          onUnfreeze={() => view && unfreeze.mutate(view)}
+          freezePending={freeze.isPending}
+          unfreezePending={unfreeze.isPending}
+          isSelf={me?.id === view}
           onFund={() => dossier.data && setFundUser(dossier.data.user)}
           disable2faPending={disable2fa.isPending}
           forceLogoutPending={forceLogout.isPending}
+
         />
 
         <FundDialog
@@ -480,6 +502,7 @@ function UserDossierSheet({
   onVerify, verifyPending,
   onDisable2fa, onForceLogout, onFund,
   disable2faPending, forceLogoutPending,
+  onFreeze, onUnfreeze, freezePending, unfreezePending, isSelf,
 }: {
   open: boolean; onClose: () => void; dossier: Dossier | undefined; loading: boolean;
   isAdmin: boolean;
@@ -487,6 +510,8 @@ function UserDossierSheet({
   verifyPending: boolean;
   onDisable2fa: () => void; onForceLogout: () => void; onFund: () => void;
   disable2faPending: boolean; forceLogoutPending: boolean;
+  onFreeze: (reason: string) => void; onUnfreeze: () => void;
+  freezePending: boolean; unfreezePending: boolean; isSelf: boolean;
 }) {
   const u = dossier?.user;
   const sec = dossier?.security;
@@ -494,6 +519,9 @@ function UserDossierSheet({
   // actions get a properly-themed, screen-reader-accessible confirmation.
   const [confirm2fa, setConfirm2fa] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [confirmFreeze, setConfirmFreeze] = useState(false);
+  const [freezeReason, setFreezeReason] = useState("");
+  const isFrozen = u?.status === "suspended";
 
   const copy = (text: string) => {
     try { navigator.clipboard?.writeText(text); } catch {}
@@ -594,6 +622,33 @@ function UserDossierSheet({
                     <LogOut className="w-3 h-3 mr-1" />
                     {forceLogoutPending ? "Revoking…" : "Force Logout"}
                   </Button>
+                  {/* One-click freeze / unfreeze. Backend refuses to freeze
+                      yourself (would lock you out of your own session), so we
+                      grey out the button when viewing your own dossier. */}
+                  {isFrozen ? (
+                    <Button
+                      size="sm" variant="outline"
+                      className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
+                      disabled={unfreezePending}
+                      onClick={() => onUnfreeze()}
+                      data-testid="button-unfreeze-account"
+                    >
+                      <Unlock className="w-3 h-3 mr-1" />
+                      {unfreezePending ? "Unfreezing…" : "Unfreeze Account"}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm" variant="outline"
+                      className="border-red-500/40 text-red-300 hover:bg-red-500/15"
+                      disabled={freezePending || isSelf}
+                      title={isSelf ? "Cannot freeze your own account" : undefined}
+                      onClick={() => { setFreezeReason(""); setConfirmFreeze(true); }}
+                      data-testid="button-freeze-account"
+                    >
+                      <Lock className="w-3 h-3 mr-1" />
+                      {freezePending ? "Freezing…" : "Freeze Account"}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -801,6 +856,51 @@ function UserDossierSheet({
               data-testid="button-confirm-disable-2fa"
             >
               Disable 2FA
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmFreeze} onOpenChange={setConfirmFreeze}>
+        <AlertDialogContent data-testid="dialog-confirm-freeze">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Freeze this account?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div>
+                  This will set <span className="font-mono text-amber-300">{u?.email}</span> to{" "}
+                  <span className="font-semibold text-red-400">suspended</span> status, sign them
+                  out of all <span className="font-semibold">{sec?.activeSessions ?? 0}</span> active
+                  sessions, and block any further API access until you unfreeze. The user keeps
+                  their balance and history. Action is logged in the audit trail.
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Reason (optional, audit log)</Label>
+                  <Input
+                    placeholder="e.g. KYC mismatch, fraud review, user request"
+                    value={freezeReason}
+                    onChange={(e) => setFreezeReason(e.target.value)}
+                    maxLength={500}
+                    data-testid="input-freeze-reason"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-freeze" disabled={freezePending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500/90 hover:bg-red-500 text-white"
+              disabled={freezePending}
+              onClick={(e) => {
+                e.preventDefault();
+                onFreeze(freezeReason.trim());
+                setConfirmFreeze(false);
+              }}
+              data-testid="button-confirm-freeze"
+            >
+              {freezePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Lock className="w-3 h-3 mr-1" />}
+              Freeze account
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

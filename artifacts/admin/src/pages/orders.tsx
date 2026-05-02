@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { get } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { get, post, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
@@ -13,10 +15,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
   ArrowDownUp, Activity, Bot as BotIcon, User as UserIcon, TrendingUp, TrendingDown,
-  CheckCircle2, XCircle, Clock, Filter, RefreshCw, BarChart3,
+  CheckCircle2, XCircle, Clock, Filter, RefreshCw, BarChart3, Ban, Loader2,
 } from "lucide-react";
 
 type Order = {
@@ -56,6 +63,13 @@ export default function OrdersPage() {
   const [actor, setActor] = useState("all");
   const [pairId, setPairId] = useState("all");
   const [userIdFilter, setUserIdFilter] = useState("");
+  // Force-cancel state — only one order can be in the confirm dialog at a time
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const { user: me } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const canCancel = me?.role === "admin" || me?.role === "superadmin";
 
   const { data: pairs = [] } = useQuery<Pair[]>({ queryKey: ["pairs"], queryFn: () => get<Pair[]>("/admin/pairs") });
   const { data: stats } = useQuery<Stats>({ queryKey: ["orders-stats"], queryFn: () => get<Stats>("/admin/orders/stats"), refetchInterval: 5000 });
@@ -88,6 +102,26 @@ export default function OrdersPage() {
 
   const pairById = useMemo(() => new Map(pairs.map((p) => [p.id, p.symbol])), [pairs]);
   const filledValue = stats ? Number(stats.filled_value).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0";
+
+  // Force-cancel mutation — admin-only on backend, but we still gate the UI
+  // by role to avoid showing a button that always 403s. Invalidate orders +
+  // stats on success so the UI reflects the change without waiting for the
+  // 4s poll. On error, surface the API message in a toast.
+  const cancelMut = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      post<{ id: number; status: string }>(`/admin/orders/${id}/cancel`, { reason }),
+    onSuccess: (_d, vars) => {
+      toast({ title: "Order cancelled", description: `Order #${vars.id} force-cancelled. Wallet balance released.` });
+      void qc.invalidateQueries({ queryKey: ["admin-orders"] });
+      void qc.invalidateQueries({ queryKey: ["orders-stats"] });
+      setCancelTarget(null);
+      setCancelReason("");
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof ApiError ? err.message : "Failed to cancel order";
+      toast({ variant: "destructive", title: "Cancel failed", description: msg });
+    },
+  });
 
   const reset = () => { setSide("all"); setStatus("all"); setActor("all"); setPairId("all"); setUserIdFilter(""); };
   const hasFilters = side !== "all" || status !== "all" || actor !== "all" || pairId !== "all" || userIdFilter.trim() !== "";
@@ -201,14 +235,15 @@ export default function OrdersPage() {
                     <th className="text-left font-medium px-4 py-3">Actor</th>
                     <th className="text-left font-medium px-4 py-3">User</th>
                     <th className="text-left font-medium px-4 py-3">Time</th>
+                    {canCancel && <th className="text-right font-medium px-4 py-3">Action</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {ordersLoading && Array.from({ length: 6 }).map((_, i) => (
-                    <tr key={i}><td colSpan={11} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td></tr>
+                    <tr key={i}><td colSpan={canCancel ? 12 : 11} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td></tr>
                   ))}
                   {!ordersLoading && orders.length === 0 && (
-                    <tr><td colSpan={11} className="px-4 py-3"><EmptyState icon={ArrowDownUp} title="No orders" description="Filter adjust karein ya wait for trades." /></td></tr>
+                    <tr><td colSpan={canCancel ? 12 : 11} className="px-4 py-3"><EmptyState icon={ArrowDownUp} title="No orders" description="Filter adjust karein ya wait for trades." /></td></tr>
                   )}
                   {!ordersLoading && orders.map((o) => (
                     <tr key={o.id} className="hover:bg-muted/20 transition-colors" data-testid={`order-${o.id}`}>
@@ -239,6 +274,22 @@ export default function OrdersPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">#{o.userId}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground" title={new Date(o.createdAt).toLocaleString("en-IN")}>{relTime(o.createdAt)}</td>
+                      {canCancel && (
+                        <td className="px-4 py-3 text-right">
+                          {(o.status === "open" || o.status === "partial") ? (
+                            <Button
+                              size="sm" variant="outline"
+                              className="h-7 px-2 text-[11px] text-red-300 border-red-500/40 hover:bg-red-500/15"
+                              onClick={() => { setCancelTarget(o); setCancelReason(""); }}
+                              data-testid={`button-force-cancel-${o.id}`}
+                            >
+                              <Ban className="w-3 h-3 mr-1" /> Cancel
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -303,6 +354,54 @@ export default function OrdersPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Force-cancel confirmation. Mounted at page root so it portals above
+          the orders table and survives the row re-render after invalidate.
+          A non-empty reason is encouraged but not required (audit log accepts null). */}
+      <AlertDialog open={cancelTarget !== null} onOpenChange={(o) => { if (!o) { setCancelTarget(null); setCancelReason(""); } }}>
+        <AlertDialogContent data-testid="dialog-force-cancel-order">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Force cancel this order?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div>
+                  Order <span className="font-mono text-amber-300">#{cancelTarget?.id}</span> by user
+                  {" "}<span className="font-mono">#{cancelTarget?.userId}</span> on
+                  {" "}<span className="font-mono font-bold">{cancelTarget ? (pairById.get(cancelTarget.pairId) ?? `pair #${cancelTarget.pairId}`) : ""}</span>
+                  {" "}will be cancelled. Locked balance will be released back to the user's wallet.
+                  {cancelTarget?.isBot ? <span className="block mt-1 text-amber-400 text-xs">⚠ This is a BOT order — cancelling may disrupt market-making for this pair.</span> : null}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Reason (optional, audit log)</Label>
+                  <Textarea
+                    placeholder="e.g. user request via support, suspected manipulation, etc."
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    rows={2}
+                    maxLength={500}
+                    data-testid="input-cancel-reason"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-cancel" disabled={cancelMut.isPending}>Keep order</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500/90 hover:bg-red-500 text-white"
+              disabled={cancelMut.isPending}
+              onClick={(e) => {
+                e.preventDefault(); // prevent auto-close — let onSuccess close it
+                if (cancelTarget) cancelMut.mutate({ id: cancelTarget.id, reason: cancelReason.trim() });
+              }}
+              data-testid="button-confirm-force-cancel"
+            >
+              {cancelMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+              {cancelMut.isPending ? "Cancelling…" : "Force cancel"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

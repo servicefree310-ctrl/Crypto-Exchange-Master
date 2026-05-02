@@ -8,6 +8,25 @@ declare module "express-serve-static-core" {
   }
 }
 
+/**
+ * Block any session whose owning account is not `active`. Mirrors the login-time
+ * check in routes/auth.ts so that:
+ *   1. sessions issued before a freeze stop working immediately on the next call
+ *   2. operator freeze actions take effect platform-wide without waiting for
+ *      the user to log out and back in.
+ *
+ * Admin/superadmin are also gated by status — if you suspend an operator you
+ * want them locked out too. Recovery requires a still-active admin to flip
+ * the status back via PATCH /admin/users/:id (DB direct fix as last resort).
+ */
+function blockIfNotActive(user: User, res: Response): boolean {
+  if (user.status !== "active") {
+    res.status(403).json({ error: "Account suspended", status: user.status });
+    return true;
+  }
+  return false;
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const token = readSessionCookie(req);
   const user = await getUserBySession(token);
@@ -15,6 +34,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  if (blockIfNotActive(user, res)) return;
   req.user = user;
   next();
 }
@@ -45,6 +65,7 @@ export function requireRole(...roles: string[]) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
+    if (blockIfNotActive(user, res)) return;
     req.user = user;
     next();
   };

@@ -32,8 +32,11 @@ import {
   futuresTradesTable,
   sessionsTable,
 } from "@workspace/db";
+import { auditLogsTable } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { sanitizeUser } from "../lib/auth";
+import { logAdminAction } from "../lib/audit";
+import { adminCancelSpotOrderById } from "./orders";
 import { encryptSecret, maskSecret, decryptSecret } from "../lib/crypto-vault";
 import { testNode } from "../lib/node-test";
 import { getSweeperStatus, manualScan, sweepAllNetworks, startDepositSweeper, stopDepositSweeper } from "../lib/deposit-sweeper";
@@ -116,6 +119,7 @@ router.post("/admin/users/:id/disable-2fa", adminOnly, async (req, res): Promise
     .where(eq(usersTable.id, id))
     .returning();
   if (!u) { res.status(404).json({ error: "User not found" }); return; }
+  void logAdminAction(req, { action: "user.disable_2fa", entity: "user", entityId: id });
   res.json({ ok: true, twoFaEnabled: false });
 });
 
@@ -126,7 +130,105 @@ router.post("/admin/users/:id/force-logout", adminOnly, async (req, res): Promis
     .delete(sessionsTable)
     .where(eq(sessionsTable.userId, id))
     .returning({ id: sessionsTable.id });
+  void logAdminAction(req, { action: "user.force_logout", entity: "user", entityId: id, payload: { revoked: deleted.length } });
   res.json({ ok: true, revoked: deleted.length });
+});
+
+// One-click freeze: status -> suspended + revoke all sessions atomically.
+// Combines the historical PATCH /admin/users/:id { status:"suspended" }
+// + force-logout into a single audit-logged action. Once frozen, the
+// requireAuth middleware blocks any further API calls for that user.
+router.post("/admin/users/:id/freeze", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  const reason = String((req.body ?? {}).reason ?? "").slice(0, 500) || null;
+  // Refuse to freeze yourself — would lock the operator out of their own session
+  if (req.user?.id === id) { res.status(400).json({ error: "Cannot freeze your own account" }); return; }
+  const [u] = await db
+    .update(usersTable)
+    .set({ status: "suspended", updatedAt: new Date() })
+    .where(eq(usersTable.id, id))
+    .returning();
+  if (!u) { res.status(404).json({ error: "User not found" }); return; }
+  const deleted = await db
+    .delete(sessionsTable)
+    .where(eq(sessionsTable.userId, id))
+    .returning({ id: sessionsTable.id });
+  void logAdminAction(req, {
+    action: "user.freeze", entity: "user", entityId: id,
+    payload: { reason, sessionsRevoked: deleted.length },
+  });
+  res.json({ ok: true, status: u.status, sessionsRevoked: deleted.length });
+});
+
+router.post("/admin/users/:id/unfreeze", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  const [u] = await db
+    .update(usersTable)
+    .set({ status: "active", updatedAt: new Date() })
+    .where(eq(usersTable.id, id))
+    .returning();
+  if (!u) { res.status(404).json({ error: "User not found" }); return; }
+  void logAdminAction(req, { action: "user.unfreeze", entity: "user", entityId: id });
+  res.json({ ok: true, status: u.status });
+});
+
+// ─── Admin: force-cancel any order (incl. bot orders) ───────────────────
+router.post("/admin/orders/:id/cancel", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+  const reason = String((req.body ?? {}).reason ?? "").slice(0, 500) || null;
+  try {
+    const order = await adminCancelSpotOrderById(id);
+    void logAdminAction(req, {
+      action: "order.force_cancel", entity: "order", entityId: id,
+      payload: { reason, userId: order.userId, side: order.side, isBot: order.isBot },
+    });
+    res.json(order);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+// ─── Admin: audit log viewer ────────────────────────────────────────────
+router.get("/admin/audit-logs", supportPlus, async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const conds: any[] = [];
+  if (q.actorId) conds.push(eq(auditLogsTable.actorId, Number(q.actorId)));
+  if (q.entity) conds.push(eq(auditLogsTable.entity, q.entity));
+  if (q.action) conds.push(eq(auditLogsTable.action, q.action));
+  if (q.entityId) conds.push(eq(auditLogsTable.entityId, q.entityId));
+  const limit = Math.min(Number(q.limit ?? 200), 500);
+  const where = conds.length ? and(...conds) : undefined;
+  const rows = where
+    ? await db.select().from(auditLogsTable).where(where).orderBy(desc(auditLogsTable.id)).limit(limit)
+    : await db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.id)).limit(limit);
+  // Hydrate actor email/name in a single follow-up query so the UI can render
+  // human labels without N+1 round-trips.
+  const actorIds = Array.from(new Set(rows.map((r) => r.actorId).filter((v): v is number => v !== null)));
+  const actors = actorIds.length
+    ? await db.select({ id: usersTable.id, email: usersTable.email, name: usersTable.name, role: usersTable.role })
+        .from(usersTable).where(or(...actorIds.map((id) => eq(usersTable.id, id))))
+    : [];
+  const actorMap = new Map(actors.map((a) => [a.id, a]));
+  res.json(rows.map((r) => ({
+    ...r,
+    actor: r.actorId ? actorMap.get(r.actorId) ?? null : null,
+  })));
+});
+
+router.get("/admin/audit-logs/stats", supportPlus, async (_req, res): Promise<void> => {
+  const stats = await db.execute(sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')::int AS last_24h,
+      COUNT(DISTINCT actor_id) FILTER (WHERE actor_id IS NOT NULL)::int AS distinct_actors,
+      COUNT(DISTINCT entity)::int AS distinct_entities
+    FROM audit_logs
+  `);
+  res.json((stats as any).rows?.[0] ?? stats[0] ?? {});
 });
 
 // Users
@@ -150,6 +252,7 @@ router.patch("/admin/users/:id", adminOnly, async (req, res): Promise<void> => {
     res.status(404).json({ error: "User not found" });
     return;
   }
+  void logAdminAction(req, { action: "user.update", entity: "user", entityId: id, payload: allowed });
   res.json(sanitizeUser(user));
 });
 
