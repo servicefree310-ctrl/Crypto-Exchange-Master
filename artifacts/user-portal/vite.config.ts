@@ -71,6 +71,12 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         ws: true,
+        configure: (proxy) => {
+          proxy.on("error", (err: any) => {
+            if (err.code === "ECONNRESET" || err.code === "ECONNREFUSED") return;
+            console.error("[vite proxy]", err.message);
+          });
+        },
       },
     },
   },

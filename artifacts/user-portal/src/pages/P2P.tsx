@@ -308,7 +308,7 @@ function MarketplaceTab() {
                 </tr>
               </thead>
               <tbody>
-                {(offersQ.data ?? []).map(o => (
+                {(offersQ.data ?? []).map((o: any) => (
                   <tr key={o.id} className="border-b border-border/40 hover:bg-muted/30" data-testid={`p2p-offer-${o.id}`}>
                     <td className="p-3">
                       <div className="font-semibold">{o.merchant.name}</div>
@@ -329,7 +329,7 @@ function MarketplaceTab() {
                     </td>
                     <td className="p-3">
                       <div className="flex flex-wrap gap-1">
-                        {o.paymentMethods.slice(0, 3).map(m => (
+                        {o.paymentMethods.slice(0, 3).map((m: any) => (
                           <Badge key={m} variant="outline" className="text-[10px] px-1.5 py-0">
                             {methodLabel(m)}
                           </Badge>
@@ -412,7 +412,7 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
   });
 
   const availableMethodChoices = iAmSeller
-    ? (myMethodsQ.data ?? []).filter(pm => offer.paymentMethods.includes(pm.method))
+    ? (myMethodsQ.data ?? []).filter((pm: any) => offer.paymentMethods.includes(pm.method))
     : (offerMethodsQ.data ?? []);
 
   return (
@@ -459,7 +459,7 @@ function OpenOrderDialog({ offer, onClose }: { offer: Offer; onClose: () => void
                       : "Merchant has no compatible methods"}
                   </div>
                 ) : (
-                  availableMethodChoices.map(pm => (
+                  availableMethodChoices.map((pm: any) => (
                     <SelectItem key={pm.id} value={pm.id.toString()}>
                       {methodLabel(pm.method)} · {pm.label}
                     </SelectItem>
@@ -559,7 +559,7 @@ function MyAdsTab() {
                 </tr>
               </thead>
               <tbody>
-                {(adsQ.data ?? []).map(o => (
+                {(adsQ.data ?? []).map((o: any) => (
                   <tr key={o.id} className="border-b border-border/40" data-testid={`p2p-myad-${o.id}`}>
                     <td className="p-3">
                       <div className="flex items-center gap-2">
@@ -827,7 +827,7 @@ function MyOrdersTab() {
                 </tr>
               </thead>
               <tbody>
-                {(ordersQ.data ?? []).map(o => (
+                {(ordersQ.data ?? []).map((o: any) => (
                   <tr key={o.id} className="border-b border-border/40 hover:bg-muted/30" data-testid={`p2p-order-${o.id}`}>
                     <td className="p-3">
                       <Badge className={o.role === "buyer" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-rose-500/20 text-rose-300 border-rose-500/30"}>
@@ -1070,7 +1070,7 @@ function OrderDetailDialog({ order: initial, onClose }: { order: P2pOrder; onClo
                 {(messagesQ.data ?? []).length === 0 && (
                   <div className="text-center text-xs text-muted-foreground py-8">No messages yet</div>
                 )}
-                {(messagesQ.data ?? []).map(m => {
+                {(messagesQ.data ?? []).map((m: any) => {
                   const fromMe = m.senderRole !== "system" && m.senderRole !== "admin"
                     && ((isBuyer && m.senderRole === "buyer") || (isSeller && m.senderRole === "seller"));
                   const isSystem = m.senderRole === "system";
@@ -1227,7 +1227,7 @@ function PaymentMethodsTab() {
           />
         ) : (
           <div className="divide-y divide-border/40">
-            {(methodsQ.data ?? []).map(m => (
+            {(methodsQ.data ?? []).map((m: any) => (
               <div key={m.id} className="p-4 flex items-center justify-between" data-testid={`p2p-method-${m.id}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-md bg-amber-500/15 flex items-center justify-center">
