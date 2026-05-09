@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")/.."
-PORT="${PORT:-8082}"
-BASE="${BASE_PATH:-/flutter/}"
+# Pin these values unconditionally so global env vars (e.g. PORT=8081 from
+# Replit's userenv.shared) cannot override the Flutter static server config.
+export PORT=8082
+export BASE_PATH="/flutter/"
+BASE="/flutter/"
 
 NEED_BUILD=1
 if [ -f "build/web/index.html" ] && [ -f "build/web/main.dart.js" ]; then

@@ -37,6 +37,7 @@ class NotificationWebSocketDataSourceImpl
   final _announcementController = StreamController<List<dynamic>>.broadcast();
 
   WebSocketStatus _status = WebSocketStatus.disconnected;
+  bool _disposed = false;
   String? _userId;
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
@@ -61,9 +62,12 @@ class NotificationWebSocketDataSourceImpl
 
   @override
   Future<void> connect(String userId) async {
+    if (_disposed) return;
     if (isConnected && _userId == userId) return;
 
     await disconnect();
+
+    if (_disposed) return;
 
     _userId = userId;
     _setStatus(WebSocketStatus.connecting);
@@ -77,6 +81,7 @@ class NotificationWebSocketDataSourceImpl
           .listen(_handleMessage, onError: _handleError, onDone: _handleDone);
 
       await _channel!.ready;
+      if (_disposed) return;
       _setStatus(WebSocketStatus.connected);
       _reconnectAttempts = 0;
 
@@ -92,30 +97,37 @@ class NotificationWebSocketDataSourceImpl
     } catch (e) {
       developer.log('Connection failed: $e',
           name: 'NotificationWebSocket', level: 1000);
-      _setStatus(WebSocketStatus.error);
-      _scheduleReconnect();
+      if (!_disposed) {
+        _setStatus(WebSocketStatus.error);
+        _scheduleReconnect();
+      }
     }
   }
 
   void _handleMessage(dynamic message) {
+    if (_disposed) return;
     try {
       final decoded = jsonDecode(message.toString());
       final type = decoded['type'] as String?;
       final method = decoded['method'] as String?;
       final payload =
-          decoded['payload'] as List<dynamic>?; // Backend sends 'payload'
+          decoded['payload'] as List<dynamic>?;
 
       developer.log(
           'Received WebSocket message: type=$type, method=$method, payload_length=${payload?.length}',
           name: 'NotificationWebSocket');
 
       if (type == 'notifications' && method == 'create' && payload != null) {
-        _notificationController.add(payload);
+        if (!_notificationController.isClosed) {
+          _notificationController.add(payload);
+        }
         _showLocalNotifications(payload);
       } else if (type == 'announcements' &&
           method == 'create' &&
           payload != null) {
-        _announcementController.add(payload);
+        if (!_announcementController.isClosed) {
+          _announcementController.add(payload);
+        }
       }
     } catch (e) {
       developer.log('Failed to parse WebSocket message: $e',
@@ -137,17 +149,22 @@ class NotificationWebSocketDataSourceImpl
   void _handleError(dynamic error) {
     developer.log('WebSocket error: $error',
         name: 'NotificationWebSocket', level: 1000);
-    _setStatus(WebSocketStatus.error);
-    _scheduleReconnect();
+    if (!_disposed) {
+      _setStatus(WebSocketStatus.error);
+      _scheduleReconnect();
+    }
   }
 
   void _handleDone() {
     developer.log('WebSocket connection closed', name: 'NotificationWebSocket');
-    _setStatus(WebSocketStatus.disconnected);
-    _scheduleReconnect();
+    if (!_disposed) {
+      _setStatus(WebSocketStatus.disconnected);
+      _scheduleReconnect();
+    }
   }
 
   void _scheduleReconnect() {
+    if (_disposed) return;
     if (_reconnectAttempts >= _maxReconnectAttempts || _userId == null) {
       developer.log('Max reconnection attempts reached',
           name: 'NotificationWebSocket', level: 900);
@@ -156,6 +173,7 @@ class NotificationWebSocketDataSourceImpl
 
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(_reconnectDelay, () async {
+      if (_disposed) return;
       if (_status != WebSocketStatus.connected && _userId != null) {
         _reconnectAttempts++;
         _setStatus(WebSocketStatus.reconnecting);
@@ -175,17 +193,25 @@ class NotificationWebSocketDataSourceImpl
     _subscription = null;
     _channel = null;
     _reconnectAttempts = 0;
-    _setStatus(WebSocketStatus.disconnected);
+    if (!_disposed) _setStatus(WebSocketStatus.disconnected);
   }
 
   void _setStatus(WebSocketStatus status) {
     _status = status;
-    _statusController.add(status);
+    if (!_statusController.isClosed) {
+      _statusController.add(status);
+    }
   }
 
   @override
   void dispose() {
-    disconnect();
+    if (_disposed) return;
+    _disposed = true;
+    _reconnectTimer?.cancel();
+    _subscription?.cancel();
+    _channel?.sink.close();
+    _subscription = null;
+    _channel = null;
     _statusController.close();
     _notificationController.close();
     _announcementController.close();

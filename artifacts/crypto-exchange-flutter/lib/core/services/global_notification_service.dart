@@ -98,9 +98,9 @@ class GlobalNotificationService {
     _cachedNotifications.clear();
     _cachedAnnouncements.clear();
     _unreadCount = 0;
-    _notificationsController.add([]);
-    _announcementsController.add([]);
-    _unreadCountController.add(0);
+    if (!_notificationsController.isClosed) _notificationsController.add([]);
+    if (!_announcementsController.isClosed) _announcementsController.add([]);
+    if (!_unreadCountController.isClosed) _unreadCountController.add(0);
 
     developer.log('Global notification service disconnected',
         name: 'GlobalNotificationService');
@@ -134,7 +134,9 @@ class GlobalNotificationService {
         _updateUnreadCount();
 
         // Emit updated notifications
-        _notificationsController.add(List.from(_cachedNotifications));
+        if (!_notificationsController.isClosed) {
+          _notificationsController.add(List.from(_cachedNotifications));
+        }
 
         developer.log('Received ${notifications.length} new notifications',
             name: 'GlobalNotificationService');
@@ -164,7 +166,9 @@ class GlobalNotificationService {
       _cachedAnnouncements = announcements;
 
       // Emit updated announcements
-      _announcementsController.add(List.from(_cachedAnnouncements));
+      if (!_announcementsController.isClosed) {
+        _announcementsController.add(List.from(_cachedAnnouncements));
+      }
 
       developer.log(
           'Received ${announcements.length} announcements (cache replaced)',
@@ -177,7 +181,9 @@ class GlobalNotificationService {
 
   void _updateUnreadCount() {
     _unreadCount = _cachedNotifications.where((n) => !n.read).length;
-    _unreadCountController.add(_unreadCount);
+    if (!_unreadCountController.isClosed) {
+      _unreadCountController.add(_unreadCount);
+    }
   }
 
   // Mark notification as read
@@ -189,7 +195,9 @@ class GlobalNotificationService {
         read: true,
       );
       _updateUnreadCount();
-      _notificationsController.add(List.from(_cachedNotifications));
+      if (!_notificationsController.isClosed) {
+        _notificationsController.add(List.from(_cachedNotifications));
+      }
     }
   }
 
@@ -199,7 +207,9 @@ class GlobalNotificationService {
         .map((notification) => notification.copyWith(read: true))
         .toList();
     _updateUnreadCount();
-    _notificationsController.add(List.from(_cachedNotifications));
+    if (!_notificationsController.isClosed) {
+      _notificationsController.add(List.from(_cachedNotifications));
+    }
   }
 
   // Remove notification
@@ -207,7 +217,9 @@ class GlobalNotificationService {
     _cachedNotifications
         .removeWhere((notification) => notification.id == notificationId);
     _updateUnreadCount();
-    _notificationsController.add(List.from(_cachedNotifications));
+    if (!_notificationsController.isClosed) {
+      _notificationsController.add(List.from(_cachedNotifications));
+    }
   }
 
   @disposeMethod

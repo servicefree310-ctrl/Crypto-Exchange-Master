@@ -30,6 +30,7 @@ class FuturesWebSocketService {
   StreamSubscription? _subscription;
   Timer? _pingTimer;
   bool _isConnected = false;
+  bool _disposed = false;
   String _currentSymbol = '';
 
   // Controllers
@@ -46,6 +47,7 @@ class FuturesWebSocketService {
   String get currentSymbol => _currentSymbol;
 
   Future<void> connect(String symbol) async {
+    if (_disposed) return;
     // If already connected to the same symbol, nothing to do
     if (_isConnected && symbol == _currentSymbol) {
       dev.log('🔌 FUTURES_WS: Already connected and subscribed to $symbol');
@@ -64,6 +66,7 @@ class FuturesWebSocketService {
   }
 
   Future<void> _establishConnection(String symbol) async {
+    if (_disposed) return;
     final url = '${ApiConstants.wsBaseUrl}${ApiConstants.wsFuturesMarket}';
     dev.log('🔌 FUTURES_WS: Establishing connection to $url for symbol: $symbol');
     dev.log('🔌 FUTURES_WS: Connecting to $url');
@@ -71,6 +74,12 @@ class FuturesWebSocketService {
     try {
       _channel = WebSocketChannel.connect(Uri.parse(url));
       await _channel!.ready;
+
+      if (_disposed) {
+        await _channel?.sink.close(ws_status.normalClosure);
+        _channel = null;
+        return;
+      }
 
       _isConnected = true;
       _currentSymbol = symbol;
@@ -122,7 +131,6 @@ class FuturesWebSocketService {
   }
 
   void _subscribeToFeeds(String symbol) {
-    // Following v5 pattern - send subscription messages for each data type
     _sendMessage({
       'action': 'SUBSCRIBE',
       'payload': {'type': 'ticker', 'symbol': symbol},
@@ -143,7 +151,6 @@ class FuturesWebSocketService {
   }
 
   void _unsubscribeFromFeeds(String symbol) {
-    // Following v5 pattern - send unsubscription messages for each data type
     _sendMessage({
       'action': 'UNSUBSCRIBE',
       'payload': {'type': 'ticker', 'symbol': symbol},
@@ -173,13 +180,13 @@ class FuturesWebSocketService {
     try {
       _channel!.sink.add(jsonMessage);
       dev.log('➡️ FUTURES_WS send: $jsonMessage');
-      dev.log('➡️ FUTURES_WS send: $jsonMessage');
     } catch (e) {
       dev.log('❌ FUTURES_WS send failed: $e');
     }
   }
 
   void _handleMessage(dynamic raw) {
+    if (_disposed) return;
     try {
       final data = jsonDecode(raw.toString());
       final stream = data['stream'];
@@ -204,7 +211,7 @@ class FuturesWebSocketService {
   }
 
   void _parseTicker(Map<String, dynamic>? json) {
-    if (json == null) return;
+    if (json == null || _tickerCtrl.isClosed) return;
 
     final ticker = TickerEntity(
       symbol: json['symbol'] as String? ?? _currentSymbol,
@@ -223,7 +230,7 @@ class FuturesWebSocketService {
   }
 
   void _parseOrderBook(Map<String, dynamic>? json) {
-    if (json == null) return;
+    if (json == null || _orderBookCtrl.isClosed) return;
     final bidsRaw = json['bids'] as List<dynamic>?;
     final asksRaw = json['asks'] as List<dynamic>?;
 
@@ -253,7 +260,6 @@ class FuturesWebSocketService {
       }
     }
 
-    // Optional: sort
     buy.sort((a, b) => b.price.compareTo(a.price));
     sell.sort((a, b) => a.price.compareTo(b.price));
 
@@ -269,11 +275,9 @@ class FuturesWebSocketService {
           : 0.0,
     ));
     dev.log('⬅️ FUTURES_WS orderbook update (${buy.length}/${sell.length})');
-    dev.log('⬅️ FUTURES_WS orderbook update');
   }
 
   void _parseTrades(dynamic payload) {
-    // TODO – implement when backend provides data
     if (!_tradesCtrl.isClosed) _tradesCtrl.add(const []);
   }
 
@@ -315,18 +319,26 @@ class FuturesWebSocketService {
 
   @disposeMethod
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     dev.log('🧹 FUTURES_WS: Disposing service');
-    disconnect();
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    _reconnectTimer?.cancel();
+    _subscription?.cancel();
+    _subscription = null;
+    _channel?.sink.close(ws_status.normalClosure);
+    _channel = null;
+    _isConnected = false;
     _tickerCtrl.close();
     _orderBookCtrl.close();
     _tradesCtrl.close();
   }
 
+  Timer? _reconnectTimer;
+
   // ---------------------------------------------------------------------------
   // Test-only seam. Do NOT call from production code.
-  // Lets regression tests drive the private message-parsing path directly so
-  // the per-controller `isClosed` guards can be exercised without a real
-  // WebSocket.
   // ---------------------------------------------------------------------------
 
   @visibleForTesting
