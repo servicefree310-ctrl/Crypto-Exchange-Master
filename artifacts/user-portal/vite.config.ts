@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -26,7 +26,25 @@ if (!basePath) {
   );
 }
 
+// Custom logger that silences ECONNRESET / ECONNREFUSED at error level.
+// These come from the ws proxy when the browser's market-data WebSocket
+// reconnects after a Vite restart — they are harmless reconnection noise
+// and must NOT propagate to error-level hooks (which the runtime-error-modal
+// plugin monitors) where they would trigger a false "runtime error" overlay.
+const logger = createLogger();
+const _origError = logger.error.bind(logger);
+logger.error = (msg, opts) => {
+  if (
+    typeof msg === "string" &&
+    (msg.includes("ECONNRESET") || msg.includes("ECONNREFUSED"))
+  ) {
+    return; // suppress — not a real application error
+  }
+  _origError(msg, opts);
+};
+
 export default defineConfig({
+  customLogger: logger,
   base: basePath,
   plugins: [
     react(),
@@ -75,6 +93,12 @@ export default defineConfig({
           proxy.on("error", (err: any) => {
             if (err.code === "ECONNRESET" || err.code === "ECONNREFUSED") return;
             console.error("[vite proxy]", err.message);
+          });
+          proxy.on("proxyReqWs", (_proxyReq, _req, socket) => {
+            socket.on("error", (err: any) => {
+              if (err.code === "ECONNRESET" || err.code === "ECONNREFUSED") return;
+              console.error("[vite proxy socket]", err.message);
+            });
           });
         },
       },
