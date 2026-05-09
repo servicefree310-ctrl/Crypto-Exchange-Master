@@ -1,10 +1,10 @@
-import { useState, useMemo, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Shield, BadgeCheck, Lock, Clock, CheckCircle2, XCircle, AlertCircle,
   Loader2, Upload, FileText, User as UserIcon, Camera, MapPin, Calendar,
   Hash, ArrowRight, Info, IdCard, Mail, Phone, Crown, Gift, KeyRound,
-  Copy, Check, Fingerprint, ShieldCheck, ShieldOff, TrendingUp,
+  Copy, Check, Fingerprint, ShieldCheck, ShieldOff, TrendingUp, Eye, X,
 } from "lucide-react";
 import { get, post, ApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -52,6 +52,7 @@ type KycRecord = {
   dob: string | null;
   panNumber: string | null;
   aadhaarNumber: string | null;
+  address: string | null;
   rejectReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
@@ -138,7 +139,6 @@ export default function Kyc() {
 
   const currentLevel = user?.kycLevel ?? 0;
 
-  // Latest record per level (sorted desc by createdAt — first occurrence is latest)
   const latestByLevel = useMemo(() => {
     const map = new Map<number, KycRecord>();
     const records = myKycQ.data ?? [];
@@ -151,15 +151,11 @@ export default function Kyc() {
   const settings = settingsQ.data ?? [];
   const sorted = [...settings].sort((a, b) => a.level - b.level);
 
-  // Limits unlocked at the user's *current* level (used for KPI tiles).
   const currentSettings = useMemo(
     () => sorted.find((s) => s.level === currentLevel),
     [sorted, currentLevel],
   );
 
-  // Verification roll-up — what counts as "fully verified" for the badge
-  // and for the Status KPI tile. We treat L1+ + email-verified as the
-  // baseline; full = L3 + email + phone + 2FA.
   const verification = useMemo(() => {
     const emailOk = !!user?.emailVerified;
     const phoneOk = !!user?.phoneVerified;
@@ -184,7 +180,6 @@ export default function Kyc() {
         }
       />
 
-      {/* KPI tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kyc-kpis">
         <PremiumStatCard
           title="Verification"
@@ -214,16 +209,14 @@ export default function Kyc() {
         />
       </div>
 
-      {/* Account Details — show user info from /auth/me */}
       <SectionCard
         title="Account Details"
         description="Aapki current account information aur verification status."
         icon={UserIcon}
       >
         <div className="flex flex-col sm:flex-row gap-5">
-          {/* Avatar + identity */}
           <div className="flex items-center gap-4 sm:w-72 shrink-0">
-            <Avatar user={user} />
+            <KycAvatar user={user} />
             <div className="min-w-0">
               <div className="font-semibold text-base truncate" data-testid="account-name">
                 {user?.name || user?.fullName || "—"}
@@ -243,13 +236,9 @@ export default function Kyc() {
           <Separator orientation="vertical" className="hidden sm:block h-auto" />
           <Separator className="sm:hidden" />
 
-          {/* Field grid */}
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <DetailField
-              icon={Mail}
-              label="Email"
-              value={maskEmail(user?.email)}
-              testId="account-email"
+              icon={Mail} label="Email" value={maskEmail(user?.email)} testId="account-email"
               trailing={
                 user?.emailVerified
                   ? <StatusPill variant="success">Verified</StatusPill>
@@ -257,31 +246,21 @@ export default function Kyc() {
               }
             />
             <DetailField
-              icon={Phone}
-              label="Phone"
-              value={user?.phone ? maskPhone(user.phone) : "Not added"}
-              testId="account-phone"
+              icon={Phone} label="Phone" value={user?.phone ? maskPhone(user.phone) : "Not added"} testId="account-phone"
               trailing={
                 user?.phoneVerified
                   ? <StatusPill variant="success">Verified</StatusPill>
-                  : user?.phone
-                    ? <StatusPill variant="warning">Unverified</StatusPill>
-                    : null
+                  : user?.phone ? <StatusPill variant="warning">Unverified</StatusPill> : null
               }
             />
             <DetailField
-              icon={KeyRound}
-              label="Two-Factor Auth"
-              value={user?.twoFaEnabled ? "Enabled" : "Disabled"}
-              testId="account-2fa"
+              icon={KeyRound} label="Two-Factor Auth" value={user?.twoFaEnabled ? "Enabled" : "Disabled"} testId="account-2fa"
               trailing={
                 user?.twoFaEnabled
                   ? <StatusPill variant="success">Active</StatusPill>
                   : (
                     <Link href="/settings">
-                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-amber-400 hover:text-amber-300">
-                        Enable
-                      </Button>
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-amber-400 hover:text-amber-300">Enable</Button>
                     </Link>
                   )
               }
@@ -299,35 +278,14 @@ export default function Kyc() {
                     : <StatusPill variant="warning">L0</StatusPill>
               }
             />
+            <DetailField icon={Calendar} label="Member Since" value={fmtDate(user?.createdAt)} testId="account-created" />
+            <DetailField icon={Clock} label="Last Login" value={fmtDateTime(user?.lastLoginAt)} testId="account-last-login" />
             <DetailField
-              icon={Calendar}
-              label="Member Since"
-              value={fmtDate(user?.createdAt)}
-              testId="account-created"
+              icon={Gift} label="Referral Code" value={user?.referralCode || "—"} mono testId="account-ref"
+              trailing={user?.referralCode ? <CopyButton value={user.referralCode} /> : null}
             />
             <DetailField
-              icon={Clock}
-              label="Last Login"
-              value={fmtDateTime(user?.lastLoginAt)}
-              testId="account-last-login"
-            />
-            <DetailField
-              icon={Gift}
-              label="Referral Code"
-              value={user?.referralCode || "—"}
-              mono
-              testId="account-ref"
-              trailing={
-                user?.referralCode
-                  ? <CopyButton value={user.referralCode} />
-                  : null
-              }
-            />
-            <DetailField
-              icon={Crown}
-              label="VIP Tier"
-              value={user?.vipTier ? `VIP ${user.vipTier}` : "Standard"}
-              testId="account-vip"
+              icon={Crown} label="VIP Tier" value={user?.vipTier ? `VIP ${user.vipTier}` : "Standard"} testId="account-vip"
             />
           </div>
         </div>
@@ -376,9 +334,8 @@ export default function Kyc() {
 
           return (
             <Card key={s.level} className={`p-5 border bg-gradient-to-br ${tones[meta.color]} to-card flex flex-col`} data-testid={`level-card-${s.level}`}>
-              {/* Top */}
               <div className="flex items-start justify-between mb-3">
-                <div className={`h-10 w-10 rounded-lg bg-card/60 flex items-center justify-center`}>
+                <div className="h-10 w-10 rounded-lg bg-card/60 flex items-center justify-center">
                   <Icon className="h-5 w-5" />
                 </div>
                 <LevelStatusBadge status={status} />
@@ -389,7 +346,6 @@ export default function Kyc() {
 
               <Separator className="my-2" />
 
-              {/* Limits */}
               <div className="grid grid-cols-2 gap-2 text-xs my-3">
                 <div>
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Daily withdraw</div>
@@ -401,7 +357,6 @@ export default function Kyc() {
                 </div>
               </div>
 
-              {/* Features */}
               <div className="my-2 flex flex-wrap gap-1">
                 {parseFeatures(s.features).map((f) => (
                   <Badge key={f} variant="outline" className="text-[9px] font-normal">
@@ -471,7 +426,6 @@ export default function Kyc() {
         </SectionCard>
       )}
 
-      {/* Helper */}
       <Card className="p-4 border-border/60 bg-muted/20">
         <div className="flex items-start gap-3">
           <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
@@ -489,6 +443,7 @@ export default function Kyc() {
 
       <KycSubmitDialog
         level={submitFor}
+        prevRecords={latestByLevel}
         onOpenChange={(v) => { if (!v) setSubmitFor(null); }}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ["/kyc/my"] });
@@ -518,7 +473,7 @@ function DetailField({
 }
 
 // ───────────────── Avatar (initials fallback) ─────────────────
-function Avatar({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
+function KycAvatar({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
   if (user?.avatarUrl) {
     return (
       <img
@@ -557,14 +512,7 @@ function CopyButton({ value }: { value: string }) {
     }
   };
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant="ghost"
-      onClick={onCopy}
-      className="h-6 px-2 text-[11px]"
-      data-testid="copy-referral"
-    >
+    <Button type="button" size="sm" variant="ghost" onClick={onCopy} className="h-6 px-2 text-[11px]" data-testid="copy-referral">
       {copied ? <Check className="h-3 w-3 mr-1 text-emerald-400" /> : <Copy className="h-3 w-3 mr-1" />}
       {copied ? "Copied" : "Copy"}
     </Button>
@@ -589,10 +537,152 @@ function LevelStatusBadge({ status }: { status: "achieved" | "pending" | "reject
   );
 }
 
+// ───────────────── Image preview modal ─────────────────
+function ImagePreviewModal({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="relative max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={onClose}
+          className="absolute -top-3 -right-3 bg-card border border-border rounded-full p-1 text-muted-foreground hover:text-foreground z-10"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <img src={url} alt="Document preview" className="w-full rounded-xl object-contain max-h-[80vh]" />
+      </div>
+    </div>
+  );
+}
+
+// ───────────────── File upload field (base64 client-side) ─────────────────
+function FileUploadField({
+  label, testId, url, setUrl, hint,
+}: { label: string; testId: string; url: string; setUrl: (u: string) => void; hint?: string }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(false);
+
+  const onFile = async (file: File) => {
+    if (file.size > 8 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum 8 MB allowed", variant: "destructive" });
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file type", description: "Please upload an image (JPG, PNG, WEBP)", variant: "destructive" });
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+      setUrl(dataUrl);
+      toast({ title: `${label} uploaded`, description: "Image ready for submission." });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e?.message || "Try again", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const clearUrl = () => {
+    setUrl("");
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  return (
+    <div>
+      <Label className="flex items-center gap-1.5">
+        <Upload className="h-3 w-3" /> {label}
+        {hint && <span className="text-muted-foreground font-normal text-[10px]">— {hint}</span>}
+      </Label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }}
+        data-testid={`${testId}-input`}
+      />
+
+      {url ? (
+        <div className="mt-1.5 space-y-2">
+          <div className="relative rounded-lg overflow-hidden border border-emerald-500/40 bg-muted/20 aspect-[4/2.2] max-h-32">
+            <img src={url} alt={label} className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPreview(true)}
+                className="bg-black/70 text-white rounded-full p-1.5 hover:bg-black"
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="bg-black/70 text-white rounded-full p-1.5 hover:bg-black"
+              >
+                <Upload className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={clearUrl}
+                className="bg-black/70 text-white rounded-full p-1.5 hover:bg-black"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-emerald-400 flex items-center gap-1" data-testid={`${testId}-status`}>
+            <CheckCircle2 className="h-3 w-3" /> Uploaded — hover image to replace or remove
+          </p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          data-testid={`${testId}-button`}
+          className="mt-1.5 w-full border-2 border-dashed border-border/60 hover:border-amber-500/50 rounded-lg p-4 flex flex-col items-center justify-center gap-2 transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {uploading
+            ? <><Loader2 className="h-5 w-5 animate-spin text-amber-400" /><span className="text-xs">Processing…</span></>
+            : <><Upload className="h-5 w-5" /><span className="text-xs">Click to upload image</span><span className="text-[10px] text-muted-foreground/60">JPG, PNG, WEBP — max 8 MB</span></>
+          }
+        </button>
+      )}
+
+      {preview && url && <ImagePreviewModal url={url} onClose={() => setPreview(false)} />}
+    </div>
+  );
+}
+
 // ───────────────── Submit dialog ─────────────────
 function KycSubmitDialog({
-  level, onOpenChange, onSuccess,
-}: { level: number | null; onOpenChange: (v: boolean) => void; onSuccess: () => void }) {
+  level, prevRecords, onOpenChange, onSuccess,
+}: {
+  level: number | null;
+  prevRecords: Map<number, KycRecord>;
+  onOpenChange: (v: boolean) => void;
+  onSuccess: () => void;
+}) {
+  const lvl = level ?? 0;
+
+  // Pre-populate from previous approved level
+  const prevApproved = useMemo(() => {
+    for (let l = lvl - 1; l >= 1; l--) {
+      const r = prevRecords.get(l);
+      if (r?.status === "approved") return r;
+    }
+    return null;
+  }, [prevRecords, lvl]);
+
   const [fullName, setFullName] = useState("");
   const [dob, setDob] = useState("");
   const [pan, setPan] = useState("");
@@ -602,30 +692,45 @@ function KycSubmitDialog({
   const [aadhaarDocUrl, setAadhaarDocUrl] = useState("");
   const [selfieUrl, setSelfieUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (level !== null && prevApproved) {
+      if (prevApproved.fullName) setFullName(prevApproved.fullName);
+      if (prevApproved.dob) setDob(prevApproved.dob);
+      if (prevApproved.panNumber) setPan(prevApproved.panNumber);
+      if (prevApproved.aadhaarNumber) setAadhaar(prevApproved.aadhaarNumber);
+      if (prevApproved.address) setAddress(prevApproved.address);
+    }
+  }, [level, prevApproved]);
 
   const reset = () => {
     setFullName(""); setDob(""); setPan(""); setAadhaar(""); setAddress("");
-    setPanDocUrl(""); setAadhaarDocUrl(""); setSelfieUrl(""); setSubmitting(false);
+    setPanDocUrl(""); setAadhaarDocUrl(""); setSelfieUrl("");
+    setSubmitting(false); setTouched({});
   };
 
-  const lvl = level ?? 0;
+  const touch = (field: string) => setTouched((t) => ({ ...t, [field]: true }));
 
   const panOk = /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan.toUpperCase());
   const aadhaarOk = /^\d{12}$/.test(aadhaar.replace(/\s+/g, ""));
 
-  const validation =
-    !fullName.trim() ? "Full name required"
-    : !dob ? "Date of birth required"
-    : !panOk ? "Valid PAN required (format: AAAAA1111A)"
-    : (lvl >= 2 && !aadhaarOk) ? "Valid 12-digit Aadhaar required"
-    : (lvl >= 2 && !panDocUrl) ? "Upload your PAN card image"
-    : (lvl >= 2 && !aadhaarDocUrl) ? "Upload your Aadhaar card image"
-    : (lvl >= 3 && !selfieUrl) ? "Upload a clear selfie"
-    : (lvl >= 3 && !address.trim()) ? "Address required"
-    : null;
+  const errors: Record<string, string> = {};
+  if (!fullName.trim()) errors.fullName = "Full name is required";
+  if (!dob) errors.dob = "Date of birth is required";
+  if (!panOk) errors.pan = "Enter valid PAN — format: AAAAA1111A";
+  if (lvl >= 2 && !aadhaarOk) errors.aadhaar = "Enter valid 12-digit Aadhaar number";
+  if (lvl >= 2 && !panDocUrl) errors.panDoc = "Upload your PAN card image";
+  if (lvl >= 2 && !aadhaarDocUrl) errors.aadhaarDoc = "Upload your Aadhaar card image";
+  if (lvl >= 3 && !selfieUrl) errors.selfie = "Upload a selfie holding your PAN card";
+  if (lvl >= 3 && !address.trim()) errors.address = "Full address is required";
+
+  const firstError = Object.values(errors)[0] ?? null;
+  const canSubmit = !firstError && !submitting;
 
   const submit = async () => {
-    if (validation || !level) return;
+    setTouched(Object.fromEntries(Object.keys(errors).map((k) => [k, true])));
+    if (firstError || !level) return;
     setSubmitting(true);
     try {
       await post("/kyc/submit", {
@@ -639,7 +744,7 @@ function KycSubmitDialog({
         selfieUrl: lvl >= 3 ? selfieUrl : undefined,
         address: lvl >= 3 ? address.trim() : undefined,
       });
-      toast({ title: "Submission received", description: "We'll review and get back to you within 24 hours." });
+      toast({ title: "Submission received! ✓", description: "We'll review and respond within 24 hours." });
       reset();
       onSuccess();
     } catch (e: any) {
@@ -649,158 +754,223 @@ function KycSubmitDialog({
     }
   };
 
+  const fieldError = (key: string) => touched[key] && errors[key] ? (
+    <p className="text-[11px] text-rose-400 flex items-center gap-1 mt-1">
+      <AlertCircle className="h-3 w-3 flex-shrink-0" /> {errors[key]}
+    </p>
+  ) : null;
+
+  const levelColors = { 1: "sky", 2: "amber", 3: "emerald" } as Record<number, string>;
+  const levelColor = levelColors[lvl] ?? "amber";
+
   return (
-    <Dialog open={level !== null} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+    <Dialog open={level !== null} onOpenChange={(v) => { if (!v) { reset(); onOpenChange(v); } }}>
+      <DialogContent className="sm:max-w-lg max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-amber-400" /> Submit Level {level} verification
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <div className={`h-7 w-7 rounded-md bg-${levelColor}-500/20 flex items-center justify-center`}>
+              <Shield className={`h-4 w-4 text-${levelColor}-400`} />
+            </div>
+            Level {level} Verification — {LEVEL_META[lvl]?.name}
           </DialogTitle>
-          <DialogDescription>
-            {lvl === 1 && "Provide your name, date of birth, and PAN number."}
-            {lvl === 2 && "Add your Aadhaar and upload images of both PAN and Aadhaar cards."}
-            {lvl === 3 && "Final step — provide your address and upload a clear selfie holding your PAN card."}
+          <DialogDescription className="text-xs leading-relaxed">
+            {lvl === 1 && "Provide your name, date of birth, and PAN number exactly as on your PAN card."}
+            {lvl === 2 && "Add your Aadhaar number and upload clear photos of your PAN and Aadhaar cards."}
+            {lvl === 3 && "Final step — upload a selfie holding your PAN card, and enter your full residential address."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <div>
-            <Label htmlFor="fn"><UserIcon className="h-3 w-3 inline mr-1" /> Full Name (as on PAN)</Label>
-            <Input id="fn" value={fullName} onChange={(e) => setFullName(e.target.value)} data-testid="input-kyc-name" />
-          </div>
-          <div>
-            <Label htmlFor="dob"><Calendar className="h-3 w-3 inline mr-1" /> Date of Birth</Label>
-            <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} data-testid="input-kyc-dob" />
-          </div>
-          <div>
-            <Label htmlFor="pan"><Hash className="h-3 w-3 inline mr-1" /> PAN Number</Label>
-            <Input
-              id="pan"
-              value={pan}
-              onChange={(e) => setPan(e.target.value.toUpperCase().slice(0, 10))}
-              placeholder="AAAAA1111A"
-              maxLength={10}
-              className="font-mono uppercase"
-              data-testid="input-kyc-pan"
-            />
+        <div className="space-y-4 py-1">
+
+          {/* ── Section: Personal Info (all levels) ── */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-widest font-semibold">
+              <UserIcon className="h-3.5 w-3.5" /> Personal Information
+            </div>
+
+            <div>
+              <Label htmlFor="fn" className="text-xs">
+                Full Name <span className="text-rose-400">*</span>
+                <span className="text-muted-foreground font-normal ml-1">(as on PAN card)</span>
+              </Label>
+              <Input
+                id="fn"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                onBlur={() => touch("fullName")}
+                placeholder="e.g. RAHUL KUMAR SHARMA"
+                className={touched.fullName && errors.fullName ? "border-rose-500/60" : ""}
+                data-testid="input-kyc-name"
+                readOnly={!!prevApproved?.fullName && lvl > 1}
+              />
+              {fieldError("fullName")}
+              {prevApproved?.fullName && lvl > 1 && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">Pre-filled from your Level {prevApproved.level} approval</p>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="dob" className="text-xs">
+                Date of Birth <span className="text-rose-400">*</span>
+              </Label>
+              <Input
+                id="dob"
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                onBlur={() => touch("dob")}
+                max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+                className={touched.dob && errors.dob ? "border-rose-500/60" : ""}
+                data-testid="input-kyc-dob"
+                readOnly={!!prevApproved?.dob && lvl > 1}
+              />
+              {fieldError("dob")}
+            </div>
+
+            <div>
+              <Label htmlFor="pan" className="text-xs">
+                PAN Number <span className="text-rose-400">*</span>
+              </Label>
+              <Input
+                id="pan"
+                value={pan}
+                onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
+                onBlur={() => touch("pan")}
+                placeholder="AAAAA1111A"
+                maxLength={10}
+                className={`font-mono uppercase tracking-widest ${touched.pan && errors.pan ? "border-rose-500/60" : panOk ? "border-emerald-500/50" : ""}`}
+                data-testid="input-kyc-pan"
+                readOnly={!!prevApproved?.panNumber && lvl > 1}
+              />
+              {fieldError("pan")}
+              {panOk && !errors.pan && (
+                <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
+                  <CheckCircle2 className="h-3 w-3" /> Valid PAN format
+                </p>
+              )}
+            </div>
           </div>
 
+          {/* ── Section: Aadhaar + Docs (L2+) ── */}
           {lvl >= 2 && (
             <>
               <Separator />
-              <div>
-                <Label htmlFor="aad"><IdCard className="h-3 w-3 inline mr-1" /> Aadhaar Number</Label>
-                <Input
-                  id="aad"
-                  value={aadhaar}
-                  onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, "").slice(0, 12))}
-                  placeholder="12 digits"
-                  maxLength={12}
-                  className="font-mono"
-                  data-testid="input-kyc-aadhaar"
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-widest font-semibold">
+                  <IdCard className="h-3.5 w-3.5" /> Aadhaar Verification
+                </div>
+
+                <div>
+                  <Label htmlFor="aad" className="text-xs">
+                    Aadhaar Number <span className="text-rose-400">*</span>
+                  </Label>
+                  <Input
+                    id="aad"
+                    value={aadhaar}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 12);
+                      const spaced = digits.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
+                      setAadhaar(digits);
+                      e.target.value = spaced;
+                    }}
+                    onBlur={() => touch("aadhaar")}
+                    placeholder="1234 5678 9012"
+                    className={`font-mono ${touched.aadhaar && errors.aadhaar ? "border-rose-500/60" : aadhaarOk ? "border-emerald-500/50" : ""}`}
+                    data-testid="input-kyc-aadhaar"
+                  />
+                  {fieldError("aadhaar")}
+                  {aadhaarOk && !errors.aadhaar && (
+                    <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
+                      <CheckCircle2 className="h-3 w-3" /> Valid Aadhaar format
+                    </p>
+                  )}
+                </div>
+
+                <FileUploadField
+                  label="PAN Card Image"
+                  testId="upload-pan"
+                  url={panDocUrl}
+                  setUrl={(u) => { setPanDocUrl(u); touch("panDoc"); }}
+                  hint="front side clearly visible"
                 />
+                {fieldError("panDoc")}
+
+                <FileUploadField
+                  label="Aadhaar Card Image"
+                  testId="upload-aadhaar"
+                  url={aadhaarDocUrl}
+                  setUrl={(u) => { setAadhaarDocUrl(u); touch("aadhaarDoc"); }}
+                  hint="both front and back if possible"
+                />
+                {fieldError("aadhaarDoc")}
               </div>
-              <FileUploadField label="PAN card image" testId="upload-pan" url={panDocUrl} setUrl={setPanDocUrl} />
-              <FileUploadField label="Aadhaar card image" testId="upload-aadhaar" url={aadhaarDocUrl} setUrl={setAadhaarDocUrl} />
             </>
           )}
 
+          {/* ── Section: Selfie + Address (L3) ── */}
           {lvl >= 3 && (
             <>
               <Separator />
-              <FileUploadField label="Selfie holding PAN card" testId="upload-selfie" url={selfieUrl} setUrl={setSelfieUrl} />
-              <div>
-                <Label htmlFor="addr"><MapPin className="h-3 w-3 inline mr-1" /> Full Address</Label>
-                <Textarea
-                  id="addr"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Door no., street, city, state, pincode"
-                  rows={3}
-                  data-testid="input-kyc-address"
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-widest font-semibold">
+                  <Camera className="h-3.5 w-3.5" /> Selfie & Address
+                </div>
+
+                <FileUploadField
+                  label="Selfie holding PAN card"
+                  testId="upload-selfie"
+                  url={selfieUrl}
+                  setUrl={(u) => { setSelfieUrl(u); touch("selfie"); }}
+                  hint="face + PAN visible in same frame"
                 />
+                {fieldError("selfie")}
+
+                <div>
+                  <Label htmlFor="addr" className="text-xs">
+                    Residential Address <span className="text-rose-400">*</span>
+                  </Label>
+                  <Textarea
+                    id="addr"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    onBlur={() => touch("address")}
+                    placeholder="Door no., Street, Area, City, State — PIN code"
+                    rows={3}
+                    className={touched.address && errors.address ? "border-rose-500/60" : ""}
+                    data-testid="input-kyc-address"
+                  />
+                  {fieldError("address")}
+                </div>
               </div>
             </>
           )}
 
-          {validation && (
-            <p className="text-xs text-rose-400 flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5" /> {validation}</p>
+          {/* Global error summary */}
+          {Object.keys(touched).length > 0 && firstError && (
+            <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-3 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-rose-300">{firstError}</p>
+            </div>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={!!validation || submitting} data-testid="button-submit-kyc">
-            {submitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1.5" />}
-            Submit for review
+        <DialogFooter className="gap-2 pt-2">
+          <Button variant="ghost" onClick={() => { reset(); onOpenChange(false); }} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={!canSubmit}
+            className="bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400 font-semibold min-w-[140px]"
+            data-testid="button-submit-kyc"
+          >
+            {submitting
+              ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Submitting…</>
+              : <><CheckCircle2 className="h-4 w-4 mr-1.5" /> Submit for review</>
+            }
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ───────────────── File upload field ─────────────────
-function FileUploadField({
-  label, testId, url, setUrl,
-}: { label: string; testId: string; url: string; setUrl: (u: string) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-
-  const onFile = async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Maximum 5 MB", variant: "destructive" });
-      return;
-    }
-    setUploading(true);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload/kyc-document", {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      setUrl(data.url);
-      toast({ title: `${label} uploaded` });
-    } catch (e: any) {
-      toast({ title: "Upload failed", description: e?.message || "Try again", variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <div>
-      <Label>{label}</Label>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }}
-        data-testid={`${testId}-input`}
-      />
-      <div className="flex items-center gap-2 mt-1">
-        <Button
-          type="button"
-          variant={url ? "outline" : "default"}
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          data-testid={`${testId}-button`}
-          className="flex-shrink-0"
-        >
-          {uploading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
-          {url ? "Replace" : "Upload"}
-        </Button>
-        {url && (
-          <span className="text-xs text-emerald-400 flex items-center gap-1 truncate" data-testid={`${testId}-status`}>
-            <CheckCircle2 className="h-3.5 w-3.5" /> Uploaded
-          </span>
-        )}
-      </div>
-    </div>
   );
 }
