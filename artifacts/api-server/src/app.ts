@@ -238,9 +238,12 @@ const orderLimiter = rateLimit({
   legacyHeaders: false,
   passOnStoreError: true,
   message: { error: "Too many order requests, please slow down (2/sec sustained)" },
+  validate: { xForwardedForHeader: false },
   keyGenerator: (req) => {
     const cookie = (req as unknown as { cookies?: Record<string, string> }).cookies?.session_token;
-    return cookie ? `s:${String(cookie).slice(-16)}` : `ip:${req.ip || "unknown"}`;
+    if (cookie) return `s:${String(cookie).slice(-16)}`;
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+    return `ip:${ip}`;
   },
 });
 
