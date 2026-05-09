@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,6 +73,8 @@ export default function CryptoDepositsPage() {
   const [approveFor, setApproveFor] = useState<D | null>(null);
   const [approveConf, setApproveConf] = useState("");
   const [rejectFor, setRejectFor] = useState<D | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
 
   useEffect(() => { if (approveFor) setApproveConf(String(approveFor.confirmations || approveFor.requiredConfirmations || 12)); }, [approveFor]);
 
@@ -138,6 +141,9 @@ export default function CryptoDepositsPage() {
       return hay.includes(search.toLowerCase());
     });
   }, [data, search, coinById]);
+
+  useEffect(() => { setPage(1); }, [tab, sourceTab, search, pageSize]);
+  const paged = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   function explorerLink(d: D) {
     const n = netById.get(d.networkId);
@@ -308,7 +314,7 @@ export default function CryptoDepositsPage() {
                     description={search || tab !== "all" || sourceTab !== "all" ? "Filter adjust karein." : "Sweeper run hone ke baad detected deposits yahan dikhenge."} />
                 </td></tr>
               )}
-              {!isLoading && filtered.map((d) => {
+              {!isLoading && paged.map((d) => {
                 const link = explorerLink(d);
                 const c = coinById.get(d.coinId);
                 const n = netById.get(d.networkId);
@@ -368,13 +374,7 @@ export default function CryptoDepositsPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-          <div>{filtered.length} of {data.length} deposits</div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />{stats?.pending ?? 0} pending</span>
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-400" />{stats?.autoDetected ?? 0} auto</span>
-          </div>
-        </div>
+        <PaginationBar page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={setPageSize} label="deposits" />
       </div>
 
       <Dialog open={!!approveFor} onOpenChange={(o) => !o && setApproveFor(null)}>

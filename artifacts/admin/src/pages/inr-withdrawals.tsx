@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -53,6 +54,8 @@ export default function InrWithdrawalsPage() {
   const [paidUtr, setPaidUtr] = useState("");
   const [rejectFor, setRejectFor] = useState<W | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
 
   useEffect(() => { if (paidFor) setPaidUtr(""); }, [paidFor]);
   useEffect(() => { if (rejectFor) setRejectReason(""); }, [rejectFor]);
@@ -93,6 +96,9 @@ export default function InrWithdrawalsPage() {
       return hay.includes(search.toLowerCase());
     });
   }, [rows, tab, search, bankById]);
+
+  useEffect(() => { setPage(1); }, [tab, search, pageSize]);
+  const paged = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   const markPaid = () => {
     if (!paidFor) return;
@@ -173,7 +179,7 @@ export default function InrWithdrawalsPage() {
                     description={search || tab !== "all" ? "Filter adjust karein." : "Abhi tak koi withdrawal request nahi aaya."} />
                 </td></tr>
               )}
-              {!isLoading && filtered.map((w) => {
+              {!isLoading && paged.map((w) => {
                 const b = bankById.get(w.bankId);
                 return (
                   <tr key={w.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-withdrawal-${w.id}`}>
@@ -216,13 +222,7 @@ export default function InrWithdrawalsPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-          <div>{filtered.length} of {rows.length} withdrawals</div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />₹{fmtINR(stats.pendingVol)} locked</span>
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />₹{fmtINR(stats.feeRevenue)} fees</span>
-          </div>
-        </div>
+        <PaginationBar page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={setPageSize} label="withdrawals" />
       </div>
 
       <Dialog open={!!paidFor} onOpenChange={(o) => !o && setPaidFor(null)}>

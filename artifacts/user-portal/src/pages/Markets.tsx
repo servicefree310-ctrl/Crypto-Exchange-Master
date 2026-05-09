@@ -9,6 +9,9 @@ import {
   ArrowUpDown,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   BarChart3,
   Activity,
   Coins,
@@ -279,6 +282,8 @@ export default function Markets() {
   const [category, setCategory] = useState<Category>(initialFilters.category);
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortDesc, setSortDesc] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   // Re-apply filters when URL query string changes (e.g. user clicks
   // another item in the header Markets dropdown while already on /markets,
@@ -385,6 +390,16 @@ export default function Markets() {
     if (sortKey === k) setSortDesc((d) => !d);
     else { setSortKey(k); setSortDesc(true); }
   };
+
+  // Reset to page 1 when any filter/sort changes
+  useEffect(() => { setPage(1); }, [search, quote, category, sortKey, sortDesc, pageSize]);
+
+  const paged = useMemo(
+    () => list.slice((page - 1) * pageSize, page * pageSize),
+    [list, page, pageSize],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
 
   const loading = all.length === 0;
 
@@ -632,7 +647,7 @@ export default function Markets() {
                     ))}
                   </>
                 )}
-                {!loading && list.map((t) => {
+                {!loading && paged.map((t) => {
                   const positive = t.priceChangePercent >= 0;
                   const isFav = favs.has(t.symbol);
                   const isNew = NEW_BASES.has(baseAsset(t.symbol).toUpperCase());
@@ -739,7 +754,7 @@ export default function Markets() {
                 ))}
               </div>
             )}
-            {!loading && list.map((t) => {
+            {!loading && paged.map((t) => {
               const positive = t.priceChangePercent >= 0;
               const isFav = favs.has(t.symbol);
               const isNew = NEW_BASES.has(baseAsset(t.symbol).toUpperCase());
@@ -783,13 +798,73 @@ export default function Markets() {
             )}
           </div>
 
-          {/* Footer row */}
+          {/* Pagination footer */}
           {!loading && list.length > 0 && (
-            <div className="px-4 py-3 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>
-                Showing <span className="font-semibold text-foreground">{list.length}</span> of {stats.total} markets
+            <div className="px-4 py-3 border-t border-border flex flex-wrap items-center justify-between gap-3 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span>Rows per page</span>
+                <div className="flex items-center gap-1">
+                  {[10, 20, 50].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setPageSize(s)}
+                      className={`h-6 px-2 rounded text-[11px] font-medium transition-colors ${
+                        pageSize === s
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted/40 hover:bg-muted/70 text-muted-foreground"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <span className="tabular-nums">
+                {list.length === 0 ? "0" : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, list.length)}`} of{" "}
+                <span className="font-semibold text-foreground">{list.length}</span> markets
               </span>
-              <span>Live · streaming via Zebvix market socket</span>
+
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage(1)}
+                  className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted/50 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  aria-label="First page"
+                >
+                  <ChevronsLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted/50 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="px-2 font-semibold text-foreground tabular-nums">{page} / {totalPages}</span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted/50 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(totalPages)}
+                  className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted/50 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  aria-label="Last page"
+                >
+                  <ChevronsRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           )}
         </div>

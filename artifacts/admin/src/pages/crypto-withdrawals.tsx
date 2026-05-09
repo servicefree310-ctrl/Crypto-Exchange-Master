@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -91,6 +92,8 @@ export default function CryptoWithdrawalsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [coinFilter, setCoinFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
 
   const inv = () => {
     qc.invalidateQueries({ queryKey: ["/admin/crypto-withdrawals"] });
@@ -134,6 +137,9 @@ export default function CryptoWithdrawalsPage() {
       return true;
     });
   }, [data, statusFilter, coinFilter, search]);
+
+  useEffect(() => { setPage(1); }, [statusFilter, coinFilter, search, pageSize]);
+  const paged = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   const pendingTotalByCoin = useMemo(() => {
     const m = new Map<string, number>();
@@ -246,7 +252,7 @@ export default function CryptoWithdrawalsPage() {
                         description={search || statusFilter !== "all" || coinFilter !== "all" ? "Filter adjust karein." : "Abhi tak koi crypto withdrawal request nahi aaya."} />
                     </td></tr>
                   )}
-                  {!isLoading && filtered.map((w) => {
+                  {!isLoading && paged.map((w) => {
                     const coin = coinMap.get(w.coinId);
                     const net = netMap.get(w.networkId);
                     return (
@@ -317,13 +323,7 @@ export default function CryptoWithdrawalsPage() {
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-              <div>{filtered.length} of {data.length} withdrawals</div>
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />{stats?.pending ?? 0} pending</span>
-                <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{stats?.completed ?? 0} sent</span>
-              </div>
-            </div>
+            <PaginationBar page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={setPageSize} label="withdrawals" />
           </div>
         </TabsContent>
 

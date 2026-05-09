@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -52,6 +53,8 @@ export default function InrDepositsPage() {
   const [approveFor, setApproveFor] = useState<Dep | null>(null);
   const [rejectFor, setRejectFor] = useState<Dep | null>(null);
   const [rejectNotes, setRejectNotes] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
 
   useEffect(() => { if (rejectFor) setRejectNotes(""); }, [rejectFor]);
 
@@ -89,6 +92,9 @@ export default function InrDepositsPage() {
       return hay.includes(search.toLowerCase());
     });
   }, [deposits, tab, search]);
+
+  useEffect(() => { setPage(1); }, [tab, search, pageSize]);
+  const paged = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   const approve = () => {
     if (!approveFor) return;
@@ -169,7 +175,7 @@ export default function InrDepositsPage() {
                     description={search || tab !== "all" ? "Filter adjust karein." : "Abhi tak koi INR deposit nahi aaya."} />
                 </td></tr>
               )}
-              {!isLoading && filtered.map((d) => {
+              {!isLoading && paged.map((d) => {
                 const gw = gwById.get(d.gatewayId);
                 return (
                   <tr key={d.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-deposit-${d.id}`}>
@@ -205,13 +211,7 @@ export default function InrDepositsPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-          <div>{filtered.length} of {deposits.length} deposits</div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />{stats.pending} pending</span>
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{stats.completed} approved</span>
-          </div>
-        </div>
+        <PaginationBar page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={setPageSize} label="deposits" />
       </div>
 
       <Dialog open={!!approveFor} onOpenChange={(o) => !o && setApproveFor(null)}>

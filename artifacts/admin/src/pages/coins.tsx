@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -115,6 +116,8 @@ export default function CoinsPage() {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Coin | null>(null);
   const [deleteFor, setDeleteFor] = useState<Coin | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
 
   const { data = [], isLoading, refetch, isFetching } = useQuery<Coin[]>({
     queryKey: ["/admin/coins"],
@@ -185,6 +188,14 @@ export default function CoinsPage() {
       return fields.includes(q);
     });
   }, [data, tab, search]);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1); }, [tab, search, pageSize]);
+
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize],
+  );
 
   return (
     <div className="space-y-6">
@@ -310,7 +321,7 @@ export default function CoinsPage() {
                   </td>
                 </tr>
               )}
-              {!isLoading && filtered.map((c) => {
+              {!isLoading && paged.map((c) => {
                 const change = Number(c.change24h);
                 const up = change >= 0;
                 const isUpcoming = c.listingAt && new Date(c.listingAt).getTime() > Date.now();
@@ -398,13 +409,14 @@ export default function CoinsPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-          <div>{filtered.length} of {data.length} coins</div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {stats.gainers} up</span>
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /> {stats.losers} down</span>
-          </div>
-        </div>
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={filtered.length}
+          onPage={setPage}
+          onPageSize={setPageSize}
+          label="coins"
+        />
       </div>
 
       {/* Add coin */}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, post, ApiError } from "@/lib/api";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/premium/PageHeader";
@@ -66,6 +67,10 @@ export default function OrdersPage() {
   // Force-cancel state — only one order can be in the confirm dialog at a time
   const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersPageSize, setOrdersPageSize] = useState<PageSizeOption>(20);
+  const [tradesPage, setTradesPage] = useState(1);
+  const [tradesPageSize, setTradesPageSize] = useState<PageSizeOption>(20);
   const { user: me } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -102,6 +107,15 @@ export default function OrdersPage() {
 
   const pairById = useMemo(() => new Map(pairs.map((p) => [p.id, p.symbol])), [pairs]);
   const filledValue = stats ? Number(stats.filled_value).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0";
+
+  const pagedOrders = useMemo(
+    () => orders.slice((ordersPage - 1) * ordersPageSize, ordersPage * ordersPageSize),
+    [orders, ordersPage, ordersPageSize],
+  );
+  const pagedTrades = useMemo(
+    () => trades.slice((tradesPage - 1) * tradesPageSize, tradesPage * tradesPageSize),
+    [trades, tradesPage, tradesPageSize],
+  );
 
   // Force-cancel mutation — admin-only on backend, but we still gate the UI
   // by role to avoid showing a button that always 403s. Invalidate orders +
@@ -245,7 +259,7 @@ export default function OrdersPage() {
                   {!ordersLoading && orders.length === 0 && (
                     <tr><td colSpan={canCancel ? 12 : 11} className="px-4 py-3"><EmptyState icon={ArrowDownUp} title="No orders" description="Filter adjust karein ya wait for trades." /></td></tr>
                   )}
-                  {!ordersLoading && orders.map((o) => (
+                  {!ordersLoading && pagedOrders.map((o) => (
                     <tr key={o.id} className="hover:bg-muted/20 transition-colors" data-testid={`order-${o.id}`}>
                       <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" title={o.uid}>{(o.uid || `#${o.id}`).slice(0, 10)}…</td>
                       <td className="px-4 py-3 font-mono font-bold">{pairById.get(o.pairId) ?? `#${o.pairId}`}</td>
@@ -295,12 +309,14 @@ export default function OrdersPage() {
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-              <div>{orders.length} orders shown · auto-refresh 4s</div>
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Vol ≈ {filledValue}</span>
-              </div>
-            </div>
+            <PaginationBar
+              page={ordersPage}
+              pageSize={ordersPageSize}
+              total={orders.length}
+              onPage={setOrdersPage}
+              onPageSize={setOrdersPageSize}
+              label="orders"
+            />
           </div>
         </TabsContent>
 
@@ -328,7 +344,7 @@ export default function OrdersPage() {
                   {!tradesLoading && trades.length === 0 && (
                     <tr><td colSpan={9} className="px-4 py-3"><EmptyState icon={Activity} title="No trades yet" description="Filter adjust karein ya market activity ka wait karein." /></td></tr>
                   )}
-                  {!tradesLoading && trades.map((t) => (
+                  {!tradesLoading && pagedTrades.map((t) => (
                     <tr key={t.id} className="hover:bg-muted/20 transition-colors" data-testid={`trade-${t.id}`}>
                       <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" title={t.uid}>{(t.uid || `#${t.id}`).slice(0, 10)}…</td>
                       <td className="px-4 py-3 font-mono font-bold">{pairById.get(t.pairId) ?? `#${t.pairId}`}</td>
@@ -348,9 +364,14 @@ export default function OrdersPage() {
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground bg-muted/10">
-              {trades.length} trades shown · auto-refresh 4s
-            </div>
+            <PaginationBar
+              page={tradesPage}
+              pageSize={tradesPageSize}
+              total={trades.length}
+              onPage={setTradesPage}
+              onPageSize={setTradesPageSize}
+              label="trades"
+            />
           </div>
         </TabsContent>
       </Tabs>

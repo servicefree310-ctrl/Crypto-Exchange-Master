@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, post, patch, del } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,11 +57,15 @@ export default function ListingsAdminPage() {
   // ---- Candidates ----
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [searchQ, setSearchQ] = useState("");
+  const [candPage, setCandPage] = useState(1);
+  const [candPageSize, setCandPageSize] = useState<PageSizeOption>(20);
   const candQ = useQuery<{ candidates: Candidate[]; stats: Array<{ s: string; n: number }> }>({
     queryKey: ["admin-listings-candidates", statusFilter, searchQ],
     queryFn: () => get(`/api/admin/listings/candidates?status=${encodeURIComponent(statusFilter)}&search=${encodeURIComponent(searchQ)}&limit=200`),
   });
   const stats = (candQ.data?.stats ?? []).reduce((a, r) => ({ ...a, [r.s]: r.n }), {} as Record<string, number>);
+  const allCandidates = candQ.data?.candidates ?? [];
+  const pagedCandidates = useMemo(() => allCandidates.slice((candPage - 1) * candPageSize, candPage * candPageSize), [allCandidates, candPage, candPageSize]);
 
   const approve = useMutation({
     mutationFn: (vars: { id: number; target: "spot" | "web3" }) => post(`/api/admin/listings/candidates/${vars.id}/approve`, { target: vars.target, createPair: true }),
@@ -158,7 +163,7 @@ export default function ListingsAdminPage() {
             {candQ.isFetching && <span className="text-xs text-muted-foreground">Loading…</span>}
           </div>
 
-          {!candQ.data?.candidates?.length ? (
+          {!allCandidates.length ? (
             <EmptyState icon={Radar} title="No candidates" description="Run discovery or change filter." />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-border/40">
@@ -178,7 +183,7 @@ export default function ListingsAdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {candQ.data.candidates.map((c) => {
+                  {pagedCandidates.map((c) => {
                     const change = Number(c.priceChange24h);
                     const riskColor = c.riskScore >= 80 ? "rose" : c.riskScore >= 50 ? "amber" : "emerald";
                     const isWeb3 = !!c.chain && !!c.contractAddress;
@@ -225,6 +230,7 @@ export default function ListingsAdminPage() {
                   })}
                 </tbody>
               </table>
+              <PaginationBar page={candPage} pageSize={candPageSize} total={allCandidates.length} onPage={setCandPage} onPageSize={setCandPageSize} label="candidates" />
             </div>
           )}
         </TabsContent>

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,6 +69,8 @@ export default function PairsPage() {
   const [edit, setEdit] = useState<Pair | null>(null);
   const [deleteFor, setDeleteFor] = useState<Pair | null>(null);
   const [, setTick] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
 
   const { data: coins = [] } = useQuery<Coin[]>({ queryKey: ["/admin/coins"], queryFn: () => get<Coin[]>("/admin/coins") });
@@ -123,6 +126,14 @@ export default function PairsPage() {
       return [p.symbol, b, qc, String(p.id)].join(" ").toUpperCase().includes(q);
     });
   }, [data, tab, search, coinById]);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1); }, [tab, search, pageSize]);
+
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize],
+  );
 
   return (
     <div className="space-y-6">
@@ -202,7 +213,7 @@ export default function PairsPage() {
                   </td>
                 </tr>
               )}
-              {!isLoading && filtered.map((p) => {
+              {!isLoading && paged.map((p) => {
                 const change = Number(p.change24h);
                 const up = change >= 0;
                 const base = coinById.get(p.baseCoinId)?.symbol ?? "?";
@@ -292,13 +303,14 @@ export default function PairsPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border/60 px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
-          <div>{filtered.length} of {data.length} pairs</div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1"><Activity className="w-3 h-3" /> {stats.spot} spot</span>
-            <span className="inline-flex items-center gap-1"><TrendingUp className="w-3 h-3" /> {stats.futures} futures</span>
-          </div>
-        </div>
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={filtered.length}
+          onPage={setPage}
+          onPageSize={setPageSize}
+          label="pairs"
+        />
       </div>
 
       {isAdmin && (

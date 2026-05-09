@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, patch, post } from "@/lib/api";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -98,6 +99,8 @@ export default function UsersPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterKyc, setFilterKyc] = useState<string>("all");
   const [filterVerify, setFilterVerify] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
   const isAdmin = me?.role === "admin" || me?.role === "superadmin";
 
   const { data = [], isLoading, refetch, isFetching } = useQuery<User[]>({
@@ -117,6 +120,14 @@ export default function UsersPage() {
       return true;
     });
   }, [data, filterRole, filterStatus, filterKyc, filterVerify]);
+
+  // Reset to page 1 whenever filters or page size change
+  useEffect(() => { setPage(1); }, [search, filterRole, filterStatus, filterKyc, filterVerify, pageSize]);
+
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize],
+  );
 
   const stats = useMemo(() => {
     const total = data.length;
@@ -293,7 +304,7 @@ export default function UsersPage() {
                     </TableCell>
                   </TableRow>
                 )}
-                {filtered.map((u) => (
+                {paged.map((u) => (
                   <TableRow
                     key={u.id}
                     className="cursor-pointer hover:bg-amber-500/5 border-border/40"
@@ -422,6 +433,14 @@ export default function UsersPage() {
               </TableBody>
             </Table>
           </div>
+          <PaginationBar
+            page={page}
+            pageSize={pageSize}
+            total={filtered.length}
+            onPage={setPage}
+            onPageSize={setPageSize}
+            label="users"
+          />
         </Card>
 
         <UserDossierSheet

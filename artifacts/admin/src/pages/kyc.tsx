@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { get, patch, post } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/premium/PageHeader";
 import { PremiumStatCard } from "@/components/premium/PremiumStatCard";
 import { StatusPill } from "@/components/premium/StatusPill";
 import { EmptyState } from "@/components/premium/EmptyState";
+import { PaginationBar, type PageSizeOption } from "@/components/premium/PaginationBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -113,6 +114,8 @@ export default function KycPage() {
   const [search, setSearch] = useState("");
   const [openUserId, setOpenUserId] = useState<number | null>(null);
   const [highlightRecordId, setHighlightRecordId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(20);
 
   const { data: records = [], isLoading } = useQuery<KycRecord[]>({
     queryKey: ["/admin/kyc", tab],
@@ -164,6 +167,9 @@ export default function KycPage() {
       r.aadhaarNumber?.includes(q),
     );
   }, [records, search]);
+
+  useEffect(() => { setPage(1); }, [tab, search, pageSize]);
+  const paged = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   const openRecord = (r: KycRecord) => {
     setHighlightRecordId(r.id);
@@ -222,9 +228,12 @@ export default function KycPage() {
                 description={search ? "Try a different name, PAN or user ID." : "Submissions will appear here as users complete their KYC."}
               />
             ) : (
-              filtered.map((r) => (
-                <ReviewRow key={r.id} record={r} onOpen={() => openRecord(r)} />
-              ))
+              <>
+                {paged.map((r) => (
+                  <ReviewRow key={r.id} record={r} onOpen={() => openRecord(r)} />
+                ))}
+                <PaginationBar page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={setPageSize} label="submissions" />
+              </>
             )}
           </TabsContent>
         ))}
