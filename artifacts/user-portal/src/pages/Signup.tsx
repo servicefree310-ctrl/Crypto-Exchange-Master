@@ -183,10 +183,7 @@ export default function Signup() {
       const payload: any = {
         email: data.email.trim(),
         password: data.password,
-        // backend uses `name`, but the auth lib forwards whatever we send
-        // and our user.fullName is mapped server-side from `name`
         name: data.fullName.trim(),
-        fullName: data.fullName.trim(),
       };
       if (data.phone.trim()) payload.phone = data.phone.trim();
       if (data.referralCode.trim()) {

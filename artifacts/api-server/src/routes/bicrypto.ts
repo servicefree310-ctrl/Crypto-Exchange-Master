@@ -226,8 +226,12 @@ r.post("/auth/login/flutter", async (req, res): Promise<void> => {
   res.json({ message: "Login successful", cookies: bundle, user: userToBicrypto(user) });
 });
 
-r.post("/auth/register", async (req, res): Promise<void> => {
+r.post("/auth/register", async (req, res, next): Promise<void> => {
   const { firstName, lastName, email, password, ref, powSolution } = req.body ?? {};
+  // If no PoW solution is present this is a web-portal (non-Flutter) request —
+  // fall through to the regular authRouter which handles it with full
+  // policy/OTP support and strict Zod validation.
+  if (!powSolution) { next(); return; }
   if (!email || !password || password.length < 6) {
     res.status(400).json({ message: "Email and a 6+ char password are required" }); return;
   }
