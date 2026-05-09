@@ -16,6 +16,8 @@ if [ -f "build/web/index.html" ] && [ -f "build/web/main.dart.js" ]; then
 fi
 
 if [ "$NEED_BUILD" = "1" ]; then
+  echo "[dev.sh] Installing Flutter dependencies..."
+  flutter pub get
   echo "[dev.sh] Building Flutter web release (base=$BASE)..."
   flutter build web --release --base-href "$BASE" --no-tree-shake-icons
 fi
