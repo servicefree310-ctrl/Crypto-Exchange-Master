@@ -197,16 +197,10 @@ const navItems: NavEntry[] = [
       "/leagues": (f) => f.showLeagues,
     },
   },
-  { kind: "link", href: "/web3",     label: "Web3",     icon: Globe2, match: (l) => l.startsWith("/web3"),     badge: "NEW", badgeTone: "new", priority: 2 },
-  { kind: "link", href: "/discover", label: "Discover", icon: Radar,  match: (l) => l.startsWith("/discover"), badge: "HOT", badgeTone: "hot", priority: 2 },
+  { kind: "link", href: "/web3", label: "Web3", icon: Globe2, match: (l) => l.startsWith("/web3"), badge: "NEW", badgeTone: "new", priority: 2 },
 ];
 
-const userNavItems: NavEntry[] = [
-  { kind: "link", href: "/dashboard",    label: "Dashboard", icon: LayoutDashboard, match: (l) => l === "/dashboard",          badge: "PRO", badgeTone: "new", priority: 2 },
-  { kind: "link", href: "/wallet",       label: "Wallet",    icon: WalletIcon,      match: (l) => l === "/wallet",                                              priority: 2 },
-  { kind: "link", href: "/bots",         label: "Bots",      icon: BotIcon,         match: (l) => l.startsWith("/bots"),        badge: "NEW", badgeTone: "new", priority: 2 },
-  { kind: "link", href: "/copy-trading", label: "Copy",      icon: Star,            match: (l) => l.startsWith("/copy-trading"),                                priority: 2 },
-];
+const userNavItems: NavEntry[] = [];
 
 type FeatureGate = (f: ReturnType<typeof useFeatures>) => boolean;
 
@@ -221,6 +215,18 @@ type MoreSection = { id: string; label: string; icon: LucideIcon; items: MoreIte
 type MoreSectionDef = MoreSection & { gate?: FeatureGate; itemGates?: Record<string, FeatureGate> };
 
 const MORE_MENU: MoreSectionDef[] = [
+  {
+    id: "explore",
+    label: "Explore",
+    icon: Compass,
+    items: [
+      { href: "/discover",   label: "Discover",        desc: "Explore trending tokens, new listings and hidden gems", icon: Radar,          badge: "HOT" },
+      { href: "/dashboard",  label: "Dashboard",       desc: "Your personalised trading overview and portfolio stats", icon: LayoutDashboard, badge: "PRO" },
+      { href: "/wallet",     label: "Wallet",          desc: "View balances, deposit and withdraw funds",              icon: WalletIcon },
+      { href: "/bots",       label: "Trading Bots",    desc: "Automate your trading strategy with AI-powered bots",   icon: BotIcon,        badge: "NEW" },
+      { href: "/copy-trading", label: "Copy Trading",  desc: "Mirror top traders and grow your portfolio effortlessly", icon: Star },
+    ],
+  },
   {
     id: "tools",
     label: "Tools",
@@ -238,12 +244,12 @@ const MORE_MENU: MoreSectionDef[] = [
     label: "Promotion",
     icon: Gift,
     items: [
-      { href: "/announcements", label: "Announcements", desc: "Stay updated with the latest news and updates", icon: Megaphone },
-      { href: "/news",          label: "News & Insights", desc: "Market analysis, product launches and tutorials", icon: Sparkles },
+      { href: "/announcements", label: "Announcements",  desc: "Stay updated with the latest news and updates",       icon: Megaphone },
+      { href: "/news",          label: "News & Insights", desc: "Market analysis, product launches and tutorials",    icon: Sparkles },
     ],
     itemGates: {
       "/announcements": (f) => f.showAnnouncements,
-      "/news": (f) => f.showNews,
+      "/news":          (f) => f.showNews,
     },
   },
 ];
