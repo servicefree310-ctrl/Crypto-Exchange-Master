@@ -5,6 +5,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import pinoHttp from "pino-http";
+import { resolve, join } from "node:path";
 import router from "./routes";
 import webhooksRouter from "./routes/webhooks";
 import { logger } from "./lib/logger";
@@ -338,6 +339,26 @@ app.use("/api/orders", (req, res, next) => {
 app.use("/api", globalLimiter);
 
 app.use("/api", router);
+
+// ─── Static frontend serving (production only) ────────────────────────────
+// In production a single Express process serves both built SPAs so no
+// separate Vite preview server is needed. The working directory is expected
+// to be artifacts/api-server/ (the production run command sets it with `cd`).
+if (process.env["NODE_ENV"] === "production") {
+  const cwd = process.cwd(); // artifacts/api-server/
+
+  const userDist = resolve(cwd, "../user-portal/dist/public");
+  app.use("/user", express.static(userDist, { index: false }));
+  app.get("/user", (_req: Request, res: Response) => res.sendFile(join(userDist, "index.html")));
+  app.get("/user/*", (_req: Request, res: Response) => res.sendFile(join(userDist, "index.html")));
+
+  const adminDist = resolve(cwd, "../admin/dist/public");
+  app.use("/admin", express.static(adminDist, { index: false }));
+  app.get("/admin", (_req: Request, res: Response) => res.sendFile(join(adminDist, "index.html")));
+  app.get("/admin/*", (_req: Request, res: Response) => res.sendFile(join(adminDist, "index.html")));
+
+  logger.info({ userDist, adminDist }, "Production static frontend serving enabled");
+}
 
 // Global error handler — last in the chain. Logs everything, never
 // leaks stack traces back to clients.

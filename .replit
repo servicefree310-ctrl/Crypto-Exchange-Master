@@ -2,7 +2,9 @@ modules = ["nodejs-24", "go-1.21", "python-3.11", "postgresql-16"]
 
 [deployment]
 router = "application"
-deploymentTarget = "autoscale"
+deploymentTarget = "vm"
+run = ["bash", "-c", "cd artifacts/api-server && PORT=3000 BASE_PATH=/api/ NODE_ENV=production node --enable-source-maps ./dist/index.mjs"]
+build = ["bash", "build-prod.sh"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -186,3 +188,6 @@ GO_SERVICE_URL = "http://127.0.0.1:23004"
 LOG_LEVEL = "info"
 LEADER_SINGLE_INSTANCE_FALLBACK = "true"
 REDIS_SERVER_BIN = "/nix/store/mx6ib31vd9m6rcabnv9h27zx7kqibkng-redis-7.2.4/bin/redis-server"
+
+[userenv.production]
+CORS_ORIGINS = "https://workspace.servicefree310.replit.app"
