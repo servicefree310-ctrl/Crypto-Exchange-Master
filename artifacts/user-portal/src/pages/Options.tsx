@@ -59,18 +59,18 @@ export default function OptionsPage() {
 
   const contractsQ = useQuery<{ contracts: Contract[] }>({
     queryKey: ["options-contracts", underlying],
-    queryFn: () => get(`/api/options/contracts?underlying=${encodeURIComponent(underlying)}`),
+    queryFn: () => get(`/options/contracts?underlying=${encodeURIComponent(underlying)}`),
     refetchInterval: 5_000,
   });
   const positionsQ = useQuery<{ positions: Position[] }>({
     queryKey: ["options-positions"],
-    queryFn: () => get(`/api/options/positions`),
+    queryFn: () => get(`/options/positions`),
     enabled: !!user,
     refetchInterval: 5_000,
   });
   const historyQ = useQuery<{ orders: OrderRow[] }>({
     queryKey: ["options-history"],
-    queryFn: () => get(`/api/options/orders/history?limit=50`),
+    queryFn: () => get(`/options/orders/history?limit=50`),
     enabled: !!user && tab === "history",
   });
 
@@ -103,7 +103,7 @@ export default function OptionsPage() {
 
   const placeOrder = useMutation({
     mutationFn: (vars: { contractId: number; side: "buy" | "sell"; qty: number }) =>
-      post(`/api/options/orders`, vars),
+      post(`/options/orders`, vars),
     onSuccess: () => {
       toast({ title: "Order filled", description: "Position update ho gayi hai" });
       setTicket(null); setQty("0.1");
@@ -114,7 +114,7 @@ export default function OptionsPage() {
   });
 
   const closePosition = useMutation({
-    mutationFn: (id: number) => post(`/api/options/positions/${id}/close`, {}),
+    mutationFn: (id: number) => post(`/options/positions/${id}/close`, {}),
     onSuccess: (r: any) => {
       toast({
         title: "Position closed",

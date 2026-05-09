@@ -48,7 +48,7 @@ export default function Web3Page() {
 
   const [tab, setTab] = useState<"swap" | "bridge" | "wallets" | "history">("swap");
 
-  const networksQ = useQuery<{ networks: Network[] }>({ queryKey: ["web3-networks"], queryFn: () => get(`/api/web3/networks`) });
+  const networksQ = useQuery<{ networks: Network[] }>({ queryKey: ["web3-networks"], queryFn: () => get(`/web3/networks`) });
   const networks = networksQ.data?.networks ?? [];
 
   // ─── Swap state ────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ export default function Web3Page() {
   useEffect(() => { if (!swapNetId && networks.length) setSwapNetId(networks[0].id); }, [networks, swapNetId]);
   const tokensQ = useQuery<{ tokens: Token[] }>({
     queryKey: ["web3-tokens", swapNetId],
-    queryFn: () => get(`/api/web3/tokens?networkId=${swapNetId}`),
+    queryFn: () => get(`/web3/tokens?networkId=${swapNetId}`),
     enabled: !!swapNetId,
   });
   const tokens = tokensQ.data?.tokens ?? [];
@@ -77,7 +77,7 @@ export default function Web3Page() {
 
   const swapQuoteQ = useQuery({
     queryKey: ["web3-swap-quote", swapNetId, fromTokId, toTokId, swapAmount, slippageBps],
-    queryFn: () => post(`/api/web3/quote`, {
+    queryFn: () => post(`/web3/quote`, {
       networkId: swapNetId, fromTokenId: fromTokId, toTokenId: toTokId,
       fromAmount: Number(swapAmount), slippageBps,
     }) as Promise<any>,
@@ -86,7 +86,7 @@ export default function Web3Page() {
   });
 
   const doSwap = useMutation({
-    mutationFn: () => post(`/api/web3/swap`, {
+    mutationFn: () => post(`/web3/swap`, {
       networkId: swapNetId, fromTokenId: fromTokId, toTokenId: toTokId,
       fromAmount: Number(swapAmount), slippageBps,
     }),
@@ -111,7 +111,7 @@ export default function Web3Page() {
 
   const bridgeQuoteQ = useQuery({
     queryKey: ["web3-bridge-quote", brFrom, brTo, brToken, brAmt],
-    queryFn: () => post(`/api/web3/bridge/quote`, {
+    queryFn: () => post(`/web3/bridge/quote`, {
       fromNetworkId: brFrom, toNetworkId: brTo, tokenSymbol: brToken, fromAmount: Number(brAmt),
     }) as Promise<any>,
     enabled: !!brFrom && !!brTo && brFrom !== brTo && !!brToken && Number(brAmt) > 0,
@@ -119,7 +119,7 @@ export default function Web3Page() {
   });
 
   const doBridge = useMutation({
-    mutationFn: () => post(`/api/web3/bridge`, {
+    mutationFn: () => post(`/web3/bridge`, {
       fromNetworkId: brFrom, toNetworkId: brTo, tokenSymbol: brToken, fromAmount: Number(brAmt),
     }),
     onSuccess: () => {
@@ -131,20 +131,20 @@ export default function Web3Page() {
 
   // ─── Wallets / History ─────────────────────────────────────────────────────
   const walletsQ = useQuery<{ wallets: Wallet[] }>({
-    queryKey: ["web3-wallets"], queryFn: () => get(`/api/web3/wallets`), enabled: !!user,
+    queryKey: ["web3-wallets"], queryFn: () => get(`/web3/wallets`), enabled: !!user,
   });
   const swapsQ = useQuery<{ swaps: SwapRow[] }>({
-    queryKey: ["web3-swaps"], queryFn: () => get(`/api/web3/swaps?limit=50`), enabled: !!user && tab === "history",
+    queryKey: ["web3-swaps"], queryFn: () => get(`/web3/swaps?limit=50`), enabled: !!user && tab === "history",
   });
   const bridgesQ = useQuery<{ bridges: BridgeRow[] }>({
-    queryKey: ["web3-bridges"], queryFn: () => get(`/api/web3/bridges?limit=50`), enabled: !!user && tab === "history",
+    queryKey: ["web3-bridges"], queryFn: () => get(`/web3/bridges?limit=50`), enabled: !!user && tab === "history",
   });
 
   const [newWallet, setNewWallet] = useState({ networkId: 0, address: "", label: "" });
   useEffect(() => { if (!newWallet.networkId && networks.length) setNewWallet((p) => ({ ...p, networkId: networks[0].id })); }, [networks, newWallet.networkId]);
 
   const addWallet = useMutation({
-    mutationFn: () => post(`/api/web3/wallets`, newWallet),
+    mutationFn: () => post(`/web3/wallets`, newWallet),
     onSuccess: () => {
       toast({ title: "Wallet added", description: "Address track ho rahi hai" });
       setNewWallet({ ...newWallet, address: "", label: "" });
@@ -154,7 +154,7 @@ export default function Web3Page() {
   });
 
   const removeWallet = useMutation({
-    mutationFn: (id: number) => del(`/api/web3/wallets/${id}`),
+    mutationFn: (id: number) => del(`/web3/wallets/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["web3-wallets"] }),
   });
 
