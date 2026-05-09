@@ -756,6 +756,24 @@ export function AppHeader() {
             isAuthed={!!user}
           />
 
+          {/* KYC Verify shortcut — visible in header for unverified logged-in users */}
+          {user && (user.kycLevel ?? 0) < 3 && (
+            <Link href="/kyc">
+              <Button
+                size="sm"
+                variant="outline"
+                className={`hidden sm:flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border transition-all ${
+                  (user.kycLevel ?? 0) === 0
+                    ? "border-amber-500/70 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 animate-pulse"
+                    : "border-sky-500/50 text-sky-400 bg-sky-500/10 hover:bg-sky-500/20"
+                }`}
+              >
+                <Shield className="h-3.5 w-3.5" />
+                {(user.kycLevel ?? 0) === 0 ? "Verify KYC" : `KYC L${user.kycLevel}`}
+              </Button>
+            </Link>
+          )}
+
           {user ? (
             <>
               {/* User menu — icon-only avatar */}
