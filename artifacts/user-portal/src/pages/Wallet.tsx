@@ -1223,7 +1223,9 @@ function DepositDialog({
     refetchOnReconnect: false,
   });
 
-  const networks: NetworkRow[] = detailsQ.data?.networks ?? [];
+  const networks: NetworkRow[] = (detailsQ.data?.networks ?? []).filter(
+    n => !["TRX","TRON","TRC20"].includes(n.chain.toUpperCase()) && n.name.toUpperCase() !== "TRC20",
+  );
 
   useEffect(() => {
     if (networks.length > 0) {
