@@ -1154,6 +1154,32 @@ function TxTypeBadge({ type }: { type: "DEPOSIT" | "WITHDRAW" | "TRADE" }) {
 // ──────────────────────────────────────────────────────────────────
 // Deposit dialog
 // ──────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
+// Network branding helpers
+// ──────────────────────────────────────────────────────────────────
+type NetBrand = { color: string; bg: string; border: string; label: string; badge: string; time: string };
+function netBrand(chain: string): NetBrand {
+  const c = chain.toUpperCase();
+  if (c === "BNB" || c === "BSC")
+    return { color: "#F0B90B", bg: "rgba(240,185,11,0.1)", border: "rgba(240,185,11,0.35)", label: "BNB Smart Chain", badge: "BEP20", time: "~3 min" };
+  if (c === "ETH")
+    return { color: "#627EEA", bg: "rgba(98,126,234,0.1)", border: "rgba(98,126,234,0.35)", label: "Ethereum", badge: "ERC20", time: "~3 min" };
+  if (c === "TRX" || c === "TRON")
+    return { color: "#EF0027", bg: "rgba(239,0,39,0.1)", border: "rgba(239,0,39,0.35)", label: "Tron Network", badge: "TRC20", time: "~1 min" };
+  if (c === "BTC" || c === "BITCOIN")
+    return { color: "#F7931A", bg: "rgba(247,147,26,0.1)", border: "rgba(247,147,26,0.35)", label: "Bitcoin", badge: "Native", time: "~30 min" };
+  if (c === "SOL" || c === "SOLANA")
+    return { color: "#9945FF", bg: "rgba(153,69,255,0.1)", border: "rgba(153,69,255,0.35)", label: "Solana", badge: "SPL", time: "~30 sec" };
+  if (c === "POLYGON" || c === "MATIC")
+    return { color: "#8247E5", bg: "rgba(130,71,229,0.1)", border: "rgba(130,71,229,0.35)", label: "Polygon", badge: "Polygon", time: "~2 min" };
+  return { color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.35)", label: chain, badge: chain, time: "~5 min" };
+}
+const EVM_CHAINS = new Set(["ETH","BNB","BSC","POLYGON","MATIC","ARBITRUM","BASE","AVAX","OP","OPTIMISM"]);
+function isEvmChain(chain: string) { return EVM_CHAINS.has(chain.toUpperCase()); }
+
+// ──────────────────────────────────────────────────────────────────
+// DepositDialog — premium professional redesign
+// ──────────────────────────────────────────────────────────────────
 function DepositDialog({
   open, onClose, initialCurrency, initialType, allItems,
 }: {
@@ -1161,12 +1187,10 @@ function DepositDialog({
 }) {
   const [type, setType] = useState<WalletType>(initialType === "FIAT" ? "FIAT" : "SPOT");
   const [currency, setCurrency] = useState(initialCurrency);
-  const [network, setNetwork] = useState("TRC20");
+  const [selectedChain, setSelectedChain] = useState("");
   const [copied, setCopied] = useState(false);
+  const [addrExpanded, setAddrExpanded] = useState(false);
 
-  // Source of truth for enabled coins: server already filters by isListed.
-  // We additionally filter to only those with >=1 deposit-enabled active network
-  // by asking /finance/currency/spot?action=deposit which trims accordingly.
   const enabledQ = useQuery<{ currency: string; name?: string; networks: string[] }[]>({
     queryKey: ["enabled-coins", type === "FIAT" ? "fiat" : "spot", "deposit"],
     queryFn: () => get(`/finance/currency/${type === "FIAT" ? "fiat" : "spot"}?action=deposit`),
@@ -1184,34 +1208,54 @@ function DepositDialog({
     if (currencies.length > 0 && !currencies.includes(currency)) setCurrency(currencies[0]);
   }, [currencies, currency]);
 
-  const detailsQ = useQuery<{ networks?: { chain: string; address: string; minWithdraw?: number; fee?: number }[] }>({
+  type NetworkRow = {
+    id: number; chain: string; name: string; fee: number;
+    minWithdraw: number; minDeposit: number; confirmations: number;
+    memoRequired: boolean; address: string; memo: string | null; isEvm?: boolean;
+  };
+  const detailsQ = useQuery<{ networks?: NetworkRow[] }>({
     queryKey: ["deposit-details", type, currency],
     queryFn: () => get(`/finance/currency/${type === "FIAT" ? "fiat" : "spot"}/${currency}?action=deposit`),
     enabled: open && type !== "FIAT" && !!currency,
     retry: 1,
-    // Pin the deposit address for the lifetime of the dialog session so the
-    // displayed address doesn't churn on window-focus/stale refetches.
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 
-  const networks = detailsQ.data?.networks ?? [];
-  const activeNet = networks.find(n => n.chain.toUpperCase() === network.toUpperCase()) || networks[0];
+  const networks: NetworkRow[] = detailsQ.data?.networks ?? [];
 
   useEffect(() => {
-    if (networks.length > 0 && !networks.find(n => n.chain.toUpperCase() === network.toUpperCase())) {
-      setNetwork(networks[0].chain);
+    if (networks.length > 0) {
+      const found = networks.find(n => n.chain.toUpperCase() === selectedChain.toUpperCase());
+      if (!found) setSelectedChain(networks[0].chain);
     }
-  }, [networks, network]);
+  }, [networks, selectedChain]);
+
+  const activeNet = networks.find(n => n.chain.toUpperCase() === selectedChain.toUpperCase()) ?? networks[0] ?? null;
+  const brand = activeNet ? netBrand(activeNet.chain) : null;
+  const isEvmSelected = activeNet ? isEvmChain(activeNet.chain) : false;
+
+  // Count how many EVM networks exist for this coin
+  const evmNets = networks.filter(n => isEvmChain(n.chain));
+  const showEvmUniversalBadge = isEvmSelected && evmNets.length >= 2;
 
   const copyAddr = async () => {
     if (!activeNet?.address) return;
     try {
       await navigator.clipboard.writeText(activeNet.address);
       setCopied(true);
-      toast.success("Address copied");
-      setTimeout(() => setCopied(false), 1500);
+      toast.success("Address copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Copy failed — please copy manually");
+    }
+  };
+
+  const copyMemo = async (memo: string) => {
+    try {
+      await navigator.clipboard.writeText(memo);
+      toast.success("Memo copied");
     } catch {
       toast.error("Copy failed");
     }
@@ -1219,101 +1263,288 @@ function DepositDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ArrowDownToLine className="h-5 w-5 text-emerald-400" /> Deposit funds
+      <DialogContent className="max-w-[520px] p-0 overflow-hidden gap-0">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-border/50">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
+              <ArrowDownToLine className="h-4 w-4 text-emerald-400" />
+            </div>
+            Deposit Funds
           </DialogTitle>
-          <DialogDescription>
-            {type === "FIAT" ? "Bank transfer instructions for INR deposits." : "Send only the selected asset on the selected network. Anything else will be lost."}
+          <DialogDescription className="text-xs text-muted-foreground mt-1 ml-10">
+            {type === "FIAT" ? "Bank / UPI transfer instructions for INR deposits." : "Send crypto to your personal deposit address below."}
           </DialogDescription>
-        </DialogHeader>
+        </div>
 
-        <div className="space-y-4">
-          <Tabs value={type} onValueChange={(v) => setType(v as WalletType)}>
-            <TabsList className="grid grid-cols-2 w-full">
-              <TabsTrigger value="SPOT" data-testid="tab-deposit-crypto">Crypto</TabsTrigger>
-              <TabsTrigger value="FIAT" data-testid="tab-deposit-fiat">INR (Fiat)</TabsTrigger>
+        <div className="px-6 py-5 space-y-5 max-h-[76vh] overflow-y-auto">
+          {/* Mode tabs */}
+          <Tabs value={type} onValueChange={(v) => { setType(v as WalletType); setSelectedChain(""); }}>
+            <TabsList className="grid grid-cols-2 w-full h-9">
+              <TabsTrigger value="SPOT" className="text-xs font-medium" data-testid="tab-deposit-crypto">Crypto</TabsTrigger>
+              <TabsTrigger value="FIAT" className="text-xs font-medium" data-testid="tab-deposit-fiat">INR (Fiat)</TabsTrigger>
             </TabsList>
           </Tabs>
 
           {type !== "FIAT" ? (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Coin</label>
-                  <Select value={currency} onValueChange={setCurrency}>
-                    <SelectTrigger className="h-10" data-testid="select-deposit-coin"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {currencies.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Network</label>
-                  <Select value={network} onValueChange={setNetwork} disabled={networks.length === 0}>
-                    <SelectTrigger className="h-10" data-testid="select-deposit-network">
-                      <SelectValue placeholder={detailsQ.isLoading ? "Loading…" : "Select"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {networks.map(n => <SelectItem key={n.chain} value={n.chain}>{n.chain}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+              {/* Coin selector */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">Select Coin</label>
+                <Select value={currency} onValueChange={(v) => { setCurrency(v); setSelectedChain(""); }}>
+                  <SelectTrigger className="h-11" data-testid="select-deposit-coin">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {currencies.map(c => (
+                      <SelectItem key={c} value={c}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center text-[10px] font-bold text-amber-400">
+                            {c[0]}
+                          </div>
+                          {c}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {detailsQ.isError ? (
-                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-400 flex items-center gap-2">
+              {/* Network cards */}
+              {detailsQ.isLoading ? (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider block">Select Network</label>
+                  {[0,1,2].map(i => (
+                    <div key={i} className="h-16 rounded-xl border border-border bg-muted/20 animate-pulse" />
+                  ))}
+                </div>
+              ) : detailsQ.isError ? (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-400 flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
-                  Failed to load deposit details.
-                  <Button size="sm" variant="outline" className="ml-auto h-7" onClick={() => detailsQ.refetch()}>Retry</Button>
+                  <span className="flex-1">Failed to load networks.</span>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => detailsQ.refetch()}>Retry</Button>
                 </div>
-              ) : activeNet?.address ? (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-border bg-muted/30 p-4">
-                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Deposit Address</div>
-                    <div className="flex items-center gap-2">
-                      <code className="font-mono text-sm break-all flex-1" data-testid="text-deposit-address">{activeNet.address}</code>
-                      <Button size="sm" variant="outline" onClick={copyAddr} data-testid="button-copy-address">
-                        <Copy className="h-3.5 w-3.5 mr-1" />
-                        {copied ? "Copied" : "Copy"}
-                      </Button>
+              ) : networks.length > 0 ? (
+                <>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">Select Network</label>
+                    <div className="space-y-2">
+                      {networks.map(net => {
+                        const b = netBrand(net.chain);
+                        const isActive = net.chain.toUpperCase() === (activeNet?.chain ?? "").toUpperCase();
+                        const isEvm = isEvmChain(net.chain);
+                        return (
+                          <button
+                            key={net.chain}
+                            onClick={() => setSelectedChain(net.chain)}
+                            className={`w-full text-left rounded-xl border p-3.5 transition-all duration-150 ${
+                              isActive
+                                ? "ring-2 ring-offset-0"
+                                : "border-border/50 bg-muted/10 hover:bg-muted/30 hover:border-border"
+                            }`}
+                            style={isActive ? {
+                              borderColor: b.border,
+                              backgroundColor: b.bg,
+                              boxShadow: `0 0 0 2px ${b.color}40`,
+                            } : {}}
+                            data-testid={`net-card-${net.chain}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              {/* Network color dot */}
+                              <div
+                                className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black shrink-0"
+                                style={{ backgroundColor: b.bg, border: `1.5px solid ${b.color}60`, color: b.color }}
+                              >
+                                {net.chain.slice(0, 3).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-semibold">{b.label}</span>
+                                  <span
+                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                                    style={{ backgroundColor: b.bg, border: `1px solid ${b.border}`, color: b.color }}
+                                  >
+                                    {b.badge}
+                                  </span>
+                                  {isEvm && (
+                                    <span className="text-[10px] text-muted-foreground font-medium px-1.5 py-0.5 rounded-md border border-border/50 bg-muted/30">EVM</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground">
+                                  <span>{b.time}</span>
+                                  <span>·</span>
+                                  <span>Fee: {net.fee} {currency}</span>
+                                  <span>·</span>
+                                  <span>Min: {net.minDeposit} {currency}</span>
+                                </div>
+                              </div>
+                              {isActive && (
+                                <CheckCircle2 className="h-4 w-4 shrink-0" style={{ color: b.color }} />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400 flex gap-2">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <div>Send only <strong>{currency}</strong> over <strong>{activeNet.chain}</strong>.</div>
-                      {activeNet.minWithdraw ? <div>Minimum: {activeNet.minWithdraw} {currency}</div> : null}
-                      <div>Funds appear after the network confirms the transaction.</div>
+
+                  {/* Universal EVM address banner */}
+                  {showEvmUniversalBadge && (
+                    <div className="rounded-xl border border-sky-500/30 bg-sky-500/8 p-3.5 flex gap-2.5">
+                      <Sparkles className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
+                      <div className="text-xs text-sky-300 space-y-0.5">
+                        <div className="font-semibold text-sky-200">Universal EVM Address</div>
+                        <div className="text-sky-400/80">This same address works on all EVM networks: Ethereum, BNB Smart Chain, Polygon, Arbitrum, and more. One address, all chains.</div>
+                      </div>
                     </div>
+                  )}
+
+                  {/* Deposit address panel */}
+                  {activeNet?.address && (
+                    <div
+                      className="rounded-xl border p-4 space-y-3"
+                      style={{ borderColor: brand?.border ?? "hsl(var(--border))", backgroundColor: `${brand?.bg ?? ""}` }}
+                    >
+                      {/* Address header */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: brand?.color ?? "#94a3b8" }}>
+                          Your Deposit Address
+                        </span>
+                        <button
+                          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => setAddrExpanded(p => !p)}
+                        >
+                          {addrExpanded ? "Compact" : "Full"}
+                        </button>
+                      </div>
+
+                      {/* Address display */}
+                      <div className="relative group">
+                        <div className="rounded-lg bg-background/60 border border-border/50 p-3 pr-12">
+                          <code
+                            className="font-mono text-xs break-all leading-relaxed select-all"
+                            data-testid="text-deposit-address"
+                          >
+                            {addrExpanded
+                              ? activeNet.address
+                              : activeNet.address.startsWith("0x")
+                                ? activeNet.address.slice(0, 8) + " ···· " + activeNet.address.slice(-8)
+                                : activeNet.address.slice(0, 12) + " ···· " + activeNet.address.slice(-8)
+                            }
+                          </code>
+                        </div>
+                        <button
+                          onClick={copyAddr}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 hover:bg-muted"
+                          style={copied ? { backgroundColor: `${brand?.bg ?? ""}`, color: brand?.color ?? "#10b981" } : {}}
+                          data-testid="button-copy-address"
+                          title="Copy address"
+                        >
+                          {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+                        </button>
+                      </div>
+
+                      {/* Full address (expand mode) */}
+                      {addrExpanded && (
+                        <button
+                          onClick={copyAddr}
+                          className="w-full text-xs font-medium py-2 rounded-lg border transition-colors hover:opacity-80 active:scale-[0.99]"
+                          style={{ borderColor: brand?.border, color: brand?.color, backgroundColor: brand?.bg }}
+                        >
+                          {copied ? <span className="flex items-center justify-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Copied!</span> : "Copy Full Address"}
+                        </button>
+                      )}
+
+                      {/* Memo/Tag if required */}
+                      {activeNet.memoRequired && activeNet.memo && (
+                        <div className="rounded-lg bg-background/60 border border-amber-500/30 p-3">
+                          <div className="text-[10px] uppercase tracking-wider text-amber-500 mb-1 font-semibold">Memo / Tag (Required)</div>
+                          <div className="flex items-center gap-2">
+                            <code className="font-mono text-sm flex-1 text-amber-300">{activeNet.memo}</code>
+                            <button
+                              onClick={() => copyMemo(activeNet.memo!)}
+                              className="w-7 h-7 rounded-md bg-amber-500/20 flex items-center justify-center hover:bg-amber-500/30"
+                            >
+                              <Copy className="h-3.5 w-3.5 text-amber-400" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Network stats */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { label: "Confirmations", value: `${activeNet.confirmations}` },
+                          { label: "Min Deposit", value: `${activeNet.minDeposit} ${currency}` },
+                          { label: "Est. Time", value: brand?.time ?? "~5 min" },
+                        ].map(s => (
+                          <div key={s.label} className="rounded-lg bg-background/40 border border-border/40 px-2.5 py-2 text-center">
+                            <div className="text-[10px] text-muted-foreground mb-0.5">{s.label}</div>
+                            <div className="text-xs font-semibold">{s.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Critical warnings */}
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      Important — read before sending
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-amber-300/80 ml-5 list-disc">
+                      <li>Only send <strong className="text-amber-200">{currency}</strong> via <strong className="text-amber-200">{brand?.badge ?? activeNet?.chain}</strong>. Wrong asset = permanent loss.</li>
+                      <li>Only use <strong className="text-amber-200">{brand?.label ?? activeNet?.chain}</strong> network. Wrong network = permanent loss.</li>
+                      {activeNet?.memoRequired && <li>This network requires a <strong className="text-amber-200">Memo/Tag</strong>. Missing memo = funds lost.</li>}
+                      <li>Minimum deposit: <strong className="text-amber-200">{activeNet?.minDeposit} {currency}</strong>. Smaller amounts will not be credited.</li>
+                      <li>Funds are credited after <strong className="text-amber-200">{activeNet?.confirmations} block confirmations</strong>.</li>
+                    </ul>
                   </div>
-                </div>
+                </>
               ) : (
-                <div className="rounded-lg border border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
-                  {detailsQ.isLoading ? "Loading deposit address…" : "No deposit address available."}
+                <div className="rounded-xl border border-border bg-muted/10 p-8 text-center text-sm text-muted-foreground">
+                  No deposit networks available for {currency}.
                 </div>
               )}
             </>
           ) : (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm space-y-2">
-                <div className="flex justify-between"><span className="text-muted-foreground">Bank</span><span className="font-medium">CryptoX Treasury</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Account</span><span className="font-mono">7878 9090 1212</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">IFSC</span><span className="font-mono">CRYP0007878</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">UPI</span><span className="font-mono">deposit@cryptox</span></div>
+            /* ── INR Fiat panel ── */
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border bg-muted/10 p-4 text-sm space-y-3">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Bank Details</div>
+                {[
+                  { label: "Bank", value: "CryptoX Treasury" },
+                  { label: "Account No.", value: "7878 9090 1212" },
+                  { label: "IFSC", value: "CRYP0007878" },
+                  { label: "Account Type", value: "Current" },
+                ].map(r => (
+                  <div key={r.label} className="flex justify-between items-center py-1 border-b border-border/30 last:border-0">
+                    <span className="text-muted-foreground text-xs">{r.label}</span>
+                    <span className="font-mono text-xs font-medium">{r.value}</span>
+                  </div>
+                ))}
               </div>
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400 flex gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <div>Use your registered name and add your User ID in the transaction note. Deposits are credited within 30 minutes after confirmation.</div>
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3.5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 mb-1.5">
+                  <AlertCircle className="h-3.5 w-3.5" /> UPI / IMPS / NEFT
+                </div>
+                <div className="text-[11px] text-amber-300/80 space-y-1">
+                  <div>UPI ID: <span className="font-mono font-medium text-amber-200">deposit@cryptox</span></div>
+                  <div className="mt-1.5">Add your <strong className="text-amber-200">User ID</strong> in the payment note. Deposits are credited within 30 minutes after bank confirmation.</div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-sky-500/20 bg-sky-500/8 p-3 text-[11px] text-sky-400/80">
+                1% TDS is deducted as per Indian tax regulations (Section 194S). Ensure the depositing account matches your KYC name.
               </div>
             </div>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Close</Button>
-        </DialogFooter>
+        <div className="px-6 py-4 border-t border-border/50 flex items-center justify-between">
+          <span className="text-[11px] text-muted-foreground">Zebvix Exchange · Secured</span>
+          <Button variant="outline" size="sm" onClick={onClose} className="h-8">Close</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

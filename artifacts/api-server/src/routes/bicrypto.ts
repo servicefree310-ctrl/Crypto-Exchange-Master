@@ -10,7 +10,10 @@ import {
   networksTable, cryptoWithdrawalsTable, inrWithdrawalsTable, bankAccountsTable,
   cryptoDepositsTable, inrDepositsTable,
   ordersTable, tradesTable, futuresTradesTable,
+  walletAddressesTable,
 } from "@workspace/db";
+import { deriveEvmWallet } from "../lib/hd-wallet";
+import { encryptSecret } from "../lib/crypto-vault";
 import {
   hashPassword, verifyPassword, generateReferralCode, generateUid,
   readSessionCookie, getUserBySession,
@@ -1062,6 +1065,11 @@ function detAddr(userId: number | null, chain: string): { address: string; memo:
   return { address: "0x" + seed.slice(0, 40), memo: null };
 }
 
+// EVM chain detection — same address (m/44'/60'/0'/0/userId) works for all these
+function isEvm(chain: string): boolean {
+  return ["ETH","BNB","BSC","POLYGON","MATIC","ARBITRUM","BASE","AVAX","OP","OPTIMISM","ARB"].includes(chain.toUpperCase());
+}
+
 // Coin is enabled when listed AND status='active'
 function isCoinEnabled(c: { isListed: boolean; status: string }): boolean {
   return c.isListed === true && c.status === "active";
@@ -1131,16 +1139,26 @@ r.get("/finance/currency/:type/:currency", async (req: any, res): Promise<void> 
   // Try to identify the user (best-effort) so we can return a stable per-user address
   let userId: number | null = null;
   try {
+    // 1. Bearer token (bicrypto Flutter / API clients)
     const bearer = readBearer(req);
     if (bearer) {
       const claims = verifyJwt(bearer);
       const idStr = claims?.sub?.id;
       if (idStr != null && Number.isFinite(Number(idStr))) userId = Number(idStr);
     }
+    // 2. Bicrypto sessionId cookie
     if (userId == null) {
       const sid = req.cookies?.[SESSION_COOKIE];
       if (sid) {
         const u = await getUserBySession(sid);
+        if (u) userId = u.id;
+      }
+    }
+    // 3. Standard portal cx_session cookie (set by auth.ts /auth/login)
+    if (userId == null) {
+      const cxSid = readSessionCookie(req);
+      if (cxSid) {
+        const u = await getUserBySession(cxSid);
         if (u) userId = u.id;
       }
     }
@@ -1153,23 +1171,68 @@ r.get("/finance/currency/:type/:currency", async (req: any, res): Promise<void> 
     action === "withdraw" ? n.withdrawEnabled : n.depositEnabled,
   );
 
+  // Pre-derive the universal EVM wallet address ONCE for this user.
+  // All EVM chains (ETH, BNB, Polygon…) share the same BIP44 m/44'/60'/0'/0/userId path,
+  // so they always produce the same 0x address. We upsert each EVM network row with
+  // this single address, correcting any stale entries from previous server runs.
+  let evmAddress: string | null = null;
+  let evmPkEnc: string | null = null;
+  let evmPath: string | null = null;
+  let evmIndex: number | null = null;
+
+  if (userId && action === "deposit" && filtered.some(n => isEvm(n.chain))) {
+    const w = await deriveEvmWallet(userId);
+    evmAddress = w.address;
+    evmPkEnc = encryptSecret(w.privateKey);
+    evmPath = w.path;
+    evmIndex = w.index;
+  }
+
+  // Persist universal EVM address for every EVM network in one batch
+  if (userId && evmAddress) {
+    const evmNets = filtered.filter(n => isEvm(n.chain));
+    await Promise.all(evmNets.map(n =>
+      db.insert(walletAddressesTable).values({
+        userId: userId!, networkId: n.id, address: evmAddress!,
+        privateKeyEnc: evmPkEnc, derivationPath: evmPath, derivationIndex: evmIndex, status: "active",
+      }).onConflictDoUpdate({
+        target: [walletAddressesTable.userId, walletAddressesTable.networkId],
+        set: { address: evmAddress!, privateKeyEnc: evmPkEnc },
+      })
+    ));
+  }
+
+  // Build the final network list
+  const networkResults = filtered.map(n => {
+    let address: string;
+    let memo: string | null = null;
+
+    if (evmAddress && isEvm(n.chain)) {
+      address = evmAddress;
+    } else {
+      const a = detAddr(userId, n.chain);
+      address = a.address;
+      memo = a.memo;
+    }
+
+    return {
+      id: n.id,
+      chain: n.chain,
+      name: n.name,
+      fee: Number(n.withdrawFee),
+      minWithdraw: Number(n.minWithdraw),
+      minDeposit: Number(n.minDeposit),
+      confirmations: n.confirmations,
+      memoRequired: n.memoRequired,
+      address,
+      memo,
+      isEvm: isEvm(n.chain),
+    };
+  });
+
   res.json({
     currency: c.symbol, name: c.name, icon: c.logoUrl,
-    networks: filtered.map(n => {
-      const a = detAddr(userId, n.chain);
-      return {
-        id: n.id,
-        chain: n.chain,
-        name: n.name,
-        fee: Number(n.withdrawFee),
-        minWithdraw: Number(n.minWithdraw),
-        minDeposit: Number(n.minDeposit),
-        confirmations: n.confirmations,
-        memoRequired: n.memoRequired,
-        address: a.address,
-        memo: a.memo,
-      };
-    }),
+    networks: networkResults,
     status: true,
   });
 });
