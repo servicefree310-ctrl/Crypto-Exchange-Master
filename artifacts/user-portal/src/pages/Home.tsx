@@ -650,17 +650,42 @@ export default function Home() {
     [tickersMap, enabledSet],
   );
 
-  // Normalise every pair's quoteVolume into USD before aggregating.
-  // Without this, INR (₹ in lakhs) and USDT ($ in thousands) get
-  // added as raw numbers and the total is meaningless.
+  // DB-backed aggregate stats (INR-normalised 24h volume from actual fills)
+  const { data: dbStats } = useQuery<{
+    totalVolumeInr: number;
+    totalTrades24h: number;
+    activePairs: number;
+    inrRate: number;
+    ts: number;
+  }>({
+    queryKey: ["exchange-stats"],
+    queryFn: () => get("/exchange/stats"),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  // Normalise every pair's quoteVolume into INR for live fallback
   const usdRates = useMemo(() => buildUsdRates(all), [all]);
 
   const stats = useMemo(() => {
-    const totalVol = all.reduce((s, t) => s + quoteVolUsd(t, usdRates), 0);
+    const inrRate = dbStats?.inrRate ?? (usdRates["INR"] ? 1 / usdRates["INR"] : 83);
+    // Live WS fallback: convert each pair's quoteVolume to INR
+    const liveVolumeInr = all.reduce((s, t) => {
+      const vol = t.quoteVolume || 0;
+      if (!vol) return s;
+      const quote = (t.symbol.split("/")[1] ?? "").toUpperCase();
+      if (quote === "INR") return s + vol;
+      const usdVal = (usdRates[quote] ?? 0) > 0 ? vol * (usdRates[quote] ?? 0) : 0;
+      return s + usdVal * inrRate;
+    }, 0);
+    const totalVolumeInr = (dbStats?.totalVolumeInr ?? 0) > 0
+      ? dbStats!.totalVolumeInr
+      : liveVolumeInr;
     const gainers = all.filter((t) => t.priceChangePercent > 0).length;
     const markets = all.length;
-    return { totalVol, gainers, markets };
-  }, [all, usdRates]);
+    const totalTrades24h = dbStats?.totalTrades24h ?? 0;
+    return { totalVolumeInr, gainers, markets, totalTrades24h };
+  }, [all, usdRates, dbStats]);
 
   const tape = useMemo(
     () => [...all].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 12),
@@ -800,9 +825,13 @@ export default function Home() {
                 <Activity className="h-3.5 w-3.5" /> 24h volume
               </div>
               <div className="text-3xl font-bold mt-2">
-                <AnimatedNumber value={stats.totalVol} prefix="$" compact />
+                <AnimatedNumber value={stats.totalVolumeInr} prefix="₹" compact />
               </div>
-              <div className="text-xs text-success mt-1">Live across all markets</div>
+              <div className="text-xs text-success mt-1">
+                {stats.totalTrades24h > 0
+                  ? `${stats.totalTrades24h.toLocaleString()} trades · Live`
+                  : "Live across all markets"}
+              </div>
             </Card>
             <Card className="scale-in delay-225 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">

@@ -1548,6 +1548,46 @@ function tickerEntry(t: any, quote: string, pair?: any) {
   };
 }
 
+// ── Platform aggregate stats (DB-backed, INR-normalised) ──────────────
+r.get("/exchange/stats", async (_req, res): Promise<void> => {
+  const { getAllPairStats } = await import("../lib/pair-stats");
+  const allStats = getAllPairStats();
+  const ticks = getCache() as any[];
+
+  // Live USDT→INR rate (from price-service cache; fallback ~83)
+  const usdtTick = ticks.find((t: any) => t.symbol === "USDT");
+  const inrRate = Number(usdtTick?.inr ?? 0) || 83;
+
+  let totalVolumeInr = 0;
+  let totalTrades24h = 0;
+  let activePairs = 0;
+
+  for (const ps of allStats) {
+    totalTrades24h += ps.trades24h;
+    if (ps.quoteVolume <= 0) continue;
+    activePairs++;
+    const quote = (ps.symbol.split("/")[1] ?? "").toUpperCase();
+    if (quote === "INR") {
+      totalVolumeInr += ps.quoteVolume;
+    } else if (quote === "USDT" || quote === "USDC" || quote === "USD" || quote === "BUSD") {
+      totalVolumeInr += ps.quoteVolume * inrRate;
+    } else {
+      // BTC, ETH, BNB etc → find their USDT price then convert to INR
+      const quoteTick = ticks.find((t: any) => t.symbol === quote);
+      const quoteUsdt = Number(quoteTick?.usdt ?? 0);
+      if (quoteUsdt > 0) totalVolumeInr += ps.quoteVolume * quoteUsdt * inrRate;
+    }
+  }
+
+  res.json({
+    totalVolumeInr: Math.round(totalVolumeInr),
+    totalTrades24h,
+    activePairs,
+    inrRate: Math.round(inrRate * 100) / 100,
+    ts: Date.now(),
+  });
+});
+
 r.get("/exchange/ticker", async (_req, res): Promise<void> => {
   const ticks = getCache() as any[];
   const pairs = await db.select().from(pairsTable);
