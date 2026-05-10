@@ -15,11 +15,11 @@ paths = [ "/go-service/", "/go-service/healthz", "/go-service/ws", "/go-service/
 localPort = 23004
 
 [services.development]
-run = "go run ."
+run = "./bin/cryptox-go"
 
 [services.production]
-build = [ "go", "build", "-o", "server", "." ]
-run = [ "./server" ]
+build = [ "go", "build", "-o", "bin/cryptox-go", "." ]
+run = [ "./bin/cryptox-go" ]
 
 [services.env]
 PORT = "23004"

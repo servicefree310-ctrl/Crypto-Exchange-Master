@@ -24,19 +24,11 @@ args = "artifacts/crypto-exchange-flutter: web"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Go Service"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "API Server"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "User Portal"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Admin Panel"
 
 [[workflows.workflow]]
 name = "artifacts/crypto-exchange-flutter: web"
@@ -49,17 +41,6 @@ outputType = "console"
 task = "shell.exec"
 args = "bash -c 'PORT=8082 BASE_PATH=/flutter/ bash artifacts/crypto-exchange-flutter/scripts/dev.sh'"
 waitForPort = 8082
-
-[[workflows.workflow]]
-name = "Go Service"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash -c 'cd artifacts/go-service && PORT=23004 BASE_PATH=/go-service/ BIND_ADDR=127.0.0.1 ./bin/cryptox-go'"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[workflows.workflow]]
 name = "API Server"
@@ -84,18 +65,6 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
-
-[[workflows.workflow]]
-name = "Admin Panel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash -c 'cd artifacts/admin && PORT=3000 BASE_PATH=/admin/ NODE_ENV=development pnpm run dev'"
-waitForPort = 3000
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -141,7 +110,6 @@ externalPort = 9000
 [[ports]]
 localPort = 23004
 externalPort = 8099
-exposeLocalhost = true
 
 [[ports]]
 localPort = 23475
