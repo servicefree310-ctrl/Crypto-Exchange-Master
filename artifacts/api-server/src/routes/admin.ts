@@ -382,6 +382,34 @@ router.delete("/admin/networks/:id", adminOnly, async (req, res): Promise<void> 
   res.sendStatus(204);
 });
 
+// Bulk toggle — PATCH /admin/networks/bulk
+// Body: { ids?: number[], coinId?: number, all?: boolean, depositEnabled?: boolean, withdrawEnabled?: boolean, status?: string }
+router.patch("/admin/networks/bulk", adminOnly, async (req, res): Promise<void> => {
+  const b = req.body ?? {};
+  const updates: Record<string, any> = {};
+  if (b.depositEnabled !== undefined) updates.depositEnabled = Boolean(b.depositEnabled);
+  if (b.withdrawEnabled !== undefined) updates.withdrawEnabled = Boolean(b.withdrawEnabled);
+  if (b.status !== undefined) updates.status = String(b.status);
+  if (Object.keys(updates).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
+
+  let where;
+  if (b.all === true) {
+    where = undefined; // all rows
+  } else if (Array.isArray(b.ids) && b.ids.length > 0) {
+    const { inArray } = await import("drizzle-orm");
+    where = inArray(networksTable.id, b.ids.map(Number));
+  } else if (b.coinId) {
+    where = eq(networksTable.coinId, Number(b.coinId));
+  } else {
+    res.status(400).json({ error: "Provide ids[], coinId, or all:true" }); return;
+  }
+
+  const rows = where
+    ? await db.update(networksTable).set(updates).where(where).returning()
+    : await db.update(networksTable).set(updates).returning();
+  res.json({ updated: rows.length });
+});
+
 // Pairs
 router.get("/admin/pairs", supportPlus, async (_req, res): Promise<void> => {
   const rows = await db.select().from(pairsTable).orderBy(desc(pairsTable.createdAt));
