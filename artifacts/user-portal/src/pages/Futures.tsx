@@ -1,4 +1,4 @@
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import {
   useTicker,
   useTickers,
@@ -589,6 +589,12 @@ export default function Futures() {
 
           <SymbolSwitcher current={symbol} enabled={enabledFuturesSet} />
 
+          {/* Spot / Futures mode toggle */}
+          <div className="flex items-center gap-0.5 p-0.5 bg-muted/40 rounded-md border border-border flex-shrink-0">
+            <Link href={`/trade`} className="px-3 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-sm transition-colors">Spot</Link>
+            <span className="px-3 py-1 text-[11px] font-bold rounded-sm bg-card text-foreground shadow-sm">Futures</span>
+          </div>
+
           <div className="h-10 w-px bg-border flex-shrink-0" />
 
           <HeaderStat label="Mark Price">
@@ -644,22 +650,9 @@ export default function Futures() {
 
       {/* ── Body ───────────────────────────────── */}
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 lg:overflow-hidden">
-        {/* Chart + bottom orders (desktop). Mobile: chart only. */}
-        <div className="flex flex-col min-w-0 lg:order-1 lg:flex-1 lg:border-r lg:border-border">
-          <div className={`h-[42vh] sm:h-[48vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:min-w-0 ${isSimple ? "lg:max-h-[68vh]" : ""}`}>
-            <PriceChart symbol={symbol} />
-          </div>
-
-          {!isSimple && (
-            <div className={`hidden lg:flex border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex-col shrink-0`}>
-              {bottomPanelJsx}
-            </div>
-          )}
-        </div>
-
-        {/* Orderbook + Recent Trades. Side-by-side on mobile, stacked on desktop. */}
+        {/* Orderbook + Recent Trades — LEFT column on desktop */}
         {!isSimple && (
-        <div className={`order-3 lg:order-2 w-full ${isPro ? "lg:w-80" : "lg:w-72"} flex flex-col bg-card/40 shrink-0 border-t lg:border-t-0 lg:border-r border-border h-[44vh] lg:h-auto`}>
+        <div className={`order-3 lg:order-1 w-full ${isPro ? "lg:w-72" : "lg:w-64"} flex flex-col bg-card/40 shrink-0 border-t lg:border-t-0 lg:border-r border-border h-[44vh] lg:h-auto`}>
           <div className="flex flex-row lg:flex-col h-full min-h-0">
           {/* Orderbook */}
           <div className="w-1/2 lg:w-full lg:h-1/2 flex flex-col border-r lg:border-r-0 lg:border-b border-border min-h-0">
@@ -744,8 +737,21 @@ export default function Futures() {
         </div>
         )}
 
+        {/* Chart + bottom panel — CENTER column on desktop */}
+        <div className="flex flex-col min-w-0 order-1 lg:order-2 lg:flex-1 lg:border-r lg:border-border">
+          <div className={`h-[42vh] sm:h-[48vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:min-w-0 ${isSimple ? "lg:max-h-[68vh]" : ""}`}>
+            <PriceChart symbol={symbol} />
+          </div>
+
+          {!isSimple && (
+            <div className={`hidden lg:flex border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex-col shrink-0`}>
+              {bottomPanelJsx}
+            </div>
+          )}
+        </div>
+
         {/* ── Order Entry ── */}
-        <div className={`order-2 lg:order-3 w-full ${isSimple ? "lg:max-w-sm lg:mx-auto" : "lg:w-80"} bg-card/40 flex flex-col shrink-0 lg:overflow-y-auto border-t lg:border-t-0 border-border`}>
+        <div className={`order-2 lg:order-3 w-full ${isSimple ? "lg:max-w-sm lg:mx-auto" : "lg:w-[280px]"} bg-card/40 flex flex-col shrink-0 lg:overflow-y-auto border-t lg:border-t-0 border-border`}>
           <div className="p-3 sm:p-4 space-y-3">
             {/* Margin type + leverage */}
             {!isSimple && (

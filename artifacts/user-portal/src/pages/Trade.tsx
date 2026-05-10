@@ -570,6 +570,12 @@ export default function Trade() {
           </button>
           <SymbolSwitcher current={symbol} enabledPairSet={enabledPairSet} />
 
+          {/* Spot / Futures mode toggle */}
+          <div className="flex items-center gap-0.5 p-0.5 bg-muted/40 rounded-md border border-border flex-shrink-0">
+            <span className="px-3 py-1 text-[11px] font-bold rounded-sm bg-card text-foreground shadow-sm">Spot</span>
+            <Link href={`/futures`} className="px-3 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-sm transition-colors">Futures</Link>
+          </div>
+
           <div className="h-8 w-px bg-border flex-shrink-0" />
 
           <div className="flex flex-col items-start flex-shrink-0">
@@ -626,23 +632,9 @@ export default function Trade() {
 
       {/* ── Body ───────────────────────────────── */}
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 lg:overflow-hidden">
-        {/* Chart + bottom orders (desktop). On mobile this column only holds the chart. */}
-        <div className="flex flex-col min-w-0 lg:order-1 lg:flex-1 lg:border-r lg:border-border">
-          <div className={`h-[42vh] sm:h-[48vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:min-w-0 ${isSimple ? "lg:max-h-[68vh]" : ""}`}>
-            <PriceChart symbol={symbol} />
-          </div>
-
-          {/* Bottom panel — desktop only (mobile renders it as a separate section below) */}
-          {!isSimple && (
-            <div className={`hidden lg:flex border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex-col shrink-0`}>
-              {bottomOrdersJsx}
-            </div>
-          )}
-        </div>
-
-        {/* Orderbook + Recent trades. Side-by-side on mobile, stacked column on desktop. */}
+        {/* Orderbook + Recent trades. Side-by-side on mobile, stacked column on desktop LEFT. */}
         {!isSimple && (
-        <div className={`order-3 lg:order-2 w-full ${isPro ? "lg:w-80" : "lg:w-72"} flex flex-col bg-card/40 shrink-0 border-t lg:border-t-0 lg:border-r border-border h-[44vh] lg:h-auto`}>
+        <div className={`order-3 lg:order-1 w-full ${isPro ? "lg:w-72" : "lg:w-64"} flex flex-col bg-card/40 shrink-0 border-t lg:border-t-0 lg:border-r border-border h-[44vh] lg:h-auto`}>
           <div className="flex flex-row lg:flex-col h-full min-h-0">
           {/* Orderbook */}
           <div className="w-1/2 lg:w-full lg:h-1/2 flex flex-col border-r lg:border-r-0 lg:border-b border-border min-h-0">
@@ -789,8 +781,22 @@ export default function Trade() {
         </div>
         )}
 
+        {/* Chart + bottom orders — CENTER column on desktop */}
+        <div className="flex flex-col min-w-0 order-1 lg:order-2 lg:flex-1 lg:border-r lg:border-border">
+          <div className={`h-[42vh] sm:h-[48vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:min-w-0 ${isSimple ? "lg:max-h-[68vh]" : ""}`}>
+            <PriceChart symbol={symbol} />
+          </div>
+
+          {/* Bottom panel — desktop only (mobile renders it as a separate section below) */}
+          {!isSimple && (
+            <div className={`hidden lg:flex border-t border-border bg-card/60 ${isPro ? "h-60" : "h-56"} flex-col shrink-0`}>
+              {bottomOrdersJsx}
+            </div>
+          )}
+        </div>
+
         {/* Order Entry — full-width on mobile, fixed column on desktop */}
-        <div className={`order-2 lg:order-3 w-full ${isSimple ? "lg:max-w-sm lg:mx-auto" : "lg:w-80"} bg-card/40 flex flex-col shrink-0 lg:overflow-y-auto border-t lg:border-t-0 border-border`}>
+        <div className={`order-2 lg:order-3 w-full ${isSimple ? "lg:max-w-sm lg:mx-auto" : "lg:w-[280px]"} bg-card/40 flex flex-col shrink-0 lg:overflow-y-auto border-t lg:border-t-0 border-border`}>
           <div className="p-3 sm:p-4 space-y-3">
             {/* Buy/Sell pill */}
             <div className="grid grid-cols-2 gap-1 p-1 bg-muted/40 rounded-lg">
