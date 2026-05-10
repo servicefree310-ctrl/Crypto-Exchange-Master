@@ -95,7 +95,7 @@ type IndicatorState = {
 };
 const DEFAULT_INDICATORS: IndicatorState = {
   ma7: true, ma25: true, ma99: false, volume: true,
-  bb: false, rsi: false, macd: false,
+  bb: false, rsi: true, macd: true,
 };
 
 const BB_COLORS = { upper: "#a78bfa", middle: "#a78bfa", lower: "#a78bfa" };
@@ -709,21 +709,46 @@ export function PriceChart({ symbol }: { symbol: string }) {
 
         <div className="h-5 w-px bg-border mx-1" />
 
-        {/* Indicators dropdown */}
+        {/* Quick indicator pills — VOL / RSI / MACD always visible */}
+        <div className="flex items-center gap-0.5">
+          {(["volume", "rsi", "macd"] as const).map((key) => {
+            const labels: Record<string, string> = { volume: "VOL", rsi: "RSI", macd: "MACD" };
+            const colors: Record<string, string> = { volume: "#22c55e", rsi: "#fb923c", macd: "#60a5fa" };
+            const on = indicators[key];
+            return (
+              <button
+                key={key}
+                onClick={() => setIndicators((p) => ({ ...p, [key]: !p[key] }))}
+                className={`px-2 py-0.5 text-[10px] rounded font-mono font-bold border transition-colors ${
+                  on
+                    ? "border-transparent text-black"
+                    : "border-border text-muted-foreground hover:border-muted-foreground/50"
+                }`}
+                style={on ? { backgroundColor: colors[key] } : {}}
+              >
+                {labels[key]}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="h-5 w-px bg-border mx-1" />
+
+        {/* More indicators (MA, BB) in dropdown */}
         <Popover>
           <PopoverTrigger asChild>
             <button className="px-2 py-1 text-[11px] rounded inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40">
               <Settings2 className="h-3.5 w-3.5" />
-              Indicators
-              {indicatorBadge > 0 && (
+              <span className="hidden sm:inline">Indicators</span>
+              {(indicators.ma7 || indicators.ma25 || indicators.ma99 || indicators.bb) && (
                 <span className="text-[9px] px-1 rounded bg-primary/15 text-primary font-bold min-w-[1rem] text-center">
-                  {indicatorBadge}
+                  {(indicators.ma7 ? 1 : 0) + (indicators.ma25 ? 1 : 0) + (indicators.ma99 ? 1 : 0) + (indicators.bb ? 1 : 0)}
                 </span>
               )}
             </button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-56 p-2">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1 mb-1">Overlays</div>
+          <PopoverContent align="start" className="w-52 p-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1 mb-1">Moving Averages</div>
             {MA_DEFS.map((def) => {
               const enabled = indicators[def.id];
               return (
@@ -739,6 +764,8 @@ export function PriceChart({ symbol }: { symbol: string }) {
                 </button>
               );
             })}
+            <div className="h-px bg-border my-1.5" />
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1 mb-1">Bands</div>
             <button
               type="button"
               onClick={() => setIndicators((p) => ({ ...p, bb: !p.bb }))}
@@ -747,34 +774,6 @@ export function PriceChart({ symbol }: { symbol: string }) {
               <span className="h-0.5 w-5 rounded" style={{ backgroundColor: BB_COLORS.upper }} />
               <span className="flex-1 text-left">Bollinger 20/2</span>
               {indicators.bb && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1 mb-1 mt-2">Panes</div>
-            <button
-              type="button"
-              onClick={() => setIndicators((p) => ({ ...p, volume: !p.volume }))}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-sm"
-            >
-              <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="flex-1 text-left">Volume</span>
-              {indicators.volume && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIndicators((p) => ({ ...p, rsi: !p.rsi }))}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-sm"
-            >
-              <span className="h-0.5 w-5 rounded" style={{ backgroundColor: "#fb923c" }} />
-              <span className="flex-1 text-left">RSI 14</span>
-              {indicators.rsi && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIndicators((p) => ({ ...p, macd: !p.macd }))}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-sm"
-            >
-              <span className="h-0.5 w-5 rounded" style={{ backgroundColor: "#60a5fa" }} />
-              <span className="flex-1 text-left">MACD 12/26/9</span>
-              {indicators.macd && <Check className="h-3.5 w-3.5 text-primary" />}
             </button>
           </PopoverContent>
         </Popover>
@@ -831,8 +830,30 @@ export function PriceChart({ symbol }: { symbol: string }) {
         </div>
       )}
 
-      {/* Chart canvas */}
-      <div ref={containerRef} className="flex-1 min-h-[280px] relative" />
+      {/* Chart canvas + pane labels */}
+      <div className="flex-1 min-h-[280px] relative">
+        <div ref={containerRef} className="absolute inset-0" />
+        {/* RSI pane label */}
+        {indicators.rsi && (
+          <div className="absolute left-2 pointer-events-none z-10 flex items-center gap-1.5" style={{ bottom: indicators.macd ? "33%" : "2%" }}>
+            <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded" style={{ backgroundColor: "rgba(251,146,60,0.15)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.3)" }}>
+              RSI 14
+            </span>
+            <span className="text-[9px] font-mono text-muted-foreground">70 overbought · 30 oversold</span>
+          </div>
+        )}
+        {/* MACD pane label */}
+        {indicators.macd && (
+          <div className="absolute left-2 bottom-[1%] pointer-events-none z-10 flex items-center gap-1.5">
+            <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded" style={{ backgroundColor: "rgba(96,165,250,0.15)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.3)" }}>
+              MACD 12/26/9
+            </span>
+            <span className="text-[9px] font-mono" style={{ color: "#60a5fa" }}>MACD</span>
+            <span className="text-[9px] font-mono" style={{ color: "#f97316" }}>Signal</span>
+            <span className="text-[9px] font-mono text-muted-foreground">Hist</span>
+          </div>
+        )}
+      </div>
 
       {/* Empty state */}
       {seedLoaded && candlesRef.current.length === 0 && (
