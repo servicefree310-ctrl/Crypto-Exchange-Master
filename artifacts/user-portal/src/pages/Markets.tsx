@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
+import { get } from "@/lib/api";
 import {
   Search,
   Star,
@@ -31,6 +33,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+// ──────────────────────────────────────────────────────────────────
+// Coin logos hook — fetches /api/coins once, builds symbol → logoUrl
+// ──────────────────────────────────────────────────────────────────
+function useCoinLogos(): Map<string, string | null> {
+  const { data } = useQuery<any[]>({
+    queryKey: ["public-coins-logos"],
+    queryFn: () => get("/coins"),
+    staleTime: 300_000,
+    refetchOnWindowFocus: false,
+  });
+  return useMemo(() => {
+    const map = new Map<string, string | null>();
+    if (Array.isArray(data)) {
+      for (const c of data) {
+        if (c?.symbol) map.set(String(c.symbol), c.logoUrl ?? null);
+      }
+    }
+    return map;
+  }, [data]);
+}
 
 // ──────────────────────────────────────────────────────────────────
 // Helpers
@@ -82,11 +105,13 @@ function synthSpark(symbol: string, pct: number, n = 24): number[] {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Asset icon
+// Asset icon — tries DB logoUrl → CDN → gradient letter fallback
 // ──────────────────────────────────────────────────────────────────
-function AssetIcon({ symbol, size = 8 }: { symbol: string; size?: 6 | 7 | 8 | 10 }) {
+const CDN_BASE = "https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@1a63530be6e374711a8554f31b17e4cb92c25fa/svg/color";
+
+function AssetIcon({ symbol, size = 8, logoUrl }: { symbol: string; size?: 6 | 7 | 8 | 10; logoUrl?: string | null }) {
   const b = baseAsset(symbol);
-  const c = b.slice(0, 1);
+  const letter = b.slice(0, 1);
   const palette = [
     "from-amber-500 to-orange-600",
     "from-sky-500 to-blue-600",
@@ -103,11 +128,39 @@ function AssetIcon({ symbol, size = 8 }: { symbol: string; size?: 6 | 7 | 8 | 10
     size === 7 ? "h-7 w-7 text-[11px]" :
     size === 10 ? "h-10 w-10 text-sm" :
     "h-8 w-8 text-xs";
+
+  // Stage: "db" → try logoUrl, "cdn" → try CDN, "letter" → show gradient
+  const [stage, setStage] = useState<"db" | "cdn" | "letter">(() =>
+    logoUrl ? "db" : "cdn"
+  );
+
+  // Reset when logoUrl prop changes (e.g. after coins data loads)
+  useEffect(() => {
+    setStage(logoUrl ? "db" : "cdn");
+  }, [logoUrl]);
+
+  const cdnUrl = `${CDN_BASE}/${b.toLowerCase()}.svg`;
+  const imgSrc = stage === "db" ? logoUrl! : cdnUrl;
+
+  if (stage === "letter") {
+    return (
+      <div className={`${dim} rounded-full bg-gradient-to-br ${grad} text-white flex items-center justify-center font-bold shadow-md flex-shrink-0`}>
+        {letter}
+      </div>
+    );
+  }
+
   return (
-    <div
-      className={`${dim} rounded-full bg-gradient-to-br ${grad} text-white flex items-center justify-center font-bold shadow-md flex-shrink-0`}
-    >
-      {c}
+    <div className={`${dim} rounded-full flex-shrink-0 overflow-hidden bg-black/20 flex items-center justify-center`}>
+      <img
+        src={imgSrc}
+        alt={b}
+        className="h-full w-full object-contain"
+        onError={() => {
+          if (stage === "db") setStage("cdn");
+          else setStage("letter");
+        }}
+      />
     </div>
   );
 }
@@ -200,11 +253,13 @@ function MoverCard({
   icon,
   tone,
   items,
+  coinLogos,
 }: {
   title: string;
   icon: React.ReactNode;
   tone: "emerald" | "rose" | "amber";
   items: NormalizedTicker[];
+  coinLogos: Map<string, string | null>;
 }) {
   const toneClass =
     tone === "emerald" ? "from-emerald-500/15 to-emerald-500/0 text-emerald-400 border-emerald-500/25"
@@ -227,15 +282,16 @@ function MoverCard({
         )}
         {items.slice(0, 3).map((t) => {
           const positive = t.priceChangePercent >= 0;
+          const base = baseAsset(t.symbol);
           return (
             <li key={t.symbol}>
               <Link
                 href={`/trade/${encodeSymbol(t.symbol)}`}
                 className="flex items-center gap-2 hover:bg-card/40 rounded-md p-1 -m-1 transition-colors"
               >
-                <AssetIcon symbol={t.symbol} size={7} />
+                <AssetIcon symbol={t.symbol} size={7} logoUrl={coinLogos.get(base)} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold truncate">{baseAsset(t.symbol)}</div>
+                  <div className="text-sm font-bold truncate">{base}</div>
                   <div className="text-[10px] text-muted-foreground truncate">{t.symbol}</div>
                 </div>
                 <div className="text-right">
@@ -261,6 +317,7 @@ function MoverCard({
 export default function Markets() {
   const tickers = useTickers();
   const { favs, toggle: toggleFav } = useFavorites();
+  const coinLogos = useCoinLogos();
 
   // Read initial filters from URL query params (?category=gainers, ?quote=INR)
   // so deep-links from the header Markets dropdown land on the right view.
@@ -483,18 +540,21 @@ export default function Markets() {
             icon={<TrendingUp className="h-4 w-4" />}
             tone="emerald"
             items={topGainers}
+            coinLogos={coinLogos}
           />
           <MoverCard
             title="Top Losers"
             icon={<TrendingDown className="h-4 w-4" />}
             tone="rose"
             items={topLosers}
+            coinLogos={coinLogos}
           />
           <MoverCard
             title="Highest Volume"
             icon={<Flame className="h-4 w-4" />}
             tone="amber"
             items={topVolume}
+            coinLogos={coinLogos}
           />
         </div>
       </section>
@@ -650,7 +710,8 @@ export default function Markets() {
                 {!loading && paged.map((t) => {
                   const positive = t.priceChangePercent >= 0;
                   const isFav = favs.has(t.symbol);
-                  const isNew = NEW_BASES.has(baseAsset(t.symbol).toUpperCase());
+                  const base = baseAsset(t.symbol);
+                  const isNew = NEW_BASES.has(base.toUpperCase());
                   return (
                     <tr key={t.symbol} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors group">
                       <td className="px-4 py-3 align-middle">
@@ -665,10 +726,10 @@ export default function Markets() {
                       </td>
                       <td className="px-2 py-3">
                         <Link href={`/trade/${encodeSymbol(t.symbol)}`} className="flex items-center gap-2.5 group">
-                          <AssetIcon symbol={t.symbol} />
+                          <AssetIcon symbol={t.symbol} logoUrl={coinLogos.get(base)} />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-sm">{baseAsset(t.symbol)}</span>
+                              <span className="font-bold text-sm">{base}</span>
                               <span className="text-[11px] text-muted-foreground">/{quoteAsset(t.symbol)}</span>
                               {isNew && (
                                 <Badge className="h-4 px-1.5 text-[9px] bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">
@@ -757,7 +818,8 @@ export default function Markets() {
             {!loading && paged.map((t) => {
               const positive = t.priceChangePercent >= 0;
               const isFav = favs.has(t.symbol);
-              const isNew = NEW_BASES.has(baseAsset(t.symbol).toUpperCase());
+              const base = baseAsset(t.symbol);
+              const isNew = NEW_BASES.has(base.toUpperCase());
               return (
                 <div key={t.symbol} className="p-3 flex items-center gap-3 hover:bg-muted/20">
                   <button
@@ -769,7 +831,7 @@ export default function Markets() {
                     <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
                   </button>
                   <Link href={`/trade/${encodeSymbol(t.symbol)}`} className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <AssetIcon symbol={t.symbol} />
+                    <AssetIcon symbol={t.symbol} logoUrl={coinLogos.get(base)} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-sm">{baseAsset(t.symbol)}</span>
