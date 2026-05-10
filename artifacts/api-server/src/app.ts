@@ -350,12 +350,12 @@ if (process.env["NODE_ENV"] === "production") {
   const userDist = resolve(cwd, "../user-portal/dist/public");
   app.use("/user", express.static(userDist, { index: false }));
   app.get("/user", (_req: Request, res: Response) => res.sendFile(join(userDist, "index.html")));
-  app.get("/user/*", (_req: Request, res: Response) => res.sendFile(join(userDist, "index.html")));
+  app.get("/user/*path", (_req: Request, res: Response) => res.sendFile(join(userDist, "index.html")));
 
   const adminDist = resolve(cwd, "../admin/dist/public");
   app.use("/admin", express.static(adminDist, { index: false }));
   app.get("/admin", (_req: Request, res: Response) => res.sendFile(join(adminDist, "index.html")));
-  app.get("/admin/*", (_req: Request, res: Response) => res.sendFile(join(adminDist, "index.html")));
+  app.get("/admin/*path", (_req: Request, res: Response) => res.sendFile(join(adminDist, "index.html")));
 
   logger.info({ userDist, adminDist }, "Production static frontend serving enabled");
 }

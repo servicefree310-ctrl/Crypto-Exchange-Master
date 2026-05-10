@@ -24,3 +24,4 @@ run = [ "./server" ]
 [services.env]
 PORT = "23004"
 BASE_PATH = "/go-service/"
+BIND_ADDR = "0.0.0.0"
