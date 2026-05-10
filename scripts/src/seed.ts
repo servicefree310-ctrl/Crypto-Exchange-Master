@@ -192,25 +192,28 @@ async function main() {
   }
   console.log("Settings seeded");
 
-  // Earn products
+  // Earn products (6 plans: USDT x3, BTC x2, ETH x1)
   const btc = allCoins.find((c) => c.symbol === "BTC");
   const eth = allCoins.find((c) => c.symbol === "ETH");
   if (usdt) {
     const products = [
-      { coinId: usdt.id, type: "simple", durationDays: 0, apy: "5.0", minAmount: "10", maxAmount: "100000" },
-      { coinId: usdt.id, type: "advanced", durationDays: 30, apy: "8.5", minAmount: "100", maxAmount: "100000" },
-      { coinId: usdt.id, type: "advanced", durationDays: 90, apy: "11.0", minAmount: "100", maxAmount: "100000" },
+      { coinId: usdt.id, type: "simple",   durationDays: 0,  apy: "5.00",  minAmount: "10",    maxAmount: "100000", name: "USDT Flexible Savings",  description: "Earn daily interest on idle USDT. No lock-up, withdraw anytime.",                               featured: false, displayOrder: 1 },
+      { coinId: usdt.id, type: "advanced", durationDays: 30, apy: "8.50",  minAmount: "100",   maxAmount: "100000", name: "USDT 30-Day Locked",     description: "30-day USDT locked plan at enhanced APY. Auto-maturity available.",                            featured: false, displayOrder: 2 },
+      { coinId: usdt.id, type: "advanced", durationDays: 90, apy: "11.00", minAmount: "100",   maxAmount: "100000", name: "USDT 90-Day Premium",    description: "Best USDT APY. 90-day lock with daily accrual and optional auto-renew.",                       featured: true,  displayOrder: 3 },
     ];
-    if (btc) products.push({ coinId: btc.id, type: "simple", durationDays: 0, apy: "2.5", minAmount: "0.001", maxAmount: "10" });
-    if (eth) products.push({ coinId: eth.id, type: "advanced", durationDays: 60, apy: "4.5", minAmount: "0.05", maxAmount: "100" });
+    if (btc) {
+      products.push({ coinId: btc.id, type: "simple",   durationDays: 0,  apy: "2.50", minAmount: "0.001", maxAmount: "10", name: "BTC Flexible Savings",    description: "Stack more BTC on idle holdings. No lock-up, flexible exit anytime.",                              featured: false, displayOrder: 4 } as any);
+      products.push({ coinId: btc.id, type: "advanced", durationDays: 90, apy: "7.50", minAmount: "0.001", maxAmount: "5",  name: "BTC 90-Day Premium",     description: "High-yield 90-day BTC locked vault. Premium returns for long-term holders. Auto-maturity & daily accrual.", featured: true, displayOrder: 6 } as any);
+    }
+    if (eth) products.push({ coinId: eth.id, type: "advanced", durationDays: 60, apy: "4.50", minAmount: "0.05", maxAmount: "100", name: "ETH 60-Day Locked", description: "60-day ETH locked staking with competitive APY and auto-maturity support.", featured: false, displayOrder: 5 } as any);
     for (const p of products) {
       const existing = await db.select().from(earnProductsTable).where(and(eq(earnProductsTable.coinId, p.coinId), eq(earnProductsTable.type, p.type), eq(earnProductsTable.durationDays, p.durationDays))).limit(1);
       if (existing.length === 0) {
-        await db.insert(earnProductsTable).values(p);
+        await db.insert(earnProductsTable).values(p as any);
       }
     }
   }
-  console.log("Earn products seeded");
+  console.log("Earn products seeded (6 plans)");
 
   console.log("Seed complete.");
   process.exit(0);

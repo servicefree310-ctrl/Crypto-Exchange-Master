@@ -1733,7 +1733,7 @@ router.get("/admin/earn-positions", supportPlus, async (_req, res): Promise<void
       maturedAt: earnPositionsTable.maturedAt,
       closedAt: earnPositionsTable.closedAt,
       userEmail: usersTable.email,
-      userName: usersTable.username,
+      userName: usersTable.name,
       coinSymbol: coinsTable.symbol,
       productName: earnProductsTable.name,
       apy: earnProductsTable.apy,

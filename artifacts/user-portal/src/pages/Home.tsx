@@ -1956,32 +1956,76 @@ function HeroSearch({ tickers }: { tickers: NormalizedTicker[] }) {
 function EarnSection() {
   const products = [
     {
-      icon: <Coins className="h-6 w-6" />,
-      title: "ZBX staking",
-      desc: "Delegate to a Zebvix L1 validator and earn block rewards in ZBX with weekly compounding.",
-      tag: "Validator",
-      grad: "from-amber-500/20 to-orange-500/5",
-    },
-    {
       icon: <PiggyBank className="h-6 w-6" />,
-      title: "Flexible savings",
-      desc: "Deposit USDT, BTC or ZBX — withdraw anytime. Interest accrues every block.",
-      tag: "Daily",
+      title: "USDT Flexible Savings",
+      apy: "5.00",
+      coin: "USDT",
+      dur: "Flexible",
+      desc: "Earn daily interest on idle USDT. No lock-up — withdraw anytime.",
+      tag: "Flexible",
+      tagColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
       grad: "from-emerald-500/20 to-teal-500/5",
+      accent: "text-emerald-400",
     },
     {
-      icon: <Rocket className="h-6 w-6" />,
-      title: "Launchpool",
-      desc: "Stake ZBX during launchpool windows and farm newly listed ZBX-20 tokens for free.",
-      tag: "Hot",
-      grad: "from-fuchsia-500/20 to-pink-500/5",
+      icon: <Lock className="h-6 w-6" />,
+      title: "USDT 30-Day Locked",
+      apy: "8.50",
+      coin: "USDT",
+      dur: "30 days",
+      desc: "30-day USDT locked plan at enhanced APY. Auto-maturity available.",
+      tag: "Locked",
+      tagColor: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+      grad: "from-amber-500/20 to-orange-500/5",
+      accent: "text-amber-400",
+    },
+    {
+      icon: <Star className="h-6 w-6" />,
+      title: "USDT 90-Day Premium",
+      apy: "11.00",
+      coin: "USDT",
+      dur: "90 days",
+      desc: "Best USDT APY. 90-day lock with daily accrual and optional auto-renew.",
+      tag: "Best APY",
+      tagColor: "bg-primary/15 text-primary border-primary/25",
+      grad: "from-primary/20 to-amber-600/5",
+      accent: "text-primary",
+    },
+    {
+      icon: <Coins className="h-6 w-6" />,
+      title: "BTC Flexible Savings",
+      apy: "2.50",
+      coin: "BTC",
+      dur: "Flexible",
+      desc: "Stack more BTC on idle holdings. No lock-up, flexible exit anytime.",
+      tag: "Flexible",
+      tagColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+      grad: "from-orange-500/20 to-amber-500/5",
+      accent: "text-orange-400",
+    },
+    {
+      icon: <Zap className="h-6 w-6" />,
+      title: "ETH 60-Day Locked",
+      apy: "4.50",
+      coin: "ETH",
+      dur: "60 days",
+      desc: "60-day ETH locked staking with competitive APY and auto-maturity support.",
+      tag: "Locked",
+      tagColor: "bg-violet-500/15 text-violet-400 border-violet-500/25",
+      grad: "from-violet-500/20 to-blue-500/5",
+      accent: "text-violet-400",
     },
     {
       icon: <Gem className="h-6 w-6" />,
-      title: "Yield vaults",
-      desc: "Curated structured products combining lending, AMM LP and futures basis trades.",
-      tag: "Pro",
-      grad: "from-violet-500/20 to-indigo-500/5",
+      title: "BTC 90-Day Premium",
+      apy: "7.50",
+      coin: "BTC",
+      dur: "90 days",
+      desc: "High-yield 90-day BTC locked vault. Premium returns for long-term holders. Auto-maturity & daily accrual.",
+      tag: "Premium",
+      tagColor: "bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/25",
+      grad: "from-fuchsia-500/20 to-pink-500/5",
+      accent: "text-fuchsia-400",
     },
   ];
   return (
@@ -1994,25 +2038,33 @@ function EarnSection() {
           </Badge>
           <h2 className="text-3xl font-bold tracking-tight">Put your assets to work</h2>
           <p className="text-muted-foreground text-sm mt-2">
-            Earn passive income on idle balances — fully on-chain on Zebvix L1, withdraw whenever.
+            6 curated products for USDT, ETH &amp; BTC — flexible or locked, interest accrues every block.
           </p>
         </Reveal>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {products.map((p, i) => (
-            <Reveal key={p.title} direction="scale" delay={i * 100}>
-              <Link href="/wallet" className="group block h-full">
+            <Reveal key={p.title} direction="scale" delay={i * 80}>
+              <Link href="/earn" className="group block h-full">
                 <Card className="relative overflow-hidden p-6 h-full border-border/60 hover:border-primary/40 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10">
                   <div className={`absolute inset-0 bg-gradient-to-br ${p.grad} opacity-60 pointer-events-none`} />
                   <div className="relative">
-                    <div className="flex items-start justify-between">
-                      <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center">{p.icon}</div>
-                      <Badge className="bg-success/15 text-success border-success/30">{p.tag}</Badge>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className={`h-11 w-11 rounded-xl bg-primary/15 ${p.accent} flex items-center justify-center flex-shrink-0`}>{p.icon}</div>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${p.tagColor}`}>{p.tag}</span>
                     </div>
-                    <h3 className="text-lg font-bold mt-4">{p.title}</h3>
-                    <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{p.desc}</p>
-                    <div className="mt-5 inline-flex items-center text-sm font-medium text-primary group-hover:gap-2 gap-1 transition-all">
-                      Start earning
-                      <ArrowRight className="h-4 w-4" />
+                    {/* APY highlight */}
+                    <div className="mt-4 flex items-baseline gap-1.5">
+                      <span className={`text-3xl font-extrabold tabular-nums ${p.accent}`}>{p.apy}%</span>
+                      <span className="text-xs text-muted-foreground font-medium">APY</span>
+                      <span className="ml-auto text-xs font-semibold text-foreground/70 bg-muted/40 px-2 py-0.5 rounded-full">{p.coin}</span>
+                    </div>
+                    <h3 className="text-base font-bold mt-2">{p.title}</h3>
+                    <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{p.desc}</p>
+                    <div className="mt-4 flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">{p.dur}</span>
+                      <span className="inline-flex items-center text-xs font-medium text-primary group-hover:gap-1.5 gap-1 transition-all">
+                        Subscribe <ArrowRight className="h-3.5 w-3.5" />
+                      </span>
                     </div>
                   </div>
                 </Card>
@@ -2020,6 +2072,11 @@ function EarnSection() {
             </Reveal>
           ))}
         </div>
+        <Reveal className="mt-8 text-center">
+          <Link href="/earn" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+            View all plans &amp; subscribe <ArrowRight className="h-4 w-4" />
+          </Link>
+        </Reveal>
       </div>
     </section>
   );
