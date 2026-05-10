@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db, earnProductsTable, earnPositionsTable, walletsTable, coinsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { getRawTick, getInrRate } from "../lib/price-service";
 
 const router: IRouter = Router();
 
@@ -199,4 +200,89 @@ router.post("/earn/positions/:id/redeem", requireAuth, async (req, res): Promise
   }
 });
 
+// ─── /earn/summary ────────────────────────────────────────────────────────────
+// Per-user earn summary: pending yield (accrued, not redeemed), lifetime earned,
+// total locked, breakdown by coin. Calculates live interest from startedAt so
+// it reflects the latest position state even if the engine hasn't run yet.
+router.get("/earn/summary", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.id;
+  const now = Date.now();
+
+  const rows = await db
+    .select({
+      posId: earnPositionsTable.id,
+      amount: earnPositionsTable.amount,
+      totalEarned: earnPositionsTable.totalEarned,
+      status: earnPositionsTable.status,
+      startedAt: earnPositionsTable.startedAt,
+      maturedAt: earnPositionsTable.maturedAt,
+      apy: earnProductsTable.apy,
+      coinId: earnProductsTable.coinId,
+      durationDays: earnProductsTable.durationDays,
+      coinSymbol: coinsTable.symbol,
+      coinName: coinsTable.name,
+    })
+    .from(earnPositionsTable)
+    .innerJoin(earnProductsTable, eq(earnPositionsTable.productId, earnProductsTable.id))
+    .innerJoin(coinsTable, eq(earnProductsTable.coinId, coinsTable.id))
+    .where(eq(earnPositionsTable.userId, userId));
+
+  const inrRate = getInrRate();
+
+  type CoinSummary = {
+    coinId: number; coinSymbol: string; coinName: string;
+    locked: number; pendingYield: number; lifetimeEarned: number;
+    lockedUsd: number; activeCount: number;
+  };
+  const byCoins = new Map<number, CoinSummary>();
+
+  let totalLockedUsd = 0;
+  let totalPendingYield = 0;
+  let totalLifetimeEarned = 0;
+  let activePositions = 0;
+
+  for (const pos of rows) {
+    const principal = Number(pos.amount);
+    const apy = Number(pos.apy) / 100;
+    const isActive = pos.status === "active";
+    const elapsedDays = (now - pos.startedAt.getTime()) / 86400_000;
+    // Live accrued interest (may be slightly ahead of DB totalEarned)
+    const liveInterest = isActive ? principal * apy * elapsedDays / 365 : Number(pos.totalEarned);
+    const lifetimeEarned = Number(pos.totalEarned);
+
+    const tick = getRawTick(pos.coinSymbol);
+    const priceUsdt = tick?.usdt ?? 0;
+
+    if (isActive) {
+      const lockedUsd = principal * priceUsdt;
+      totalLockedUsd += lockedUsd;
+      totalPendingYield += liveInterest;
+      activePositions++;
+
+      const entry = byCoins.get(pos.coinId) ?? {
+        coinId: pos.coinId, coinSymbol: pos.coinSymbol, coinName: pos.coinName,
+        locked: 0, pendingYield: 0, lifetimeEarned: 0, lockedUsd: 0, activeCount: 0,
+      };
+      entry.locked += principal;
+      entry.pendingYield += liveInterest;
+      entry.lockedUsd += lockedUsd;
+      entry.activeCount++;
+      byCoins.set(pos.coinId, entry);
+    }
+    totalLifetimeEarned += lifetimeEarned;
+    const entry = byCoins.get(pos.coinId);
+    if (entry) entry.lifetimeEarned += lifetimeEarned;
+  }
+
+  res.json({
+    totalLockedUsd,
+    totalLockedInr: totalLockedUsd * inrRate,
+    totalPendingYield,
+    totalLifetimeEarned,
+    activePositions,
+    byCoins: Array.from(byCoins.values()),
+  });
+});
+
 export default router;
+

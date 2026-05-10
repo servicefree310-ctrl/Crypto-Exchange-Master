@@ -1719,20 +1719,116 @@ router.delete("/admin/earn-products/:id", adminOnly, async (req, res): Promise<v
   res.sendStatus(204);
 });
 router.get("/admin/earn-positions", supportPlus, async (_req, res): Promise<void> => {
-  const rows = await db.select().from(earnPositionsTable).orderBy(desc(earnPositionsTable.startedAt)).limit(500);
+  // Join with users for email + product for coin/APY context
+  const rows = await db
+    .select({
+      id: earnPositionsTable.id,
+      userId: earnPositionsTable.userId,
+      productId: earnPositionsTable.productId,
+      amount: earnPositionsTable.amount,
+      totalEarned: earnPositionsTable.totalEarned,
+      autoMaturity: earnPositionsTable.autoMaturity,
+      status: earnPositionsTable.status,
+      startedAt: earnPositionsTable.startedAt,
+      maturedAt: earnPositionsTable.maturedAt,
+      closedAt: earnPositionsTable.closedAt,
+      userEmail: usersTable.email,
+      userName: usersTable.username,
+      coinSymbol: coinsTable.symbol,
+      productName: earnProductsTable.name,
+      apy: earnProductsTable.apy,
+    })
+    .from(earnPositionsTable)
+    .leftJoin(usersTable, eq(earnPositionsTable.userId, usersTable.id))
+    .innerJoin(earnProductsTable, eq(earnPositionsTable.productId, earnProductsTable.id))
+    .innerJoin(coinsTable, eq(earnProductsTable.coinId, coinsTable.id))
+    .orderBy(desc(earnPositionsTable.startedAt))
+    .limit(500);
   res.json(rows);
 });
+
+router.post("/admin/earn-positions/:id/force-redeem", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "bad id" }); return; }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [pos] = await tx.select().from(earnPositionsTable)
+        .where(eq(earnPositionsTable.id, id)).for("update").limit(1);
+      if (!pos) { const e: any = new Error("Position not found"); e.code = 404; throw e; }
+      if (pos.status !== "active" && pos.status !== "matured") {
+        const e: any = new Error(`Cannot force-redeem — status is ${pos.status}`); e.code = 400; throw e;
+      }
+      const [p] = await tx.select().from(earnProductsTable).where(eq(earnProductsTable.id, pos.productId)).limit(1);
+      if (!p) { const e: any = new Error("Product missing"); e.code = 500; throw e; }
+
+      const principal = Number(pos.amount);
+      const apy = Number(p.apy) / 100;
+      const elapsedDays = (Date.now() - pos.startedAt.getTime()) / 86400_000;
+      const earned = principal * apy * elapsedDays / 365;
+      const payout = principal + Math.max(0, earned);
+
+      // Release earn locked
+      await tx.update(walletsTable).set({
+        locked: sql`GREATEST(0, ${walletsTable.locked} - ${principal})`, updatedAt: new Date(),
+      }).where(and(eq(walletsTable.userId, pos.userId), eq(walletsTable.coinId, p.coinId), eq(walletsTable.walletType, "earn")));
+
+      // Credit spot wallet
+      const [spot] = await tx.select().from(walletsTable)
+        .where(and(eq(walletsTable.userId, pos.userId), eq(walletsTable.coinId, p.coinId), eq(walletsTable.walletType, "spot")))
+        .for("update").limit(1);
+      if (spot) {
+        await tx.update(walletsTable).set({ balance: sql`${walletsTable.balance} + ${payout}`, updatedAt: new Date() }).where(eq(walletsTable.id, spot.id));
+      } else {
+        await tx.insert(walletsTable).values({ userId: pos.userId, coinId: p.coinId, walletType: "spot", balance: String(payout.toFixed(8)), locked: "0" });
+      }
+
+      // Update product subscribed
+      await tx.update(earnProductsTable).set({
+        currentSubscribed: sql`GREATEST(0, ${earnProductsTable.currentSubscribed} - ${principal})`,
+      }).where(eq(earnProductsTable.id, p.id));
+
+      const [updated] = await tx.update(earnPositionsTable).set({
+        status: "redeemed", totalEarned: String(Math.max(0, earned).toFixed(8)), closedAt: new Date(),
+      }).where(eq(earnPositionsTable.id, id)).returning();
+
+      await logAdminAction(req, "earn.force_redeem", { positionId: id, userId: pos.userId, payout: payout.toFixed(8) });
+      return { ...updated, payout, earned };
+    });
+    res.json(result);
+  } catch (e: any) {
+    if (e?.code) { res.status(e.code).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
 router.get("/admin/earn-stats", supportPlus, async (_req, res): Promise<void> => {
   const products = await db.select().from(earnProductsTable);
   const positions = await db.select().from(earnPositionsTable);
+  const now = Date.now();
   const totalProducts = products.length;
   const activeProducts = products.filter((p) => p.status === "active").length;
   const totalCap = products.reduce((s, p) => s + Number(p.totalCap || 0), 0);
   const totalSubscribed = products.reduce((s, p) => s + Number(p.currentSubscribed || 0), 0);
-  const activePositions = positions.filter((p) => p.status === "active").length;
-  const totalPositionAmount = positions.filter((p) => p.status === "active").reduce((s, p) => s + Number(p.amount || 0), 0);
+  const activePos = positions.filter((p) => p.status === "active");
+  const activePositions = activePos.length;
+  const totalPositionAmount = activePos.reduce((s, p) => s + Number(p.amount || 0), 0);
   const totalEarned = positions.reduce((s, p) => s + Number(p.totalEarned || 0), 0);
-  res.json({ totalProducts, activeProducts, totalCap, totalSubscribed, activePositions, totalPositionAmount, totalEarned });
+  const maturedPending = positions.filter((p) => p.status === "matured").length;
+  const autoRenewCount = activePos.filter((p) => p.autoMaturity).length;
+  // Live pending yield across all active positions (client-calc from startedAt)
+  const { getEarnEngineStatus } = await import("../lib/earn-engine");
+  const engineStatus = getEarnEngineStatus();
+  res.json({
+    totalProducts, activeProducts, totalCap, totalSubscribed,
+    activePositions, totalPositionAmount, totalEarned,
+    maturedPending, autoRenewCount, engineStatus,
+  });
+});
+
+router.post("/admin/earn-engine/run", adminOnly, async (_req, res): Promise<void> => {
+  const { runEarnEngineTick } = await import("../lib/earn-engine");
+  void runEarnEngineTick();
+  res.json({ ok: true, message: "Earn engine tick triggered" });
 });
 
 // Legal CMS

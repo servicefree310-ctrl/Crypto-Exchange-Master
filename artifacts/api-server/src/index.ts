@@ -14,6 +14,7 @@ import { startOptionsEngine } from "./lib/options-engine";
 import { startListingDiscovery } from "./lib/listing-discovery";
 import { startPriceAlertWorker } from "./lib/notifications";
 import { startBotEngine } from "./lib/bot-engine";
+import { startEarnEngine } from "./lib/earn-engine";
 import { startP2PEngine } from "./lib/p2p-engine";
 import { restoreBooksOnBoot } from "./routes/futures";
 import { initRedis, shutdownRedis } from "./lib/redis";
@@ -366,6 +367,7 @@ async function bootstrap() {
     startListingDiscovery();
     startPriceAlertWorker();
     startBotEngine();
+    startEarnEngine();
     startP2PEngine();
     // Re-seed the Go matching engine's in-memory book from any open futures
     // limit orders left over from the last run. ONLY the leader does this —

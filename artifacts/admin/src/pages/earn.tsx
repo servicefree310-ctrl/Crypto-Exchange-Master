@@ -25,7 +25,8 @@ import {
 import {
   Plus, Trash2, Pencil, Search, Star, Lock, TrendingUp, Coins,
   Users, Wallet, Sparkles, PiggyBank, Loader2, AlertTriangle,
-  Calendar, Award, Settings,
+  Calendar, Award, Settings, RefreshCw, CheckCircle2, XCircle,
+  Activity, ShieldAlert, Clock, Zap,
 } from "lucide-react";
 
 type Coin = { id: number; symbol: string; name?: string };
@@ -64,6 +65,19 @@ type Position = {
   startedAt: string;
   maturedAt: string | null;
   closedAt: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
+  coinSymbol?: string;
+  productName?: string;
+  apy?: string;
+};
+type EarnEngineStatus = {
+  running: boolean;
+  lastRunAt: string | null;
+  lastAccruedCount: number;
+  lastMaturedCount: number;
+  lastRenewedCount: number;
+  intervalMs: number;
 };
 type Stats = {
   totalProducts: number;
@@ -73,6 +87,9 @@ type Stats = {
   activePositions: number;
   totalPositionAmount: number;
   totalEarned: number;
+  maturedPending: number;
+  autoRenewCount: number;
+  engineStatus?: EarnEngineStatus;
 };
 
 const blank: Partial<Product> = {
@@ -143,9 +160,16 @@ export default function EarnPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleteFor, setDeleteFor] = useState<Product | null>(null);
   const [draft, setDraft] = useState<Partial<Product>>(blank);
+  const [forceRedeemFor, setForceRedeemFor] = useState<Position | null>(null);
+  const [posStatusFilter, setPosStatusFilter] = useState<string>("all");
+  const [posSearch, setPosSearch] = useState("");
 
   const inv = () => {
     qc.invalidateQueries({ queryKey: ["/admin/earn-products"] });
+    qc.invalidateQueries({ queryKey: ["/admin/earn-stats"] });
+  };
+  const invPositions = () => {
+    qc.invalidateQueries({ queryKey: ["/admin/earn-positions"] });
     qc.invalidateQueries({ queryKey: ["/admin/earn-stats"] });
   };
 
@@ -170,6 +194,24 @@ export default function EarnPage() {
     mutationFn: (id: number) => del(`/admin/earn-products/${id}`),
     onSuccess: () => { inv(); setDeleteFor(null); toast({ title: "Product deleted" }); },
     onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
+
+  const forceRedeem = useMutation({
+    mutationFn: (id: number) => post(`/admin/earn-positions/${id}/force-redeem`, {}),
+    onSuccess: () => {
+      invPositions(); setForceRedeemFor(null);
+      toast({ title: "Force redeemed", description: "Position closed and funds returned to user's spot wallet." });
+    },
+    onError: (e: Error) => { toast({ title: "Force redeem failed", description: e.message, variant: "destructive" }); },
+  });
+
+  const triggerEngine = useMutation({
+    mutationFn: () => post("/admin/earn-engine/run", {}),
+    onSuccess: () => {
+      toast({ title: "Engine tick triggered", description: "Interest accrual running in background." });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["/admin/earn-stats"] }), 3000);
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   const coinMap = useMemo(() => {
@@ -218,9 +260,41 @@ export default function EarnPage() {
         <PremiumStatCard title="Subscribed" value={fmt(stats?.totalSubscribed ?? 0, 4)} icon={Wallet} hint={`Cap ${fmt(stats?.totalCap ?? 0, 0)}`} />
         <PremiumStatCard title="Active Positions" value={fmt(stats?.activePositions ?? 0, 0)} icon={Users} hint={`${fmt(stats?.totalPositionAmount ?? 0, 4)} locked`} />
         <PremiumStatCard title="Yield Paid" value={fmt(stats?.totalEarned ?? 0, 4)} icon={TrendingUp} hint="All-time" />
-        <PremiumStatCard title="Featured" value={featuredCount} icon={Star} hint="On home" />
-        <PremiumStatCard title="Subscriptions" value={positions.length} icon={PiggyBank} hint={`${positions.filter((p) => p.status === "active").length} active`} />
+        <PremiumStatCard title="Matured (pending)" value={stats?.maturedPending ?? 0} icon={Clock} hint="Awaiting user redeem" />
+        <PremiumStatCard title="Auto-renew" value={stats?.autoRenewCount ?? 0} icon={Zap} hint="Positions auto-renewing" />
       </div>
+
+      {/* Engine status card */}
+      {stats?.engineStatus && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+          <div className="flex items-center gap-2 flex-1">
+            <Activity className={cn("w-4 h-4", stats.engineStatus.running ? "text-amber-400 animate-pulse" : "text-emerald-400")} />
+            <span className="text-sm font-semibold">Earn Engine</span>
+            <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold border", stats.engineStatus.running ? "bg-amber-500/15 text-amber-300 border-amber-500/30" : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30")}>
+              {stats.engineStatus.running ? "RUNNING" : "IDLE"}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            {stats.engineStatus.lastRunAt ? (
+              <>
+                <span>Last run: <span className="text-foreground font-medium">{new Date(stats.engineStatus.lastRunAt).toLocaleString("en-IN")}</span></span>
+                <span className="hidden sm:inline">Accrued: <span className="text-amber-400 font-mono">{stats.engineStatus.lastAccruedCount}</span></span>
+                <span className="hidden sm:inline">Matured: <span className="text-emerald-400 font-mono">{stats.engineStatus.lastMaturedCount}</span></span>
+                <span className="hidden sm:inline">Renewed: <span className="text-sky-400 font-mono">{stats.engineStatus.lastRenewedCount}</span></span>
+              </>
+            ) : (
+              <span>Not yet run this session</span>
+            )}
+            <span>Interval: 30 min</span>
+          </div>
+          {isAdmin && (
+            <Button size="sm" variant="outline" onClick={() => triggerEngine.mutate()} disabled={triggerEngine.isPending || stats.engineStatus.running}>
+              {triggerEngine.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+              Run now
+            </Button>
+          )}
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
@@ -402,7 +476,32 @@ export default function EarnPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="positions" className="mt-4">
+        <TabsContent value="positions" className="mt-4 space-y-3">
+          {/* Position filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
+              <Input placeholder="Email, username, coin…" value={posSearch} onChange={(e) => setPosSearch(e.target.value)} className="pl-8 h-9" />
+            </div>
+            <Select value={posStatusFilter} onValueChange={setPosStatusFilter}>
+              <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="matured">Matured</SelectItem>
+                <SelectItem value="redeemed">Redeemed</SelectItem>
+                <SelectItem value="early_redeemed">Early exit</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {positions.filter(p => {
+                const haystack = `${p.userEmail ?? ""} ${p.userName ?? ""} ${p.coinSymbol ?? ""}`.toLowerCase();
+                const matchSearch = !posSearch || haystack.includes(posSearch.toLowerCase());
+                const matchStatus = posStatusFilter === "all" || p.status === posStatusFilter;
+                return matchSearch && matchStatus;
+              }).length} positions
+            </span>
+          </div>
           <div className="premium-card rounded-xl overflow-hidden border border-border/60">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -416,37 +515,71 @@ export default function EarnPage() {
                     <th className="text-left font-medium px-4 py-3">Started</th>
                     <th className="text-left font-medium px-4 py-3">Matures</th>
                     <th className="text-center font-medium px-4 py-3">Auto</th>
-                    <th className="text-left font-medium px-4 py-3 pr-5">Status</th>
+                    <th className="text-left font-medium px-4 py-3">Status</th>
+                    {isAdmin && <th className="text-right font-medium px-4 py-3 pr-5">Action</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {posLoading && Array.from({ length: 4 }).map((_, i) => (
-                    <tr key={i}><td colSpan={9} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td></tr>
+                    <tr key={i}><td colSpan={isAdmin ? 10 : 9} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td></tr>
                   ))}
                   {!posLoading && positions.length === 0 && (
-                    <tr><td colSpan={9} className="px-4 py-3">
+                    <tr><td colSpan={isAdmin ? 10 : 9} className="px-4 py-3">
                       <EmptyState icon={PiggyBank} title="No subscriptions yet" description="Users abhi tak kisi product me subscribe nahi kiye." />
                     </td></tr>
                   )}
-                  {!posLoading && positions.map((pos) => {
-                    const prod = products.find((x) => x.id === pos.productId);
-                    const sym = prod ? (coinMap.get(prod.coinId)?.symbol ?? `#${prod.coinId}`) : `prod ${pos.productId}`;
+                  {!posLoading && positions
+                    .filter((pos) => {
+                      const haystack = `${pos.userEmail ?? ""} ${pos.userName ?? ""} ${pos.coinSymbol ?? ""}`.toLowerCase();
+                      const matchSearch = !posSearch || haystack.includes(posSearch.toLowerCase());
+                      const matchStatus = posStatusFilter === "all" || pos.status === posStatusFilter;
+                      return matchSearch && matchStatus;
+                    })
+                    .map((pos) => {
+                    const sym = pos.coinSymbol ?? products.find((x) => x.id === pos.productId) ? (coinMap.get(products.find((x) => x.id === pos.productId)!.coinId)?.symbol ?? "?") : "?";
+                    const isRedeemable = pos.status === "active" || pos.status === "matured";
                     return (
                       <tr key={pos.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-position-${pos.id}`}>
                         <td className="px-4 py-3 pl-5 font-mono text-[10px] text-muted-foreground">#{pos.id}</td>
-                        <td className="px-4 py-3 font-mono text-xs">user-{pos.userId}</td>
                         <td className="px-4 py-3">
-                          <div className="font-bold">{sym}</div>
-                          <div className="text-[10px] text-muted-foreground">{prod?.name || `#${pos.productId}`} · <span className="gold-text">{prod?.apy ?? "—"}%</span></div>
+                          <div className="text-xs font-medium truncate max-w-[160px]">{pos.userEmail ?? `user-${pos.userId}`}</div>
+                          {pos.userName && <div className="text-[10px] text-muted-foreground">{pos.userName}</div>}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono tabular-nums">{fmt(pos.amount, 8)}</td>
-                        <td className="px-4 py-3 text-right font-mono tabular-nums gold-text">{fmt(pos.totalEarned, 8)}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(pos.startedAt).toLocaleDateString("en-IN")}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">{pos.maturedAt ? new Date(pos.maturedAt).toLocaleDateString("en-IN") : "—"}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-bold">{pos.coinSymbol ?? sym}</div>
+                          <div className="text-[10px] text-muted-foreground">{pos.productName ?? `#${pos.productId}`} · <span className="gold-text">{pos.apy ?? "—"}%</span></div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono tabular-nums text-xs">{fmt(pos.amount, 6)}</td>
+                        <td className="px-4 py-3 text-right font-mono tabular-nums gold-text text-xs">{fmt(pos.totalEarned, 6)}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{new Date(pos.startedAt).toLocaleDateString("en-IN")}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                          {pos.maturedAt ? (
+                            <span className={new Date(pos.maturedAt) <= new Date() ? "text-emerald-400" : ""}>
+                              {new Date(pos.maturedAt).toLocaleDateString("en-IN")}
+                            </span>
+                          ) : "—"}
+                        </td>
                         <td className="px-4 py-3 text-center">
-                          {pos.autoMaturity ? <span className="inline-flex w-2 h-2 rounded-full bg-emerald-400" title="Auto-renew on" /> : <span className="text-muted-foreground text-xs">—</span>}
+                          {pos.autoMaturity
+                            ? <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><Zap className="w-2.5 h-2.5" /> Auto</span>
+                            : <span className="text-muted-foreground text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-3 pr-4"><StatusPill status={pos.status} /></td>
+                        <td className="px-4 py-3"><StatusPill status={pos.status} /></td>
+                        {isAdmin && (
+                          <td className="px-4 py-3 pr-4 text-right">
+                            {isRedeemable && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="h-7 text-[11px]"
+                                onClick={() => setForceRedeemFor(pos)}
+                                data-testid={`button-force-redeem-${pos.id}`}
+                              >
+                                <ShieldAlert className="w-3 h-3 mr-1" /> Force Redeem
+                              </Button>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -500,6 +633,60 @@ export default function EarnPage() {
             <Button variant="destructive" onClick={() => deleteFor && remove.mutate(deleteFor.id)} disabled={remove.isPending} data-testid="button-confirm-delete">
               {remove.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1.5" />}
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Force-redeem confirmation */}
+      <Dialog open={!!forceRedeemFor} onOpenChange={(o) => { if (!o) setForceRedeemFor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-amber-400" /> Force Redeem Position
+            </DialogTitle>
+            <DialogDescription>
+              This admin action closes the position early, accrues interest up to now, and returns principal + earned to the user's spot wallet. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {forceRedeemFor && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Position</span>
+                <span className="font-mono font-bold">#{forceRedeemFor.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">User</span>
+                <span className="font-medium">{forceRedeemFor.userEmail ?? `user-${forceRedeemFor.userId}`}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Coin</span>
+                <span className="font-bold">{forceRedeemFor.coinSymbol ?? "?"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Principal</span>
+                <span className="font-mono">{fmt(forceRedeemFor.amount, 6)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Earned (DB)</span>
+                <span className="font-mono gold-text">{fmt(forceRedeemFor.totalEarned, 6)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <StatusPill status={forceRedeemFor.status} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setForceRedeemFor(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => forceRedeemFor && forceRedeem.mutate(forceRedeemFor.id)}
+              disabled={forceRedeem.isPending}
+              data-testid="button-confirm-force-redeem"
+            >
+              {forceRedeem.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <ShieldAlert className="w-4 h-4 mr-1.5" />}
+              Confirm Force Redeem
             </Button>
           </DialogFooter>
         </DialogContent>
