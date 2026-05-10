@@ -46,24 +46,52 @@ async function getBotUserId(): Promise<number | null> {
   return botUserId;
 }
 
-// Bot pricing MUST come from the external feed (CoinGecko/Binance via
-// price-service), never from `pair.lastPrice` — `pair.lastPrice` is written
-// by the matching engine on every fill and can drift far from the true
-// market when local trades happen at off-feed prices. Using it as the bot's
-// reference would feed the bot's own (potentially stale) state back into its
-// own quote pricing, defeating the whole point of an external price source.
+// ─── INDEX PRICE (authoritative external reference) ─────────────────────────
 //
-// We also read the RAW (non-jittered) cache: jitter is a UI-only ±0.03%
-// random walk added at the WS broadcast boundary so the price-flash
-// animation fires. Letting jitter into bot pricing would randomly push
-// borderline quotes onto the wrong side of the true external mid.
-function midPriceForPair(pair: any): number {
+// "Index price" = external market price from CoinGecko / Binance via price-service.
+// It is NEVER sourced from pair.lastPrice (which is written by the matching engine
+// on every fill and can drift when local trades happen at off-feed prices).
+// We use getRawTick() — the non-jittered cache — so UI display jitter (±0.03%)
+// cannot pollute bot pricing or spread calculations.
+//
+// Quote-currency routing:
+//   BTC/INR  → bTick.inr  (direct, no division needed, full INR precision)
+//   BTC/USDT → bTick.usdt (direct)
+//   BTC/BNB  → bTick.usdt / qTick.usdt  (cross-rate via USDT)
+//
+function indexPriceForPair(pair: { _baseSymbol: string; _quoteSymbol: string }): number {
   const bTick = getRawTick(pair._baseSymbol);
+  if (!bTick || bTick.usdt <= 0) return 0;
+  const q = pair._quoteSymbol.toUpperCase();
+  if (q === "INR")  return bTick.inr;   // e.g. BTC/INR → ₹7,500,000
+  if (q === "USDT") return bTick.usdt;  // e.g. BTC/USDT → $95,000
+  // Cross-rate: base/quote = base.usdt / quote.usdt
   const qTick = getRawTick(pair._quoteSymbol);
-  const bUsdt = Number(bTick?.usdt ?? 0);
-  const qUsdt = Number(qTick?.usdt ?? 0);
-  if (bUsdt <= 0 || qUsdt <= 0) return 0; // no external price → bot will skip this tick
-  return bUsdt / qUsdt;
+  if (!qTick || qTick.usdt <= 0) return 0;
+  return bTick.usdt / qTick.usdt;
+}
+
+// Round order price to a sensible tick size based on magnitude.
+// Avoids 8-decimal-place noise on large INR prices (₹7,500,000.12345678).
+function roundPrice(price: number): string {
+  if (price >= 1_000_000) return price.toFixed(1);   // BTC/INR ₹7,500,000.0
+  if (price >= 10_000)    return price.toFixed(2);   // ETH/INR  ₹220,000.00
+  if (price >= 100)       return price.toFixed(3);   // BNB ₹38,000.000
+  if (price >= 1)         return price.toFixed(4);   // mid-range tokens
+  if (price >= 0.001)     return price.toFixed(6);
+  return price.toFixed(8);
+}
+
+// Dynamic spread multiplier: if the external price has moved significantly
+// since the last bot run, widen the spread to avoid being picked off.
+// Returns a multiplier ≥ 1. Max 3× normal spread.
+function dynamicSpreadMult(currentMid: number, lastMid: number): number {
+  if (lastMid <= 0) return 1;
+  const moveBps = Math.abs(currentMid - lastMid) / lastMid * 10_000;
+  if (moveBps < 10)  return 1.0;   //  < 0.10% move → normal spread
+  if (moveBps < 30)  return 1.3;   // 0.10–0.30% → 1.3× spread
+  if (moveBps < 80)  return 1.8;   // 0.30–0.80% → 1.8×
+  return 2.5;                      // > 0.80% move → 2.5× spread (volatile)
 }
 
 // Note: `settleUserFill` and `ensureSpotWallet` were removed — those helpers
@@ -80,11 +108,15 @@ async function runBotForPair(bot: any, uid: number) {
   if (!baseCoin || !quoteCoin) return;
 
   const enriched = { ...pair, _baseSymbol: baseCoin.symbol, _quoteSymbol: quoteCoin.symbol };
-  const mid = midPriceForPair(enriched);
+  // Index price from external feed (CoinGecko/Binance) — never from pair.lastPrice
+  const mid = indexPriceForPair(enriched);
   if (!(mid > 0)) {
-    await db.update(marketBotsTable).set({ status: "no_price", lastError: "external price unavailable", lastRunAt: new Date() }).where(eq(marketBotsTable.id, bot.id));
+    await db.update(marketBotsTable).set({ status: "no_price", lastError: `index price unavailable for ${baseCoin.symbol}/${quoteCoin.symbol}`, lastRunAt: new Date() }).where(eq(marketBotsTable.id, bot.id));
     return;
   }
+  // Dynamic spread: widen when the external price has moved since last tick
+  const lastMid = bot.lastMidPrice ? Number(bot.lastMidPrice) : 0;
+  const spreadMult = dynamicSpreadMult(mid, lastMid);
 
   // 1) Cancel stale bot orders (older than maxOrderAgeSec) — DB + Redis cleanup
   const ageMs = bot.maxOrderAgeSec * 1000;
@@ -186,18 +218,31 @@ async function runBotForPair(bot: any, uid: number) {
   const buyCount = existing.filter(o => o.side === "buy").length;
   const sellCount = existing.filter(o => o.side === "sell").length;
   const stepFrac = bot.priceStepBps / 10_000;
-  const halfSpread = bot.spreadBps / 20_000;
+  // Apply dynamic spread multiplier — widens spread in volatile market
+  const halfSpread = (bot.spreadBps / 20_000) * spreadMult;
   const baseSize = Number(bot.orderSize);
   const boostMult = 1 + (Number(bot.topOfBookBoostPct ?? 0) / 100);
   const sizeForLevel = (i: number) => i === 0 ? baseSize * boostMult : baseSize;
   const newOrders: any[] = [];
   for (let i = buyCount; i < bot.levels; i++) {
+    // Buy below index price (never at or above — would cross maker invariant)
     const px = mid * (1 - halfSpread - stepFrac * i);
-    if (px > 0) newOrders.push({ userId: uid, pairId: pair.id, side: "buy", type: "limit", price: String(px.toFixed(8)), qty: String(sizeForLevel(i).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
+    if (px > 0) newOrders.push({
+      userId: uid, pairId: pair.id, side: "buy", type: "limit",
+      price: roundPrice(px),                          // tick-size precision
+      qty: String(sizeForLevel(i).toFixed(8)),
+      status: "open", isBot: 1, botId: bot.id,
+    });
   }
   for (let i = sellCount; i < bot.levels; i++) {
+    // Sell above index price
     const px = mid * (1 + halfSpread + stepFrac * i);
-    newOrders.push({ userId: uid, pairId: pair.id, side: "sell", type: "limit", price: String(px.toFixed(8)), qty: String(sizeForLevel(i).toFixed(8)), status: "open", isBot: 1, botId: bot.id });
+    newOrders.push({
+      userId: uid, pairId: pair.id, side: "sell", type: "limit",
+      price: roundPrice(px),                          // tick-size precision
+      qty: String(sizeForLevel(i).toFixed(8)),
+      status: "open", isBot: 1, botId: bot.id,
+    });
   }
   if (newOrders.length) {
     const inserted = await db.insert(ordersTable).values(newOrders).returning();
@@ -259,16 +304,17 @@ async function runBotForPair(bot: any, uid: number) {
     }
 
     if (marketSide && marketQty > 0) {
-      // Synthetic market trade at current mid (no wallet movements; pure tape print + order record)
+      // Synthetic market trade at index price (no wallet movements; pure tape print + order record)
+      const indexPx = roundPrice(mid); // index price in quote currency, tick-size precision
       const [mktOrder] = await db.insert(ordersTable).values({
         userId: uid, pairId: pair.id, side: marketSide, type: "market",
-        price: String(mid.toFixed(8)), qty: String(marketQty.toFixed(8)),
-        filledQty: String(marketQty.toFixed(8)), avgPrice: String(mid.toFixed(8)),
+        price: indexPx, qty: String(marketQty.toFixed(8)),
+        filledQty: String(marketQty.toFixed(8)), avgPrice: indexPx,
         status: "filled", isBot: 1, botId: bot.id,
       }).returning();
       const [trade] = await db.insert(tradesTable).values({
         orderId: mktOrder.id, userId: uid, pairId: pair.id, side: marketSide,
-        price: String(mid.toFixed(8)), qty: String(marketQty.toFixed(8)), fee: "0",
+        price: indexPx, qty: String(marketQty.toFixed(8)), fee: "0",
       }).returning();
       try {
         const tradePayload = JSON.stringify({

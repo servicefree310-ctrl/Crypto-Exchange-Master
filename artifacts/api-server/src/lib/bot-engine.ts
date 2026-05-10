@@ -46,18 +46,29 @@ type DcaConfig = {
   lastBuyAt?: string;
 };
 
-function getLivePrice(symbol: string): number {
-  // bot.symbol typically looks like "BTC/USDT" or "BTCUSDT" — cache is keyed
-  // by base ("BTC"), so strip /USDT and any quote suffix.
-  const base = symbol.replace(/[\/\-]?USDT$/i, "").toUpperCase();
-  const hit = getRawTick(base);
-  return hit?.usdt ?? 0;
+// Return the external index price of `baseSymbol` denominated in `quoteSymbol`.
+//   BTC, INR  → BTC index price in INR  (₹7,500,000)
+//   BTC, USDT → BTC index price in USDT ($95,000)
+//   BTC       → BTC index price in USDT (backwards-compat default)
+// Uses getRawTick() (non-jittered) so UI price jitter never contaminates fills.
+function getLivePrice(baseSymbol: string, quoteSymbol?: string): number {
+  const base = baseSymbol.replace(/[\/\-]?(?:USDT|INR|BTC|ETH|BNB)$/i, "").toUpperCase() || baseSymbol.toUpperCase();
+  const bTick = getRawTick(base);
+  if (!bTick || bTick.usdt <= 0) return 0;
+  const q = (quoteSymbol ?? "USDT").toUpperCase();
+  if (q === "INR")  return bTick.inr;
+  if (q === "USDT") return bTick.usdt;
+  // Cross-rate: base / quote via USDT
+  const qTick = getRawTick(q);
+  if (!qTick || qTick.usdt <= 0) return 0;
+  return bTick.usdt / qTick.usdt;
 }
 
 async function runGridTick(bot: typeof tradingBotsTable.$inferSelect): Promise<void> {
   const cfg = bot.config as unknown as GridConfig;
   if (!cfg || !cfg.lowerPrice || !cfg.upperPrice || !cfg.gridLevels) return;
-  const price = getLivePrice(bot.symbol);
+  // Use index price in quote currency (INR for INR-quoted pairs, USDT otherwise)
+  const price = getLivePrice(bot.baseSymbol ?? bot.symbol, bot.quoteSymbol ?? "USDT");
   if (!price) return;
   if (price < cfg.lowerPrice || price > cfg.upperPrice) return;
 
@@ -105,7 +116,8 @@ async function runGridTick(bot: typeof tradingBotsTable.$inferSelect): Promise<v
 async function runDcaTick(bot: typeof tradingBotsTable.$inferSelect): Promise<void> {
   const cfg = bot.config as unknown as DcaConfig;
   if (!cfg || !cfg.amountUsd || !cfg.intervalMin) return;
-  const price = getLivePrice(bot.symbol);
+  // Index price in quote currency (INR or USDT)
+  const price = getLivePrice(bot.baseSymbol ?? bot.symbol, bot.quoteSymbol ?? "USDT");
   if (!price) return;
   if (cfg.priceFloor && price < cfg.priceFloor) return;
   if (cfg.priceCeil && price > cfg.priceCeil) return;
@@ -158,7 +170,7 @@ async function recomputeUnrealizedPnl(bot: typeof tradingBotsTable.$inferSelect)
     return;
   }
   const avgCost = buyQty > 0 ? buyNotional / buyQty : 0;
-  const price = getLivePrice(bot.symbol);
+  const price = getLivePrice(bot.baseSymbol ?? bot.symbol, bot.quoteSymbol ?? "USDT");
   const upnl = (price - avgCost) * pos;
   await db.update(tradingBotsTable).set({ unrealizedPnlUsd: String(upnl) })
     .where(eq(tradingBotsTable.id, bot.id));
