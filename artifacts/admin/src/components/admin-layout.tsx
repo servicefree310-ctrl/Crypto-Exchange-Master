@@ -106,6 +106,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/api-keys", label: "API Keys", icon: KeyRound, roles: ["admin", "superadmin"] },
       { href: "/redis", label: "Redis & Engines", icon: Database, roles: ["admin", "superadmin"] },
+      { href: "/integrations", label: "API Integrations", icon: Globe2, roles: ["admin", "superadmin"] },
       { href: "/otp-providers", label: "OTP Providers", icon: KeyRound, roles: ["admin", "superadmin"] },
       { href: "/settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "superadmin"] },
       { href: "/backend-status", label: "Backend Status", icon: Server, roles: ["support", "admin", "superadmin"] },

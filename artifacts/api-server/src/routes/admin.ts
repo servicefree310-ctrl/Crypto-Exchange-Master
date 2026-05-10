@@ -31,6 +31,8 @@ import {
   futuresPositionsTable,
   futuresTradesTable,
   sessionsTable,
+  emailConfigsTable,
+  customApisTable,
 } from "@workspace/db";
 import { auditLogsTable } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
@@ -1947,6 +1949,102 @@ router.patch("/admin/chat-threads/:id", supportPlus, async (req, res): Promise<v
   const [t] = await db.update(chatThreadsTable).set(req.body).where(eq(chatThreadsTable.id, id)).returning();
   if (!t) { res.status(404).json({ error: "Not found" }); return; }
   res.json(t);
+});
+
+// Email configs
+router.get("/admin/email-configs", adminOnly, async (_req, res): Promise<void> => {
+  const rows = await db.select().from(emailConfigsTable).orderBy(desc(emailConfigsTable.createdAt));
+  res.json(rows.map((r) => ({ ...r, password: r.password ? "••••••••" : null, apiKey: r.apiKey ? "••••••••" : null, _passwordSet: !!r.password, _apiKeySet: !!r.apiKey })));
+});
+router.post("/admin/email-configs", adminOnly, async (req, res): Promise<void> => {
+  const b = req.body ?? {};
+  if (!b.name || !b.provider) { res.status(400).json({ error: "name & provider required" }); return; }
+  const [row] = await db.insert(emailConfigsTable).values({
+    name: b.name, provider: b.provider, smtpHost: b.smtpHost ?? null, smtpPort: b.smtpPort ?? 587,
+    smtpSecure: b.smtpSecure ?? false, username: b.username ?? null, password: b.password ?? null,
+    fromEmail: b.fromEmail ?? null, fromName: b.fromName ?? null,
+    apiKey: b.apiKey ?? null, domain: b.domain ?? null, region: b.region ?? "us-east-1",
+    isActive: b.isActive ?? false,
+  }).returning();
+  res.status(201).json({ ...row, password: undefined, apiKey: undefined });
+});
+router.patch("/admin/email-configs/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const b = req.body ?? {};
+  const upd: Record<string, any> = {};
+  for (const k of ["name","provider","smtpHost","smtpPort","smtpSecure","username","fromEmail","fromName","domain","region","isActive","testStatus"]) {
+    if (b[k] !== undefined) upd[k] = b[k];
+  }
+  if (b.password && b.password !== "••••••••") upd.password = b.password;
+  if (b.apiKey && b.apiKey !== "••••••••") upd.apiKey = b.apiKey;
+  const [row] = await db.update(emailConfigsTable).set(upd).where(eq(emailConfigsTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  res.json({ ...row, password: undefined, apiKey: undefined });
+});
+router.delete("/admin/email-configs/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  await db.delete(emailConfigsTable).where(eq(emailConfigsTable.id, id));
+  res.sendStatus(204);
+});
+router.post("/admin/email-configs/:id/test", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const [cfg] = await db.select().from(emailConfigsTable).where(eq(emailConfigsTable.id, id)).limit(1);
+  if (!cfg) { res.status(404).json({ error: "Not found" }); return; }
+  // Simulated test — in production, use nodemailer/sendgrid SDK
+  const ok = !!(cfg.smtpHost || cfg.apiKey);
+  await db.update(emailConfigsTable).set({ testStatus: ok ? "ok" : "failed", lastTestedAt: new Date() }).where(eq(emailConfigsTable.id, id));
+  res.json({ ok, message: ok ? `Config looks valid (${cfg.provider})` : "Missing credentials" });
+});
+
+// Custom APIs
+router.get("/admin/custom-apis", adminOnly, async (_req, res): Promise<void> => {
+  res.json(await db.select().from(customApisTable).orderBy(desc(customApisTable.createdAt)));
+});
+router.post("/admin/custom-apis", adminOnly, async (req, res): Promise<void> => {
+  const b = req.body ?? {};
+  if (!b.name || !b.endpointUrl) { res.status(400).json({ error: "name & endpointUrl required" }); return; }
+  const [row] = await db.insert(customApisTable).values({
+    name: b.name, description: b.description ?? null, category: b.category ?? "webhook",
+    endpointUrl: b.endpointUrl, method: b.method ?? "POST",
+    authType: b.authType ?? "none", authValue: b.authValue ?? null,
+    headers: b.headers ?? "{}", isActive: b.isActive ?? false,
+  }).returning();
+  res.status(201).json(row);
+});
+router.patch("/admin/custom-apis/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const allowed = ["name","description","category","endpointUrl","method","authType","authValue","headers","isActive","lastStatus"];
+  const upd: Record<string, any> = {};
+  for (const k of allowed) if (req.body[k] !== undefined) upd[k] = req.body[k];
+  const [row] = await db.update(customApisTable).set(upd).where(eq(customApisTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(row);
+});
+router.delete("/admin/custom-apis/:id", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  await db.delete(customApisTable).where(eq(customApisTable.id, id));
+  res.sendStatus(204);
+});
+router.post("/admin/custom-apis/:id/test", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  const [api] = await db.select().from(customApisTable).where(eq(customApisTable.id, id)).limit(1);
+  if (!api) { res.status(404).json({ error: "Not found" }); return; }
+  try {
+    const hdrs: Record<string, string> = { "Content-Type": "application/json", "X-Source": "CryptoX-Admin" };
+    const parsed = JSON.parse(api.headers || "{}");
+    Object.assign(hdrs, parsed);
+    if (api.authType === "bearer" && api.authValue) hdrs["Authorization"] = `Bearer ${api.authValue}`;
+    if (api.authType === "basic" && api.authValue) hdrs["Authorization"] = `Basic ${Buffer.from(api.authValue).toString("base64")}`;
+    const t0 = Date.now();
+    const r = await fetch(api.endpointUrl, { method: api.method, headers: hdrs, body: api.method !== "GET" ? JSON.stringify({ ping: true }) : undefined, signal: AbortSignal.timeout(8000) });
+    const latencyMs = Date.now() - t0;
+    const ok = r.status < 500;
+    await db.update(customApisTable).set({ lastStatus: ok ? "ok" : "error", lastCalledAt: new Date() }).where(eq(customApisTable.id, id));
+    res.json({ ok, status: r.status, latencyMs });
+  } catch (e: any) {
+    await db.update(customApisTable).set({ lastStatus: "error", lastCalledAt: new Date() }).where(eq(customApisTable.id, id));
+    res.json({ ok: false, error: e.message });
+  }
 });
 
 void and;

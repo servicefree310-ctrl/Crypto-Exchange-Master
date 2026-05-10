@@ -28,6 +28,7 @@ import OptionsAdminPage from "@/pages/options-admin";
 import Web3AdminPage from "@/pages/web3-admin";
 import ListingsAdminPage from "@/pages/listings-admin";
 import OtpProvidersPage from "@/pages/otp-providers";
+import IntegrationsPage from "@/pages/integrations";
 import ChatPage from "@/pages/chat";
 import FundingRatesPage from "@/pages/funding-rates";
 import FuturesPositionsPage from "@/pages/futures-positions";
@@ -142,6 +143,7 @@ function Protected() {
         <Route path="/legal" component={LegalPage} />
         <Route path="/chat" component={ChatPage} />
         <Route path="/login-logs" component={LoginLogsPage} />
+        <Route path="/integrations" component={IntegrationsPage} />
         <Route path="/otp-providers" component={OtpProvidersPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/backend-status" component={BackendStatusPage} />
