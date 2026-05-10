@@ -752,7 +752,7 @@ export default function Signup() {
               </h2>
               <p className="mt-4 text-lg text-muted-foreground max-w-md">
                 A premium account on India&apos;s most trusted exchange — built
-                on Zebvix Blockchain (Chain 7878).
+                on Zebvix Blockchain (Chain 8989).
               </p>
             </div>
 

@@ -77,11 +77,12 @@ import { buildUsdRates } from "@/lib/volumeUsd";
 // ──────────────────────────────────────────────────────────────────
 const ZBX_CHAIN = {
   name: "Zebvix L1",
-  id: 7878,
-  hexId: "0x1ec6",
+  id: 8989,
+  hexId: "0x231d",
   symbol: "ZBX",
   tokenStandard: "ZBX-20",
 };
+const ZBX_TESTNET = { name: "Zebvix Testnet", id: 8990, hexId: "0x231e" };
 
 // ──────────────────────────────────────────────────────────────────
 // Helpers
@@ -619,17 +620,24 @@ function Reveal({
   children,
   className = "",
   delay,
+  direction = "up",
   as: Tag = "div",
 }: {
   children: React.ReactNode;
   className?: string;
   delay?: number;
+  direction?: "up" | "left" | "right" | "scale" | "fast";
   as?: "div" | "section";
 }) {
   const ref = useReveal<HTMLDivElement>();
+  const cls = direction === "left" ? "reveal-left"
+    : direction === "right" ? "reveal-right"
+    : direction === "scale" ? "reveal-scale"
+    : direction === "fast" ? "reveal-fast"
+    : "reveal";
   const style = delay ? { transitionDelay: `${delay}ms` } : undefined;
   return (
-    <Tag ref={ref as any} className={`reveal ${className}`} style={style}>
+    <Tag ref={ref as any} className={`${cls} ${className}`} style={style}>
       {children}
     </Tag>
   );
@@ -729,30 +737,59 @@ export default function Home() {
       <AnnouncementBar />
       <TickerTape tickers={tape} />
 
+      {/* ─── SOCIAL PROOF BAR ────────────────────────────────── */}
+      <div className="w-full border-b border-border/60 bg-card/20 backdrop-blur">
+        <div className="container mx-auto px-4 py-3 flex flex-wrap items-center justify-center gap-6 sm:gap-10">
+          {[
+            { label: "Registered users", value: 210000, suffix: "+", prefix: "", compact: true },
+            { label: "24h trades executed", value: stats.totalTrades24h || 18400, suffix: "", prefix: "", compact: true },
+            { label: "Total volume", value: stats.totalVolumeInr || 5200000000, suffix: "", prefix: "₹", compact: true },
+            { label: "Active markets", value: stats.markets || 249, suffix: "", prefix: "", compact: false },
+          ].map((s) => (
+            <div key={s.label} className="flex items-baseline gap-2">
+              <span className="text-lg font-bold text-foreground tabular-nums">
+                <AnimatedNumber value={s.value} prefix={s.prefix} suffix={s.suffix} compact={s.compact} />
+              </span>
+              <span className="text-xs text-muted-foreground">{s.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ─── HERO ─────────────────────────────────────────────── */}
       <section className="relative w-full overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-amber-950/20" />
+        {/* Layered gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-amber-950/25" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(245,158,11,0.10),transparent)]" />
         <div
-          className="absolute inset-0 opacity-[0.07] grid-drift"
+          className="absolute inset-0 opacity-[0.055] grid-drift"
           style={{
             backgroundImage:
               "linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)",
             backgroundSize: "48px 48px",
           }}
         />
-        {/* Floating orbs */}
-        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-amber-500/15 blur-3xl float-slow" />
-        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-orange-500/10 blur-3xl float-slow-rev" />
-        <div className="absolute top-1/3 left-1/2 h-72 w-72 rounded-full bg-fuchsia-500/[0.06] blur-3xl float-slow" />
+        {/* Floating orbs — enhanced */}
+        <div className="absolute -top-40 -right-40 h-[28rem] w-[28rem] rounded-full bg-amber-500/18 blur-3xl float-slow" />
+        <div className="absolute -bottom-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-orange-500/12 blur-3xl float-slow-rev" />
+        <div className="absolute top-1/3 left-1/2 h-80 w-80 rounded-full bg-fuchsia-500/[0.07] blur-3xl float-slow" />
+        <div className="absolute top-10 left-1/4 h-48 w-48 rounded-full bg-violet-500/[0.06] blur-3xl float-slow-rev" />
 
         <div className="relative container mx-auto px-4 py-10 sm:py-14 lg:py-24 grid lg:grid-cols-2 gap-10 items-center">
           <div className="space-y-5 sm:space-y-6">
-            <div className="fade-in-up inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-success/30 bg-success/5">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-success ring-pulse" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+            {/* Badge row: mainnet + testnet */}
+            <div className="fade-in-up flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-success/30 bg-success/5">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-success ring-pulse" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+                </span>
+                <span className="text-xs font-semibold text-success">Mainnet · Chain {ZBX_CHAIN.id}</span>
               </span>
-              <span className="text-xs font-medium text-success">Live on Zebvix Blockchain · Chain {ZBX_CHAIN.id}</span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-violet-400/30 bg-violet-500/5 text-xs font-medium text-violet-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
+                Testnet · Chain {ZBX_TESTNET.id}
+              </span>
             </div>
 
             <h1 className="fade-in-up delay-75 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05]">
@@ -768,23 +805,23 @@ export default function Home() {
             <div className="fade-in-up delay-225 flex flex-wrap gap-3">
               {!user ? (
                 <>
-                  <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7" asChild>
+                  <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7 shadow-lg shadow-primary/25" asChild>
                     <Link href="/signup">
                       Create account <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
                   </Button>
-                  <Button size="lg" variant="outline" className="text-base px-7" asChild>
+                  <Button size="lg" variant="outline" className="text-base px-7 border-border/80 hover:border-primary/50" asChild>
                     <Link href="/markets">Explore markets</Link>
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7" asChild>
+                  <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 text-base px-7 shadow-lg shadow-primary/25" asChild>
                     <Link href="/trade">
                       Open trade terminal <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
                   </Button>
-                  <Button size="lg" variant="outline" className="text-base px-7" asChild>
+                  <Button size="lg" variant="outline" className="text-base px-7 border-border/80 hover:border-primary/50" asChild>
                     <Link href="/wallet">My wallet</Link>
                   </Button>
                 </>
@@ -807,11 +844,12 @@ export default function Home() {
             </div>
           </div>
 
-          {/* KPI tiles */}
+          {/* KPI tiles — enhanced with stagger */}
           <div className="grid grid-cols-2 gap-4">
-            <Card className="scale-in delay-150 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
+            <Card className="scale-in delay-150 relative p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10 group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-                <Activity className="h-3.5 w-3.5" /> 24h volume
+                <Activity className="h-3.5 w-3.5 text-primary" /> 24h volume
               </div>
               <div className="text-3xl font-bold mt-2">
                 <AnimatedNumber value={stats.totalVolumeInr} prefix="₹" compact />
@@ -822,25 +860,28 @@ export default function Home() {
                   : "Live across all markets"}
               </div>
             </Card>
-            <Card className="scale-in delay-225 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
+            <Card className="scale-in delay-225 relative p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10 group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-                <Globe2 className="h-3.5 w-3.5" /> Markets
+                <Globe2 className="h-3.5 w-3.5 text-violet-400" /> Markets
               </div>
               <div className="text-3xl font-bold mt-2">
                 <AnimatedNumber value={stats.markets} />
               </div>
               <div className="text-xs text-muted-foreground mt-1">Spot &amp; perpetuals</div>
             </Card>
-            <Card className="scale-in delay-300 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
+            <Card className="scale-in delay-300 relative p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10 group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-                <CircleDollarSign className="h-3.5 w-3.5" /> Native token
+                <CircleDollarSign className="h-3.5 w-3.5 text-fuchsia-400" /> Native token
               </div>
               <div className="text-3xl font-bold mt-2 text-primary">{ZBX_CHAIN.symbol}</div>
               <div className="text-xs text-muted-foreground mt-1">Gas &amp; staking on L1</div>
             </Card>
-            <Card className="scale-in delay-450 p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
+            <Card className="scale-in delay-450 relative p-5 bg-card/60 backdrop-blur border-border/60 hover:border-primary/40 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10 group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-                <Zap className="h-3.5 w-3.5" /> Latency
+                <Zap className="h-3.5 w-3.5 text-sky-400" /> Latency
               </div>
               <div className="text-3xl font-bold mt-2">
                 {"<"}5<span className="text-base font-medium text-muted-foreground ml-1">ms</span>
@@ -1121,56 +1162,18 @@ export default function Home() {
             </p>
           </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            <ProductCard
-              icon={<BarChart3 className="h-6 w-6" />}
-              title="Spot trading"
-              desc="Real-time order books for major crypto pairs — INR &amp; USDT quoted."
-              href="/trade"
-              cta="Open spot terminal"
-              accent="from-amber-500/20 to-orange-500/5"
-            />
-            <ProductCard
-              icon={<Zap className="h-6 w-6" />}
-              title="Perpetual futures"
-              desc="Long or short with up to 100× leverage, isolated/cross margin, live PnL."
-              href="/futures"
-              cta="Open futures"
-              accent="from-violet-500/20 to-fuchsia-500/5"
-              badge="100×"
-            />
-            <ProductCard
-              icon={<Code2 className="h-6 w-6" />}
-              title="ZBX-20 smart contracts"
-              desc="Deploy EVM-compatible contracts on Zebvix L1. Mint tokens, NFTs and dApps."
-              href="/markets"
-              cta="View tokens"
-              accent="from-sky-500/20 to-blue-500/5"
-              badge="EVM"
-            />
-            <ProductCard
-              icon={<ArrowLeftRight className="h-6 w-6" />}
-              title="Native DEX &amp; AMM"
-              desc="On-chain swaps and liquidity pools for every ZBX-20 token, native to L1."
-              href="/markets"
-              cta="Explore pools"
-              accent="from-emerald-500/20 to-teal-500/5"
-            />
-            <ProductCard
-              icon={<Link2 className="h-6 w-6" />}
-              title="Cross-chain bridge"
-              desc="Lock &amp; send between Zebvix L1 and BSC/EVM chains, with 24/7 attestation."
-              href="/markets"
-              cta="Open bridge"
-              accent="from-fuchsia-500/20 to-pink-500/5"
-            />
-            <ProductCard
-              icon={<Smartphone className="h-6 w-6" />}
-              title="Mobile wallet (Flutter)"
-              desc="Self-custody ZBX wallet with Pay-ID, dApp QR connect and biometric login."
-              href={user ? "/wallet" : "/signup"}
-              cta={user ? "Open wallet" : "Get started"}
-              accent="from-indigo-500/20 to-violet-500/5"
-            />
+            {[
+              { icon: <BarChart3 className="h-6 w-6" />, title: "Spot trading", desc: "Real-time order books for major crypto pairs — INR & USDT quoted.", href: "/trade", cta: "Open spot terminal", accent: "from-amber-500/20 to-orange-500/5", badge: undefined },
+              { icon: <Zap className="h-6 w-6" />, title: "Perpetual futures", desc: "Long or short with up to 100× leverage, isolated/cross margin, live PnL.", href: "/futures", cta: "Open futures", accent: "from-violet-500/20 to-fuchsia-500/5", badge: "100×" },
+              { icon: <Code2 className="h-6 w-6" />, title: "ZBX-20 smart contracts", desc: "Deploy EVM-compatible contracts on Zebvix L1. Mint tokens, NFTs and dApps.", href: "/markets", cta: "View tokens", accent: "from-sky-500/20 to-blue-500/5", badge: "EVM" },
+              { icon: <ArrowLeftRight className="h-6 w-6" />, title: "Native DEX & AMM", desc: "On-chain swaps and liquidity pools for every ZBX-20 token, native to L1.", href: "/markets", cta: "Explore pools", accent: "from-emerald-500/20 to-teal-500/5", badge: undefined },
+              { icon: <Link2 className="h-6 w-6" />, title: "Cross-chain bridge", desc: "Lock & send between Zebvix L1 and BSC/EVM chains, with 24/7 attestation.", href: "/markets", cta: "Open bridge", accent: "from-fuchsia-500/20 to-pink-500/5", badge: undefined },
+              { icon: <Smartphone className="h-6 w-6" />, title: "Mobile wallet (Flutter)", desc: "Self-custody ZBX wallet with Pay-ID, dApp QR connect and biometric login.", href: user ? "/wallet" : "/signup", cta: user ? "Open wallet" : "Get started", accent: "from-indigo-500/20 to-violet-500/5", badge: undefined },
+            ].map((p, i) => (
+              <Reveal key={p.title} direction="scale" delay={i * 90}>
+                <ProductCard {...p} />
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>
@@ -1179,14 +1182,24 @@ export default function Home() {
       <section className="w-full py-16">
         <div className="container mx-auto px-4">
           <Reveal className="text-center mb-10">
+            <Badge variant="outline" className="border-primary/40 text-primary mb-3">
+              <Shield className="h-3 w-3 mr-1.5" />
+              Why Zebvix
+            </Badge>
             <h2 className="text-3xl font-bold tracking-tight">Why traders choose Zebvix</h2>
             <p className="text-muted-foreground text-sm mt-2">A serious exchange, on a serious chain — built for the Indian market.</p>
           </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Feature icon={<Shield className="h-5 w-5" />} title="Bank-grade security" desc="2FA, KYC, withdrawal allow-lists and 95% of assets in cold storage." />
-            <Feature icon={<Cpu className="h-5 w-5" />} title="In-house L1 + matcher" desc="Zebvix L1 + Go matching engine clears trades in under 5ms." />
-            <Feature icon={<Banknote className="h-5 w-5" />} title="INR friendly" desc="Direct INR deposits, withdrawals and pricing — no double conversion fees." />
-            <Feature icon={<Headphones className="h-5 w-5" />} title="24/7 support" desc="Real humans, real fast — every day of the year." />
+            {[
+              { icon: <Shield className="h-5 w-5" />, title: "Bank-grade security", desc: "2FA, KYC, withdrawal allow-lists and 95% of assets in cold storage." },
+              { icon: <Cpu className="h-5 w-5" />, title: "In-house L1 + matcher", desc: "Zebvix L1 + Go matching engine clears trades in under 5ms." },
+              { icon: <Banknote className="h-5 w-5" />, title: "INR friendly", desc: "Direct INR deposits, withdrawals and pricing — no double conversion fees." },
+              { icon: <Headphones className="h-5 w-5" />, title: "24/7 support", desc: "Real humans, real fast — every day of the year." },
+            ].map((f, i) => (
+              <Reveal key={f.title} direction="fast" delay={i * 100}>
+                <Feature icon={f.icon} title={f.title} desc={f.desc} />
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>
@@ -1260,36 +1273,60 @@ export default function Home() {
       </section>
 
       {/* ─── CTA ─────────────────────────────────────────── */}
-      <section className="w-full py-16 bg-gradient-to-r from-amber-950/30 via-background to-orange-950/30 border-y border-border">
-        <div className="container mx-auto px-4 text-center max-w-2xl">
-          <h2 className="text-3xl lg:text-4xl font-bold tracking-tight">
-            Ready to trade on a <span className="text-primary">real Blockchain?</span>
+      <section className="relative w-full py-20 overflow-hidden border-y border-border">
+        {/* Rich gradient mesh */}
+        <div className="absolute inset-0 bg-gradient-to-br from-amber-950/40 via-background to-violet-950/30" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_50%,rgba(245,158,11,0.12),transparent)]" />
+        {/* Decorative orbs */}
+        <div className="absolute -top-24 left-1/4 h-56 w-56 rounded-full bg-amber-500/15 blur-3xl float-slow neon-glow" />
+        <div className="absolute -bottom-24 right-1/4 h-56 w-56 rounded-full bg-violet-500/15 blur-3xl float-slow-rev neon-glow" />
+        {/* Dot pattern */}
+        <div className="absolute inset-0 opacity-[0.035]"
+          style={{ backgroundImage: "radial-gradient(circle at 1px 1px, hsl(var(--foreground)) 1px, transparent 0)", backgroundSize: "28px 28px" }}
+        />
+
+        <Reveal className="relative container mx-auto px-4 text-center max-w-3xl">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary text-sm font-semibold mb-6">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-primary ring-pulse" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+            </span>
+            Mainnet live · Chain {ZBX_CHAIN.id}
+          </div>
+          <h2 className="text-4xl lg:text-5xl font-extrabold tracking-tight leading-[1.1]">
+            Ready to trade on a{" "}
+            <span className="shimmer-text">real Blockchain?</span>
           </h2>
-          <p className="text-muted-foreground mt-3">
-            Sign up in under 60 seconds and get started with as little as ₹100 — KYC, INR rails &amp; ZBX wallet on the
-            Zebvix Blockchain, all included.
+          <p className="text-muted-foreground mt-4 text-lg max-w-xl mx-auto">
+            Sign up in under 60 seconds — KYC, INR rails &amp; ZBX wallet on the Zebvix Blockchain, all included. Start with as little as ₹100.
           </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
             {!user ? (
               <>
-                <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 px-8" asChild>
+                <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 px-10 text-base shadow-xl shadow-primary/30" asChild>
                   <Link href="/signup">
                     Create free account <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
-                <Button size="lg" variant="outline" className="px-8" asChild>
+                <Button size="lg" variant="outline" className="px-10 text-base border-border/80 hover:border-primary/50" asChild>
                   <Link href="/login">I already have an account</Link>
                 </Button>
               </>
             ) : (
-              <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 px-8" asChild>
+              <Button size="lg" className="sheen-btn bg-primary text-primary-foreground hover:bg-primary/90 px-10 text-base shadow-xl shadow-primary/30" asChild>
                 <Link href="/trade">
                   Start trading <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
             )}
           </div>
-        </div>
+          <div className="mt-6 flex flex-wrap justify-center items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5"><Shield className="h-3.5 w-3.5 text-success" /> No hidden fees</span>
+            <span className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 text-success" /> SEBI-aware compliance</span>
+            <span className="flex items-center gap-1.5"><Banknote className="h-3.5 w-3.5 text-success" /> INR &amp; UPI deposits</span>
+            <span className="flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-success" /> {"<"}5ms matching</span>
+          </div>
+        </Reveal>
       </section>
     </div>
   );
@@ -1387,7 +1424,7 @@ function ZebvixChainSection() {
             {/* Stats grid */}
             <div className="mt-6 grid grid-cols-2 gap-3">
               <ChainStat
-                label="Chain ID"
+                label="Chain ID (mainnet)"
                 value={String(ZBX_CHAIN.id)}
                 action={
                   <button
@@ -1400,7 +1437,7 @@ function ZebvixChainSection() {
                 }
               />
               <ChainStat
-                label="Hex"
+                label="Hex (mainnet)"
                 value={ZBX_CHAIN.hexId}
                 action={
                   <button
@@ -1412,10 +1449,10 @@ function ZebvixChainSection() {
                   </button>
                 }
               />
+              <ChainStat label="Testnet chain ID" value={`${ZBX_TESTNET.id} (${ZBX_TESTNET.hexId})`} icon={<Network className="h-3.5 w-3.5 text-violet-400" />} />
               <ChainStat label="Native token" value={ZBX_CHAIN.symbol} icon={<CircleDollarSign className="h-3.5 w-3.5" />} />
               <ChainStat label="Token standard" value={ZBX_CHAIN.tokenStandard} icon={<Boxes className="h-3.5 w-3.5" />} />
               <ChainStat label="Virtual machine" value="ZVM (EVM-compat)" icon={<Cpu className="h-3.5 w-3.5" />} />
-              <ChainStat label="Network" value="Mainnet" icon={<Network className="h-3.5 w-3.5" />} />
             </div>
 
             <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
@@ -1961,24 +1998,26 @@ function EarnSection() {
           </p>
         </Reveal>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {products.map((p) => (
-            <Link key={p.title} href="/wallet" className="group block">
-              <Card className="relative overflow-hidden p-6 h-full border-border/60 hover:border-primary/40 transition-all hover:-translate-y-0.5">
-                <div className={`absolute inset-0 bg-gradient-to-br ${p.grad} opacity-60 pointer-events-none`} />
-                <div className="relative">
-                  <div className="flex items-start justify-between">
-                    <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center">{p.icon}</div>
-                    <Badge className="bg-success/15 text-success border-success/30">{p.tag}</Badge>
+          {products.map((p, i) => (
+            <Reveal key={p.title} direction="scale" delay={i * 100}>
+              <Link href="/wallet" className="group block h-full">
+                <Card className="relative overflow-hidden p-6 h-full border-border/60 hover:border-primary/40 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10">
+                  <div className={`absolute inset-0 bg-gradient-to-br ${p.grad} opacity-60 pointer-events-none`} />
+                  <div className="relative">
+                    <div className="flex items-start justify-between">
+                      <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center">{p.icon}</div>
+                      <Badge className="bg-success/15 text-success border-success/30">{p.tag}</Badge>
+                    </div>
+                    <h3 className="text-lg font-bold mt-4">{p.title}</h3>
+                    <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{p.desc}</p>
+                    <div className="mt-5 inline-flex items-center text-sm font-medium text-primary group-hover:gap-2 gap-1 transition-all">
+                      Start earning
+                      <ArrowRight className="h-4 w-4" />
+                    </div>
                   </div>
-                  <h3 className="text-lg font-bold mt-4">{p.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{p.desc}</p>
-                  <div className="mt-5 inline-flex items-center text-sm font-medium text-primary group-hover:gap-2 gap-1 transition-all">
-                    Start earning
-                    <ArrowRight className="h-4 w-4" />
-                  </div>
-                </div>
-              </Card>
-            </Link>
+                </Card>
+              </Link>
+            </Reveal>
           ))}
         </div>
       </div>
@@ -1991,7 +2030,9 @@ function EarnSection() {
 // ──────────────────────────────────────────────────────────────────
 function DeveloperSection() {
   const [copied, setCopied] = useState(false);
-  const snippet = `// JavaScript — get the chain ID from Zebvix L1
+  const snippet = `// JavaScript — connect to Zebvix Blockchain
+// Mainnet: chain ID ${ZBX_CHAIN.id} (${ZBX_CHAIN.hexId})
+// Testnet: chain ID ${ZBX_TESTNET.id} (${ZBX_TESTNET.hexId})
 const res = await fetch("https://rpc.zebvix.io", {
   method: "POST",
   headers: { "Content-Type": "application/json" },

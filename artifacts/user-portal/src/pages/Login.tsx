@@ -453,7 +453,7 @@ export default function Login() {
               </h2>
               <p className="mt-4 text-lg text-muted-foreground max-w-md">
                 Lightning-fast matching, deep liquidity, and bank-grade security
-                — all built on Chain ID 7878.
+                — all built on Chain ID 8989.
               </p>
             </div>
 

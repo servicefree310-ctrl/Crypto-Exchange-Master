@@ -23,7 +23,7 @@ type Post = {
 };
 
 const POSTS: Post[] = [
-  { slug: "zbx-l1-mainnet-genesis", title: "Zebvix L1 mainnet genesis — what shipped at block 0", excerpt: "Chain ID 7878, sub-second finality, EIP-1559 fees in ZBX, ZBX-20 standard live. A walkthrough of the genesis configuration and the validator set.", category: "Announcements", author: "Aarav Sharma", date: "22 April 2026", readMin: 7, featured: true },
+  { slug: "zbx-l1-mainnet-genesis", title: "Zebvix L1 mainnet genesis — what shipped at block 0", excerpt: "Chain ID 8989, sub-second finality, EIP-1559 fees in ZBX, ZBX-20 standard live. A walkthrough of the genesis configuration and the validator set.", category: "Announcements", author: "Aarav Sharma", date: "22 April 2026", readMin: 7, featured: true },
   { slug: "spot-fees-cut-april-2026", title: "Spot fees cut to 0.10% across the board — and what we're not changing", excerpt: "Why we picked a single, simple number, what we kept untouched on purpose, and how this lines up with the new VIP tier table.", category: "Product", author: "Priya Iyer", date: "20 April 2026", readMin: 4 },
   { slug: "futures-100x-india-launch", title: "Perpetual futures with up to 125× leverage — now live in India", excerpt: "Risk warnings up front, then the actual product: cross + isolated margin, dual price oracle, partial liquidations, insurance fund mechanics.", category: "Product", author: "Rohan Mehta", date: "15 April 2026", readMin: 8 },
   { slug: "weekly-roundup-w16", title: "Weekly market roundup — week 16, 2026", excerpt: "BTC range-bound, ETH shows relative strength after the Pectra upgrade, INR pairs hit a new all-time-high in volume. Charts inside.", category: "Markets", author: "Ananya Rao", date: "13 April 2026", readMin: 6 },

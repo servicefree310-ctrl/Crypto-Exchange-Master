@@ -279,15 +279,116 @@
 }
 .grid-drift { animation: grid-drift 20s linear infinite; }
 
+/* Reveal from left */
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-44px);
+  transition: opacity 0.85s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal-left.is-visible { opacity: 1; transform: translateX(0); }
+
+/* Reveal from right */
+.reveal-right {
+  opacity: 0;
+  transform: translateX(44px);
+  transition: opacity 0.85s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal-right.is-visible { opacity: 1; transform: translateX(0); }
+
+/* Reveal with scale */
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.88) translateY(20px);
+  transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal-scale.is-visible { opacity: 1; transform: scale(1) translateY(0); }
+
+/* Fast reveal for dense grids */
+.reveal-fast {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal-fast.is-visible { opacity: 1; transform: none; }
+
+/* Extra stagger delays */
+.delay-500 { animation-delay: 500ms; transition-delay: 500ms; }
+.delay-700 { animation-delay: 700ms; transition-delay: 700ms; }
+.delay-900 { animation-delay: 900ms; transition-delay: 900ms; }
+
+/* Slow stagger delays for reveal (transition-delay only) */
+.reveal-delay-0   { transition-delay: 0ms; }
+.reveal-delay-100 { transition-delay: 100ms; }
+.reveal-delay-200 { transition-delay: 200ms; }
+.reveal-delay-300 { transition-delay: 300ms; }
+.reveal-delay-400 { transition-delay: 400ms; }
+.reveal-delay-500 { transition-delay: 500ms; }
+.reveal-delay-600 { transition-delay: 600ms; }
+.reveal-delay-700 { transition-delay: 700ms; }
+
+/* Orbit animation for hero decorative ring */
+@keyframes orbit-cw {
+  0%   { transform: rotate(0deg)   translateX(110px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateX(110px) rotate(-360deg); }
+}
+@keyframes orbit-ccw {
+  0%   { transform: rotate(0deg)   translateX(80px) rotate(0deg); }
+  100% { transform: rotate(-360deg) translateX(80px) rotate(360deg); }
+}
+.orbit-cw  { animation: orbit-cw  28s linear infinite; }
+.orbit-ccw { animation: orbit-ccw 22s linear infinite; }
+
+/* Hero gradient shimmer border for stat cards */
+@keyframes border-spin {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.gradient-border-spin::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #f59e0b, #a855f7, #06b6d4, #f59e0b);
+  background-size: 300% 300%;
+  animation: border-spin 6s ease infinite;
+  z-index: -1;
+}
+
+/* Neon glow for CTA section */
+@keyframes neon-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+.neon-glow { animation: neon-pulse 3.5s ease-in-out infinite; }
+
+/* Particle drift for backgrounds */
+@keyframes particle-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+  33%       { transform: translate(8px, -12px) scale(1.1); opacity: 1; }
+  66%       { transform: translate(-6px, 8px) scale(0.95); opacity: 0.7; }
+}
+.particle { animation: particle-drift 8s ease-in-out infinite; }
+
 /* Respect users who prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .fade-in-up, .fade-in, .scale-in, .float-slow, .float-slow-rev,
   .shimmer-text, .pulse-glow, .sheen-btn::after, .ring-pulse,
-  .draw-line, .grid-drift,
+  .draw-line, .grid-drift, .orbit-cw, .orbit-ccw, .neon-glow, .particle,
   .animate-pulse, [class*="animate-["] {
     animation: none !important;
   }
-  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal, .reveal-left, .reveal-right, .reveal-scale, .reveal-fast {
+    opacity: 1; transform: none; transition: none;
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────

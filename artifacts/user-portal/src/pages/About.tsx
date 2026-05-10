@@ -37,7 +37,7 @@ const PILLARS = [
   {
     icon: Cpu,
     title: "Built on Zebvix L1",
-    body: "Our own EVM-compatible Layer 1 (chain id 7878 / 0x1ec6) settles trades in 1.2s with sub-cent fees. ZBX is the native gas token; ZBX-20 is the smart-contract token standard.",
+    body: "Our own EVM-compatible Layer 1 (chain id 8989 / 0x231d) settles trades in 1.2s with sub-cent fees. ZBX is the native gas token; ZBX-20 is the smart-contract token standard.",
   },
   {
     icon: Globe2,
@@ -246,7 +246,7 @@ export default function About() {
             <div className="font-semibold mb-1">Zebvix L1 chain</div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               EVM-compatible Layer 1<br />
-              Chain ID: 7878 (0x1ec6)<br />
+              Chain ID: 8989 (0x231d)<br />
               Native token: ZBX · Token standard: ZBX-20<br />
               Avg block time: 1.2s · Public RPC available
             </p>

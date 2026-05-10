@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 
 const RELEASES = [
-  { date: "22 April 2026", title: "Zebvix launches its own Layer-1 — Zebvix L1 mainnet goes live", body: "ZBX becomes the native gas token of a new high-throughput chain (chain ID 7878), with sub-second finality and EIP-1559 fees." },
+  { date: "22 April 2026", title: "Zebvix launches its own Layer-1 — Zebvix L1 mainnet goes live", body: "ZBX becomes the native gas token of a new high-throughput chain (chain ID 8989), with sub-second finality and EIP-1559 fees." },
   { date: "08 April 2026", title: "Zebvix crosses ₹50,000 crore in monthly trading volume", body: "Driven by record INR-pair activity, the introduction of perpetual futures, and a wave of new listings during Q1 2026." },
   { date: "15 March 2026", title: "Zebvix Futures launches with up to 125× leverage", body: "Cross / isolated margin, dual-price oracle, partial liquidations and a dedicated insurance fund — built for India." },
   { date: "01 February 2026", title: "Zebvix raises USD 90M Series B led by Lightspeed", body: "Capital earmarked for Layer-1 development, derivatives infrastructure, and expansion of compliance & engineering teams." },
@@ -27,7 +27,7 @@ const COVERAGE = [
 const FACTS = [
   { label: "Founded",        value: "2022, Bengaluru" },
   { label: "Headquarters",   value: "Bengaluru, Karnataka" },
-  { label: "Mainnet chain",  value: "Zebvix L1 (chain ID 7878 / 0x1ec6)" },
+  { label: "Mainnet chain",  value: "Zebvix L1 (chain ID 8989 / 0x231d)" },
   { label: "Native token",   value: "ZBX" },
   { label: "Employees",      value: "120+" },
   { label: "Registered users", value: "4M+" },
