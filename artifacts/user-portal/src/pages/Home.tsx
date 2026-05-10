@@ -70,7 +70,7 @@ import { useTickers, encodeSymbol, type NormalizedTicker } from "@/lib/marketSoc
 import { useAuth } from "@/lib/auth";
 import { get } from "@/lib/api";
 import { useMarketCatalog } from "@/lib/marketCatalog";
-import { buildUsdRates, quoteVolUsd } from "@/lib/volumeUsd";
+import { buildUsdRates } from "@/lib/volumeUsd";
 
 // ──────────────────────────────────────────────────────────────────
 // Constants — real Zebvix L1 chain identity
@@ -668,19 +668,8 @@ export default function Home() {
   const usdRates = useMemo(() => buildUsdRates(all), [all]);
 
   const stats = useMemo(() => {
-    const inrRate = dbStats?.inrRate ?? (usdRates["INR"] ? 1 / usdRates["INR"] : 83);
-    // Live WS fallback: convert each pair's quoteVolume to INR
-    const liveVolumeInr = all.reduce((s, t) => {
-      const vol = t.quoteVolume || 0;
-      if (!vol) return s;
-      const quote = (t.symbol.split("/")[1] ?? "").toUpperCase();
-      if (quote === "INR") return s + vol;
-      const usdVal = (usdRates[quote] ?? 0) > 0 ? vol * (usdRates[quote] ?? 0) : 0;
-      return s + usdVal * inrRate;
-    }, 0);
-    const totalVolumeInr = (dbStats?.totalVolumeInr ?? 0) > 0
-      ? dbStats!.totalVolumeInr
-      : liveVolumeInr;
+    // Only show our own exchange volume from DB — never global market data
+    const totalVolumeInr = dbStats?.totalVolumeInr ?? 0;
     const gainers = all.filter((t) => t.priceChangePercent > 0).length;
     const markets = all.length;
     const totalTrades24h = dbStats?.totalTrades24h ?? 0;
