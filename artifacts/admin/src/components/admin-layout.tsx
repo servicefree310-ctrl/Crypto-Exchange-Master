@@ -6,7 +6,7 @@ import {
   PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
   KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Sigma, Globe2, Radar,
   Megaphone, Trophy, Database, Server, Search, Command as CommandIcon, Crown,
-  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, History, type LucideIcon,
+  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, History, Smartphone, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/listings-admin", label: "Auto-Listings", icon: Radar, roles: ["admin", "superadmin"] },
       { href: "/bots", label: "Market Bots", icon: Bot, roles: ["admin", "superadmin"] },
       { href: "/orders", label: "Orders & Trades", icon: ArrowDownUp, roles: ["support", "admin", "superadmin"] },
+      { href: "/tds-report", label: "TDS Report", icon: Percent, roles: ["support", "admin", "superadmin"] },
       { href: "/p2p", label: "P2P Marketplace", icon: Users, roles: ["support", "admin", "superadmin"] },
       { href: "/fees", label: "Fees & VIP Tiers", icon: Crown, roles: ["admin", "superadmin"] },
       { href: "/trading-engine", label: "Trading Engine", icon: Cpu, roles: ["admin", "superadmin"] },
@@ -95,6 +96,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/news", label: "News", icon: FileText, roles: ["admin", "superadmin"] },
       { href: "/competitions", label: "Competitions", icon: Trophy, roles: ["admin", "superadmin"] },
       { href: "/broadcast-notifications", label: "Broadcast Notif.", icon: Bell, roles: ["admin", "superadmin"] },
+      { href: "/push-notifications", label: "Push Notifications", icon: Smartphone, roles: ["admin", "superadmin"] },
       { href: "/site-settings", label: "Site Settings", icon: SettingsIcon, roles: ["admin", "superadmin"] },
       { href: "/legal", label: "Legal CMS", icon: FileText, roles: ["support", "admin", "superadmin"] },
       { href: "/chat", label: "Live Chat", icon: MessageSquare, roles: ["support", "admin", "superadmin"] },

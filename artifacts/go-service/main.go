@@ -169,18 +169,22 @@ func main() {
         srv := newServer()
         mux := http.NewServeMux()
 
-        // Public health + WS (also under the artifact prefix for dev preview).
-        mux.HandleFunc("/healthz", srv.handleHealth)
+        // Public health + WS + metrics (also under the artifact prefix for dev preview).
+        mux.HandleFunc("/healthz", countingHandler(srv.handleHealth))
         mux.HandleFunc("/ws", srv.handleWS)
-        mux.HandleFunc(prefix+"/healthz", srv.handleHealth)
+        mux.HandleFunc("/metrics", countingHandler(srv.handleMetrics))
+        mux.HandleFunc("/api/engine-status", countingHandler(srv.handleEngineStatus))
+        mux.HandleFunc(prefix+"/healthz", countingHandler(srv.handleHealth))
         mux.HandleFunc(prefix+"/ws", srv.handleWS)
-        mux.HandleFunc(prefix+"/", srv.handleHealth)
+        mux.HandleFunc(prefix+"/metrics", countingHandler(srv.handleMetrics))
+        mux.HandleFunc(prefix+"/api/engine-status", countingHandler(srv.handleEngineStatus))
+        mux.HandleFunc(prefix+"/", countingHandler(srv.handleHealth))
 
         // Internal RPC for the Node api-server (loopback only in production).
-        mux.HandleFunc("/internal/futures/place", srv.handlePlace)
-        mux.HandleFunc("/internal/futures/cancel", srv.handleCancel)
-        mux.HandleFunc("/internal/futures/seed", srv.handleSeed)
-        mux.HandleFunc("/internal/futures/snapshot", srv.handleSnapshot)
+        mux.HandleFunc("/internal/futures/place", countingHandler(srv.handlePlace))
+        mux.HandleFunc("/internal/futures/cancel", countingHandler(srv.handleCancel))
+        mux.HandleFunc("/internal/futures/seed", countingHandler(srv.handleSeed))
+        mux.HandleFunc("/internal/futures/snapshot", countingHandler(srv.handleSnapshot))
 
         // The Go service is reached only by the Node api-server on the same
         // host. Binding to 127.0.0.1 prevents any external caller from hitting

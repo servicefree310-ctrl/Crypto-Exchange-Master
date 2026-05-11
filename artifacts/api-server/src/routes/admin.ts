@@ -47,6 +47,7 @@ import { walletAddressesTable } from "@workspace/db";
 import { isVaultPasswordSet, setVaultPassword, verifyVaultPassword } from "../lib/admin-vault";
 import { isMnemonicConfigured, getMnemonicForReveal } from "../lib/hd-wallet";
 import { chatComplete, isOpenAIConfigured, OpenAIError } from "../lib/openai";
+import { broadcastPush } from "../lib/push";
 
 const router: IRouter = Router();
 const adminOnly = requireRole("admin", "superadmin");
@@ -2045,6 +2046,99 @@ router.post("/admin/custom-apis/:id/test", adminOnly, async (req, res): Promise<
     await db.update(customApisTable).set({ lastStatus: "error", lastCalledAt: new Date() }).where(eq(customApisTable.id, id));
     res.json({ ok: false, error: e.message });
   }
+});
+
+// ─── TDS Report ─────────────────────────────────────────────────────────────
+router.get("/admin/tds-report", supportPlus, async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const from = q.from ? new Date(q.from) : new Date(Date.now() - 30 * 86400000);
+  const to = q.to ? new Date(q.to) : new Date();
+
+  // Summary stats
+  const [summary] = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(tds::numeric), 0)::text AS total_tds,
+      COUNT(*) AS total_trades,
+      COUNT(DISTINCT user_id) AS unique_sellers
+    FROM orders
+    WHERE side = 'sell' AND tds::numeric > 0
+      AND created_at >= ${from} AND created_at <= ${to}
+  `).then((r: any) => r.rows ?? r);
+
+  // Per-user breakdown
+  const perUser = await db.execute(sql`
+    SELECT
+      o.user_id,
+      u.name, u.email, u.phone,
+      SUM(o.tds::numeric)::text AS tds_collected,
+      SUM(o.total::numeric)::text AS gross_sell_value,
+      COUNT(*) AS trade_count,
+      MAX(o.created_at) AS last_trade_at
+    FROM orders o
+    LEFT JOIN users u ON u.id = o.user_id
+    WHERE o.side = 'sell' AND o.tds::numeric > 0
+      AND o.created_at >= ${from} AND o.created_at <= ${to}
+    GROUP BY o.user_id, u.name, u.email, u.phone
+    ORDER BY tds_collected::numeric DESC
+    LIMIT 200
+  `).then((r: any) => r.rows ?? r);
+
+  // Daily trend
+  const daily = await db.execute(sql`
+    SELECT
+      DATE(created_at) AS day,
+      SUM(tds::numeric)::text AS tds,
+      COUNT(*) AS trades
+    FROM orders
+    WHERE side = 'sell' AND tds::numeric > 0
+      AND created_at >= ${from} AND created_at <= ${to}
+    GROUP BY DATE(created_at)
+    ORDER BY day
+  `).then((r: any) => r.rows ?? r);
+
+  res.json({ summary, perUser, daily, period: { from, to } });
+});
+
+// ─── Push Notifications (FCM broadcast) ─────────────────────────────────────
+router.get("/admin/push/device-tokens", adminOnly, async (req, res): Promise<void> => {
+  const rows = await db.execute(sql`
+    SELECT dt.id, dt.user_id, u.name, u.email, dt.platform, dt.is_active, dt.last_seen_at, dt.created_at
+    FROM device_tokens dt
+    LEFT JOIN users u ON u.id = dt.user_id
+    ORDER BY dt.last_seen_at DESC LIMIT 500
+  `).then((r: any) => r.rows ?? r);
+  res.json(rows);
+});
+
+router.get("/admin/push/stats", adminOnly, async (_req, res): Promise<void> => {
+  const [stats] = await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE is_active) AS active_tokens,
+      COUNT(*) AS total_tokens,
+      COUNT(DISTINCT user_id) FILTER (WHERE is_active) AS registered_users,
+      COUNT(*) FILTER (WHERE platform = 'web' AND is_active) AS web_tokens,
+      COUNT(*) FILTER (WHERE platform = 'android' AND is_active) AS android_tokens,
+      COUNT(*) FILTER (WHERE platform = 'ios' AND is_active) AS ios_tokens
+    FROM device_tokens
+  `).then((r: any) => r.rows ?? r);
+  res.json(stats ?? {});
+});
+
+router.post("/admin/push/broadcast", adminOnly, async (req, res): Promise<void> => {
+  const { title, body, imageUrl, platform, data } = req.body ?? {};
+  if (!title || !body) { res.status(400).json({ error: "title and body required" }); return; }
+  const result = await broadcastPush({ title, body, imageUrl, data }, { platform });
+  await logAdminAction(req, "push_broadcast", "push", undefined, { title, body, ...result });
+  res.json(result);
+});
+
+router.post("/admin/push/send-to-user/:userId", adminOnly, async (req, res): Promise<void> => {
+  const userId = Number(Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId);
+  const { title, body, imageUrl } = req.body ?? {};
+  if (!title || !body) { res.status(400).json({ error: "title and body required" }); return; }
+  const { sendPushToUser } = await import("../lib/push");
+  const result = await sendPushToUser(userId, { title, body, imageUrl });
+  res.json(result);
 });
 
 void and;

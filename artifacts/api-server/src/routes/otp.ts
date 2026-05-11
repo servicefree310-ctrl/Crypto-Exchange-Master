@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import { eq, and, gte, sql, desc, isNull, gt } from "drizzle-orm";
 import { createHash, randomInt } from "crypto";
 import { db, otpCodesTable, otpProvidersTable, usersTable } from "@workspace/db";
+import { sendOtpEmail } from "../lib/email";
+import { sendOtpSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -70,22 +72,45 @@ export async function dispatchOtp(opts: {
     .limit(1);
 
   const isDev = process.env.NODE_ENV !== "production";
-  const hasProvider = !!provider;
 
-  if (!hasProvider && opts.log) {
-    opts.log.warn(
-      { channel, recipient, purpose, devCode: isDev ? code : undefined },
-      "OTP delivered via stdout — no provider configured",
-    );
+  // ── Real delivery ─────────────────────────────────────────────────────────
+  let delivered = false;
+  let deliveryError: string | undefined;
+
+  if (channel === "email") {
+    const result = await sendOtpEmail(recipient, code, purpose);
+    delivered = result.ok;
+    if (!result.ok) {
+      deliveryError = result.error;
+      if (opts.log) opts.log.warn({ err: result.error, to: recipient }, "Email OTP delivery failed");
+    }
+  } else if (channel === "sms") {
+    if (provider) {
+      const result = await sendOtpSms(recipient, code, purpose);
+      delivered = result.ok;
+      if (!result.ok) {
+        deliveryError = result.error;
+        if (opts.log) opts.log.warn({ err: result.error, to: recipient }, "SMS OTP delivery failed");
+      }
+    } else {
+      if (opts.log) opts.log.warn({ recipient, purpose, devCode: isDev ? code : undefined }, "No SMS provider configured — OTP logged on server");
+    }
   }
+
+  // Dev fallback: always expose code in response if delivery failed or no provider
+  const exposeDevCode = isDev && (!delivered);
 
   return {
     ok: true,
     otpId: row.id,
     expiresInSec: OTP_TTL_MIN * 60,
-    delivered: hasProvider,
-    devCode: !hasProvider && isDev ? code : undefined,
-    message: hasProvider ? `Code sent via ${provider.provider}` : "No SMS/Email provider configured — code logged on server",
+    delivered,
+    devCode: exposeDevCode ? code : undefined,
+    message: delivered
+      ? `Code sent via ${channel === "email" ? "email" : provider?.provider ?? "sms"}`
+      : deliveryError
+        ? `Delivery failed: ${deliveryError}`
+        : "No provider configured — code logged on server",
   };
 }
 
