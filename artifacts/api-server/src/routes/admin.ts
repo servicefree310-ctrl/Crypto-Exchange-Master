@@ -559,15 +559,23 @@ router.get("/admin/orders/stats", supportPlus, async (_req, res): Promise<void> 
 
 router.get("/admin/trades", supportPlus, async (req, res): Promise<void> => {
   const q = req.query as Record<string, string>;
+  // Each matched trade creates 2 DB rows — one for the taker, one for the maker.
+  // By default we hide bot-order rows so admin sees exactly 1 row per match
+  // (the real-user side). Pass ?includeBotTrades=1 to see both sides (debugging).
   const conds: any[] = [];
+  if (q.includeBotTrades !== "1") {
+    conds.push(
+      sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
+    );
+  }
   if (q.pairId) conds.push(eq(tradesTable.pairId, Number(q.pairId)));
   if (q.userId) conds.push(eq(tradesTable.userId, Number(q.userId)));
   if (q.side) conds.push(eq(tradesTable.side, q.side));
   const limit = Math.min(Number(q.limit ?? 200), 500);
-  const where = conds.length ? and(...conds) : undefined;
-  const rows = where
-    ? await db.select().from(tradesTable).where(where).orderBy(desc(tradesTable.id)).limit(limit)
-    : await db.select().from(tradesTable).orderBy(desc(tradesTable.id)).limit(limit);
+  const rows = await db.select().from(tradesTable)
+    .where(and(...conds))
+    .orderBy(desc(tradesTable.id))
+    .limit(limit);
   res.json(rows);
 });
 
