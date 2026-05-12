@@ -17,7 +17,7 @@ type SmartApiAccount = {
   pan: string | null; brokerName: string | null;
   availableCash: string | null; totalPnl: string | null;
   status: string; lastError: string | null; lastConnectedAt: string | null;
-  hasToken: boolean; hasFeedToken: boolean; apiKeyHint: string | null;
+  hasToken: boolean; hasFeedToken: boolean;
 };
 type Holding = {
   tradingsymbol: string; exchange: string; isin: string;
@@ -76,16 +76,26 @@ function statusBadge(status: string) {
 }
 
 // ─── ConnectModal ─────────────────────────────────────────────────────────────
+// User provides only their Angel One credentials.
+// The platform API Key is configured by the admin — users never need to enter it.
 function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
-  const [form, setForm] = useState({ clientCode: "", password: "", totp: "", apiKey: "" });
+  const [form, setForm] = useState({ clientCode: "", password: "", totp: "" });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { toast } = useToast();
 
+  const { data: platformStatus } = useQuery({
+    queryKey: ["smartapi-platform-status"],
+    queryFn: async () => {
+      const r = await fetch("/api/smartapi/platform-status", { credentials: "include" });
+      return r.json();
+    },
+  });
+
   const handleConnect = async () => {
-    if (!form.clientCode || !form.password || !form.apiKey) {
-      setError("Client Code, Password and API Key are required."); return;
+    if (!form.clientCode || !form.password) {
+      setError("Client Code aur Password required hain."); return;
     }
     setLoading(true); setError("");
     try {
@@ -95,48 +105,67 @@ function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnect
         body: JSON.stringify(form),
       });
       const data = await r.json();
-      if (!r.ok) { setError(data.error ?? "Connection failed"); return; }
-      toast({ title: "SmartAPI Connected", description: data.message });
+      if (!r.ok) { setError(data.error ?? data.detail ?? "Connection failed"); return; }
+      toast({ title: "Angel One Connected!", description: data.message });
       onConnected();
     } catch { setError("Network error — please retry."); }
     finally { setLoading(false); }
   };
 
+  const platformConfigured = platformStatus?.configured ?? null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-[#0e1120] border border-white/12 rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center">
-              <img src="https://www.angelone.in/favicon.ico" className="w-5 h-5 object-contain" onError={e => (e.currentTarget.style.display = "none")} />
-              <Zap size={16} className="text-orange-400 hidden" />
+              <Zap size={17} className="text-orange-400" />
             </div>
             <div>
               <div className="font-bold text-white">Connect Angel One</div>
-              <div className="text-[11px] text-white/40">SmartAPI — Direct market access</div>
+              <div className="text-[11px] text-white/40">SmartAPI — Direct NSE / BSE / MCX access</div>
             </div>
           </div>
           <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors"><X size={16} /></button>
         </div>
 
-        {/* Info strip */}
+        {/* Platform status badge */}
+        {platformConfigured === false ? (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 mb-4">
+            <AlertTriangle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-[11px] text-red-300 font-semibold">Platform Not Configured</p>
+              <p className="text-[10px] text-red-300/70 mt-0.5">Admin ne SmartAPI API Key set nahi ki hai. Admin se contact karein.</p>
+            </div>
+          </div>
+        ) : platformConfigured === true ? (
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/8 border border-emerald-500/15 mb-4">
+            <CheckCircle2 size={12} className="text-emerald-400 flex-shrink-0" />
+            <p className="text-[11px] text-emerald-300">Platform SmartAPI configured hai — bas apna Angel One account connect karein</p>
+          </div>
+        ) : (
+          <div className="h-9 mb-4 bg-white/3 rounded-xl animate-pulse" />
+        )}
+
+        {/* Info */}
         <div className="flex items-start gap-2 p-3 rounded-xl bg-blue-500/8 border border-blue-500/15 mb-5">
           <Info size={13} className="text-blue-400 mt-0.5 flex-shrink-0" />
           <p className="text-[11px] text-blue-300/80 leading-relaxed">
-            Your credentials go directly to Angel One's servers. We store your session token — never your password. Get your API Key from <span className="text-blue-400 font-semibold">smartapi.angelone.in</span>
+            Sirf apna Angel One <strong>Client Code + Password + TOTP</strong> enter karein. API Key platform level par admin manage karta hai — aapko kuch extra nahi chahiye.
           </p>
         </div>
 
         <div className="space-y-3">
           <div>
-            <label className="text-[11px] text-white/40 mb-1 block">Client Code *</label>
-            <input value={form.clientCode} onChange={e => setForm(f => ({ ...f, clientCode: e.target.value }))}
+            <label className="text-[11px] text-white/40 mb-1 block">Angel One Client Code <span className="text-red-400">*</span></label>
+            <input value={form.clientCode} onChange={e => setForm(f => ({ ...f, clientCode: e.target.value.toUpperCase() }))}
               placeholder="e.g. A123456"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-orange-500/50 transition-colors" />
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-orange-500/50 transition-colors font-mono uppercase" />
           </div>
           <div>
-            <label className="text-[11px] text-white/40 mb-1 block">Password *</label>
+            <label className="text-[11px] text-white/40 mb-1 block">Password <span className="text-red-400">*</span></label>
             <div className="relative">
               <input value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 type={showPwd ? "text" : "password"} placeholder="Angel One login password"
@@ -147,31 +176,28 @@ function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnect
             </div>
           </div>
           <div>
-            <label className="text-[11px] text-white/40 mb-1 block">TOTP <span className="text-white/25">(6-digit from authenticator app)</span></label>
-            <input value={form.totp} onChange={e => setForm(f => ({ ...f, totp: e.target.value }))}
-              placeholder="123456" maxLength={6}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-orange-500/50 transition-colors font-mono tracking-widest" />
-          </div>
-          <div>
-            <label className="text-[11px] text-white/40 mb-1 block">API Key *</label>
-            <input value={form.apiKey} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))}
-              placeholder="From smartapi.angelone.in developer portal"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-orange-500/50 transition-colors font-mono text-xs" />
+            <label className="text-[11px] text-white/40 mb-1 block">
+              TOTP <span className="text-white/25">(6-digit code from Google Authenticator / Angel One App)</span>
+            </label>
+            <input value={form.totp} onChange={e => setForm(f => ({ ...f, totp: e.target.value.replace(/\D/g, "") }))}
+              placeholder="123456" maxLength={6} inputMode="numeric"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-orange-500/50 transition-colors font-mono tracking-[0.35em]" />
+            <p className="text-[10px] text-white/20 mt-1">TOTP 30 seconds mein expire hota hai — quickly submit karein</p>
           </div>
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <AlertTriangle size={13} className="text-red-400 flex-shrink-0" />
+          <div className="flex items-start gap-2 mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+            <AlertTriangle size={13} className="text-red-400 flex-shrink-0 mt-0.5" />
             <p className="text-[11px] text-red-300">{error}</p>
           </div>
         )}
 
         <div className="flex gap-2 mt-5">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/50 hover:text-white/80 text-sm transition-colors">Cancel</button>
-          <button onClick={handleConnect} disabled={loading}
-            className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-            {loading ? <><RefreshCw size={13} className="animate-spin" /> Connecting...</> : <><PlugZap size={13} /> Connect</>}
+          <button onClick={handleConnect} disabled={loading || platformConfigured === false}
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+            {loading ? <><RefreshCw size={13} className="animate-spin" /> Connecting...</> : <><PlugZap size={13} /> Connect Angel One</>}
           </button>
         </div>
       </div>
@@ -223,8 +249,8 @@ function AccountCard({ acct, onDisconnect, onRefresh, selected, onSelect }:
             <div className="text-sm font-bold text-white tabular-nums">{fmtINR(cash)}</div>
           </div>
           <div className="bg-black/20 rounded-xl p-2.5">
-            <div className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5">API Key</div>
-            <div className="text-xs font-mono text-white/50">{acct.apiKeyHint}</div>
+            <div className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5">Broker</div>
+            <div className="text-xs text-white/50 font-semibold">Angel One SmartAPI</div>
           </div>
         </div>
       )}
