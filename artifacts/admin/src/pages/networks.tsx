@@ -29,6 +29,7 @@ import {
   Zap, Loader2, Calculator, Tag, CircleDollarSign, Settings2, Hash,
   LayoutGrid, LayoutList, PauseCircle, PlayCircle, Shield, ChevronDown,
   AlertOctagon, ToggleLeft, ToggleRight, Boxes, CheckSquare, Square,
+  Workflow,
 } from "lucide-react";
 
 type Coin = { id: number; symbol: string; logoUrl: string | null };
@@ -41,7 +42,7 @@ type Network = {
   nodeAddress: string | null; nodeStatus: string; lastNodeCheckAt: string | null;
   providerType: string;
   rpcApiKey: string | null; rpcApiKeySet?: boolean;
-  hotWalletAddress: string | null; hotWalletKeySet?: boolean;
+  hotWalletAddress: string | null; hotWalletKeySet?: boolean; autoSweepEnabled: boolean;
   hotWalletPrivateKey?: string;
   explorerUrl: string | null;
   lastBlockHeight: number | null; blockHeightCheckedAt: string | null;
@@ -458,6 +459,11 @@ export default function NetworksPage() {
                               <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400"><ShieldCheck className="w-2.5 h-2.5" />Key set</span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-[10px] text-amber-400"><AlertTriangle className="w-2.5 h-2.5" />No key</span>
+                            )}
+                            {n.autoSweepEnabled && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-amber-300 font-semibold">
+                                <Workflow className="w-2.5 h-2.5" />Auto-sweep ON
+                              </span>
                             )}
                           </div>
                         ) : <span className="text-xs text-muted-foreground">—</span>}
@@ -1036,6 +1042,40 @@ function NetworkFormDialog({
                 </div>
                 <Switch checked={!!v.withdrawEnabled} onCheckedChange={(c) => set("withdrawEnabled", c)} data-testid="switch-form-withdraw" />
               </div>
+            </Field>
+            <Field label="Auto-Sweep to Master Wallet" full hint="Confirmed deposits automatically swept to hot wallet on-chain. Requires hot wallet address + private key to be set.">
+              <div className={cn(
+                "flex items-center justify-between rounded-lg border px-3 py-2.5 transition-colors",
+                v.autoSweepEnabled
+                  ? "border-amber-500/40 bg-amber-500/8"
+                  : "border-border/60 bg-muted/20",
+              )}>
+                <div className="flex items-center gap-2 text-sm">
+                  <Workflow className={cn("w-4 h-4", v.autoSweepEnabled ? "text-amber-400" : "text-muted-foreground")} />
+                  <div>
+                    <span className={v.autoSweepEnabled ? "text-amber-300 font-semibold" : ""}>
+                      {v.autoSweepEnabled ? "Auto-sweep ON" : "Auto-sweep OFF"}
+                    </span>
+                    {v.autoSweepEnabled && (
+                      <p className="text-[10px] text-amber-500/80 mt-0.5">
+                        Deposits → hot wallet automatically after confirmation
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <Switch
+                  checked={!!v.autoSweepEnabled}
+                  onCheckedChange={(c) => set("autoSweepEnabled", c)}
+                  data-testid="switch-auto-sweep"
+                  disabled={!v.hotWalletAddress && !v.hotWalletKeySet}
+                />
+              </div>
+              {v.autoSweepEnabled && !(v.hotWalletAddress || v.hotWalletKeySet) && (
+                <p className="text-[11px] text-rose-400 inline-flex items-center gap-1 mt-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  Hot wallet address aur private key set karo pehle
+                </p>
+              )}
             </Field>
           </FormSection>
         </div>

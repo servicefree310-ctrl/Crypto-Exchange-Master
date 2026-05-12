@@ -57,6 +57,9 @@ export const cryptoDepositsTable = pgTable("crypto_deposits", {
   requiredConfirmations: integer("required_confirmations").notNull().default(12),
   status: text("status").notNull().default("pending"),
   detectedBy: text("detected_by").notNull().default("manual"),
+  sweepStatus: text("sweep_status"),
+  sweepTxHash: text("sweep_tx_hash"),
+  sweptAt: timestamp("swept_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
 }, (t) => ({

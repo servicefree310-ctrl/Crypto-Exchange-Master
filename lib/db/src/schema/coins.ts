@@ -47,6 +47,7 @@ export const networksTable = pgTable("networks", {
   rpcApiKey: text("rpc_api_key"),
   hotWalletAddress: text("hot_wallet_address"),
   hotWalletPrivateKeyEnc: text("hot_wallet_private_key_enc"),
+  autoSweepEnabled: boolean("auto_sweep_enabled").notNull().default(false),
   explorerUrl: text("explorer_url"),
   lastBlockHeight: integer("last_block_height"),
   lastBlockScanned: integer("last_block_scanned"),

@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { decryptSecret } from "./crypto-vault";
+import { runAutoSweep } from "./deposit-sweep-master";
 import { logger } from "./logger";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -253,12 +254,12 @@ export async function sweepNetwork(networkId: number): Promise<SweepResult> {
   }
 
   // Update confirmations + auto-credit (with reorg validation)
-  result.confirmed = await updatePendingConfirmations(net.id, head, net.confirmations, rpcUrl);
+  result.confirmed = await updatePendingConfirmations(net.id, head, net.confirmations, rpcUrl, net.autoSweepEnabled);
 
   return result;
 }
 
-async function updatePendingConfirmations(networkId: number, head: number, requiredConfs: number, rpcUrl?: string): Promise<number> {
+async function updatePendingConfirmations(networkId: number, head: number, requiredConfs: number, rpcUrl?: string, autoSweepEnabled?: boolean): Promise<number> {
   const pending = await db.select().from(cryptoDepositsTable)
     .where(and(eq(cryptoDepositsTable.networkId, networkId), eq(cryptoDepositsTable.status, "pending")));
   let credited = 0;
@@ -311,6 +312,8 @@ async function updatePendingConfirmations(networkId: number, head: number, requi
           });
           await tx.update(cryptoDepositsTable).set({
             status: "completed", confirmations: confs, processedAt: new Date(),
+            // Queue for auto-sweep to master hot wallet if enabled for this network
+            ...(autoSweepEnabled ? { sweepStatus: "pending" } : {}),
           }).where(eq(cryptoDepositsTable.id, dep.id));
         });
         credited++;
@@ -358,6 +361,12 @@ async function tick() {
     const totalConfirmed = results.reduce((s, r) => s + r.confirmed, 0);
     if (totalDetected > 0 || totalConfirmed > 0) {
       logger.info({ detected: totalDetected, confirmed: totalConfirmed, networks: results.length }, "deposit sweeper tick");
+    }
+    // After crediting deposits, sweep any queued ones to the master hot wallet
+    if (totalConfirmed > 0) {
+      try { await runAutoSweep(); } catch (e: any) {
+        logger.error({ err: e?.message }, "auto-sweep batch failed");
+      }
     }
   } catch (e: any) {
     logger.error({ err: e?.message }, "deposit sweeper tick failed");

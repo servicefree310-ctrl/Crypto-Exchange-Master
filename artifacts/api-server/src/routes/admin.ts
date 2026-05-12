@@ -42,6 +42,7 @@ import { adminCancelSpotOrderById } from "./orders";
 import { encryptSecret, maskSecret, decryptSecret } from "../lib/crypto-vault";
 import { testNode } from "../lib/node-test";
 import { getSweeperStatus, manualScan, sweepAllNetworks, startDepositSweeper, stopDepositSweeper } from "../lib/deposit-sweeper";
+import { sweepDepositToMaster, getAutoSweepStats } from "../lib/deposit-sweep-master";
 import { broadcastWithdrawal, getHotWalletBalance, isEvmChain, BroadcastError } from "../lib/auto-broadcaster";
 import { walletAddressesTable } from "@workspace/db";
 import { isVaultPasswordSet, setVaultPassword, verifyVaultPassword } from "../lib/admin-vault";
@@ -317,6 +318,7 @@ router.get("/admin/networks", supportPlus, async (req, res): Promise<void> => {
     rpcApiKeySet: !!n.rpcApiKey,
     hotWalletPrivateKeyEnc: undefined,
     hotWalletKeySet: !!n.hotWalletPrivateKeyEnc,
+    autoSweepEnabled: n.autoSweepEnabled,
   }));
   res.json(masked);
 });
@@ -363,7 +365,7 @@ router.patch("/admin/networks/:id", adminOnly, async (req, res): Promise<void> =
   const allowed = ["name", "chain", "contractAddress", "minDeposit", "minWithdraw", "withdrawFee",
     "withdrawFeePercent", "withdrawFeeMin",
     "confirmations", "depositEnabled", "withdrawEnabled", "nodeAddress", "memoRequired", "status",
-    "providerType", "hotWalletAddress", "explorerUrl"];
+    "providerType", "hotWalletAddress", "explorerUrl", "autoSweepEnabled"];
   const b: Record<string, any> = {};
   for (const k of allowed) if (req.body[k] !== undefined) b[k] = req.body[k];
   // Encrypted fields: only set if provided & non-empty (allows clearing with explicit null)
@@ -1497,6 +1499,31 @@ router.post("/admin/sweeper/scan", adminOnly, async (_req, res): Promise<void> =
   const results = await sweepAllNetworks();
   res.json({ ok: true, results });
 });
+// Auto-sweep stats (deposit queue pending→master wallet)
+router.get("/admin/sweeper/auto-sweep-stats", supportPlus, async (_req, res): Promise<void> => {
+  res.json(await getAutoSweepStats());
+});
+
+// Manually trigger auto-sweep for a specific confirmed deposit
+router.post("/admin/crypto-deposits/:id/sweep", adminOnly, async (req, res): Promise<void> => {
+  const id = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad deposit id" }); return; }
+  const [dep] = await db.select().from(cryptoDepositsTable).where(eq(cryptoDepositsTable.id, id)).limit(1);
+  if (!dep) { res.status(404).json({ error: "Deposit not found" }); return; }
+  if (dep.status !== "completed") {
+    res.status(400).json({ error: "Can only sweep completed (credited) deposits" }); return;
+  }
+  // Allow re-queuing failed sweeps too
+  if (dep.sweepStatus && dep.sweepStatus !== "failed" && dep.sweepStatus !== "pending") {
+    res.status(409).json({ error: `Deposit already in sweep state: ${dep.sweepStatus}` }); return;
+  }
+  // Set/reset to pending so sweepDepositToMaster can claim it
+  await db.update(cryptoDepositsTable).set({ sweepStatus: "pending" }).where(eq(cryptoDepositsTable.id, id));
+  const result = await sweepDepositToMaster(id);
+  await logAdminAction(req, "manual_sweep", "deposit", id, { result });
+  res.json({ ok: result.status === "swept", ...result });
+});
+
 router.post("/admin/sweeper/scan/:networkId", adminOnly, async (req, res): Promise<void> => {
   const id = Number(Array.isArray(req.params.networkId) ? req.params.networkId[0] : req.params.networkId);
   if (!id) { res.status(400).json({ error: "Invalid network id" }); return; }
