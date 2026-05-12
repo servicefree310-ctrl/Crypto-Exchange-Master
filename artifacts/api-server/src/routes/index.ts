@@ -40,6 +40,7 @@ import v1Router from "./v1";
 import p2pRouter from "./p2p";
 import convertRouter from "./convert";
 import pushRouter from "./push";
+import instrumentsRouter from "./instruments";
 
 const router: IRouter = Router();
 
@@ -92,6 +93,7 @@ router.use(dashboardRouter);
 router.use(p2pRouter);
 router.use(convertRouter);
 router.use(pushRouter);
+router.use(instrumentsRouter);
 router.use(v1Router);
 
 export default router;

@@ -6,7 +6,8 @@ import {
   PiggyBank, FileText, Settings as SettingsIcon, Activity, MessageSquare,
   KeyRound, LogOut, Menu, Percent, Bot, ArrowDownUp, Wallet2, TrendingUp, Sigma, Globe2, Radar,
   Megaphone, Trophy, Database, Server, Search, Command as CommandIcon, Crown,
-  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, History, Smartphone, type LucideIcon,
+  ChevronRight, ChevronsUpDown, User as UserIcon, Bell, Code2, Cpu, History, Smartphone,
+  Globe, Building2, Gem, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,14 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/p2p", label: "P2P Marketplace", icon: Users, roles: ["support", "admin", "superadmin"] },
       { href: "/fees", label: "Fees & VIP Tiers", icon: Crown, roles: ["admin", "superadmin"] },
       { href: "/trading-engine", label: "Trading Engine", icon: Cpu, roles: ["admin", "superadmin"] },
+    ],
+  },
+  {
+    id: "broker",
+    label: "Broker & Instruments",
+    items: [
+      { href: "/broker-config", label: "Broker Config (Angel One)", icon: Globe, roles: ["admin", "superadmin"] as Role[] },
+      { href: "/instruments-admin", label: "Forex / Stocks / Commodities", icon: Gem, roles: ["admin", "superadmin"] as Role[] },
     ],
   },
   {

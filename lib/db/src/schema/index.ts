@@ -25,3 +25,4 @@ export * from "./copy-trading";
 export * from "./dashboard";
 export * from "./p2p";
 export * from "./convert";
+export * from "./instruments";

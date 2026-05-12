@@ -49,6 +49,9 @@ import {
   Info,
   CheckCheck,
   MoreHorizontal,
+  Globe as ForexIcon,
+  Building2,
+  Gem,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -198,6 +201,20 @@ const navItems: NavEntry[] = [
     },
   },
   { kind: "link", href: "/web3", label: "Web3", icon: Globe2, match: (l) => l.startsWith("/web3"), badge: "NEW", badgeTone: "new", priority: 2 },
+  {
+    kind: "group",
+    id: "trad-markets",
+    label: "Markets+",
+    icon: Building2,
+    match: (l) => l.startsWith("/forex") || l.startsWith("/stocks") || l.startsWith("/commodities"),
+    priority: 2,
+    width: "w-[400px]",
+    items: [
+      { href: "/forex",       label: "Forex",       desc: "Trade 8+ currency pairs with up to 50× leverage (EURINR, USDINR…)", icon: ForexIcon,  badge: "NEW", badgeTone: "new" },
+      { href: "/stocks",      label: "Stocks",       desc: "NSE India & US NASDAQ stocks — Reliance, TCS, AAPL, NVDA…",         icon: Building2,  badge: "NEW", badgeTone: "new" },
+      { href: "/commodities", label: "Commodities",  desc: "Gold, Silver, Crude Oil, Natural Gas on MCX with leverage",          icon: Gem,        badge: "NEW", badgeTone: "new" },
+    ],
+  },
 ];
 
 const userNavItems: NavEntry[] = [];

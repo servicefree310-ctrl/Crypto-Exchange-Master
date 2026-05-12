@@ -52,6 +52,8 @@ import CodeReferencePage from "@/pages/code-reference";
 import AuditLogPage from "@/pages/audit-log";
 import TDSReportPage from "@/pages/tds";
 import PushNotificationsPage from "@/pages/push-notifications";
+import BrokerConfigPage from "@/pages/broker-config";
+import InstrumentsAdminPage from "@/pages/instruments-admin";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -153,6 +155,8 @@ function Protected() {
         <Route path="/audit-log" component={AuditLogPage} />
         <Route path="/tds-report" component={TDSReportPage} />
         <Route path="/push-notifications" component={PushNotificationsPage} />
+        <Route path="/broker-config" component={BrokerConfigPage} />
+        <Route path="/instruments-admin" component={InstrumentsAdminPage} />
         <Route component={NotFound} />
       </Switch>
     </AdminLayout>

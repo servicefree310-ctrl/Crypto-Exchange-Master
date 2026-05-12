@@ -54,6 +54,9 @@ import Predictions from "@/pages/tools/Predictions";
 import Announcements from "@/pages/Announcements";
 import News from "@/pages/News";
 import Leagues from "@/pages/Leagues";
+import Forex from "@/pages/Forex";
+import Stocks from "@/pages/Stocks";
+import Commodities from "@/pages/Commodities";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -150,6 +153,9 @@ function App() {
                 <Route path="/announcements" component={Announcements} />
                 <Route path="/news" component={News} />
                 <Route path="/leagues" component={Leagues} />
+                <Route path="/forex" component={Forex} />
+                <Route path="/stocks" component={Stocks} />
+                <Route path="/commodities" component={Commodities} />
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />

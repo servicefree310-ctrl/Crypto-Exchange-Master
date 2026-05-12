@@ -13,6 +13,7 @@ import 'package:mobile/features/addons/ecommerce/presentation/pages/shop_page.da
 import 'package:mobile/features/addons/ico/presentation/pages/ico_simple_page.dart';
 import 'package:mobile/features/addons/p2p/presentation/pages/p2p_home_page.dart';
 import 'package:mobile/features/addons/mlm/presentation/pages/mlm_dashboard_page.dart';
+import 'package:mobile/features/instruments/presentation/pages/instruments_page.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../home/presentation/pages/home_page.dart';
 import 'smart_addon_card.dart';
@@ -146,27 +147,46 @@ class _DashboardAddonsState extends State<DashboardAddons> {
 
   List<_AddonData> _getAddonsList() {
     return [
-      _AddonData('P2P Trading', 'p2p', context.priceUpColor, 'Trade with peers',
-          '24/7'),
-      _AddonData('Futures', 'futures', context.colors.primary,
-          'Leverage trading', 'x125'),
-      _AddonData('Staking', 'staking', context.colors.tertiary, 'Earn rewards',
-          '12% APY'),
-      _AddonData(
-          'Launchpad', 'ico', context.warningColor, 'New projects', 'Early'),
-      _AddonData('News & Analysis', 'blog', context.colors.secondary,
-          'Market insights', 'Live'),
-      _AddonData('E-commerce', 'ecommerce', context.colors.tertiary,
-          'Shop crypto', 'Store'),
-      _AddonData('MLM', 'mlm', context.priceDownColor, 'Multi-level marketing',
-          'Network'),
-      _AddonData('Mail Wizard', 'mailwizard', context.textSecondary,
-          'Email automation', 'Pro'),
+      _AddonData('Forex', 'forex', const Color(0xFF2196F3), 'Currency pairs', 'CFD'),
+      _AddonData('Stocks', 'stocks', const Color(0xFF4CAF50), 'NSE · NASDAQ', 'Live'),
+      _AddonData('Commodities', 'commodities', const Color(0xFFFFB300), 'Gold · MCX', 'MCX'),
+      _AddonData('P2P Trading', 'p2p', context.priceUpColor, 'Trade with peers', '24/7'),
+      _AddonData('Futures', 'futures', context.colors.primary, 'Leverage trading', 'x125'),
+      _AddonData('Staking', 'staking', context.colors.tertiary, 'Earn rewards', '12% APY'),
+      _AddonData('Launchpad', 'ico', context.warningColor, 'New projects', 'Early'),
+      _AddonData('News & Analysis', 'blog', context.colors.secondary, 'Market insights', 'Live'),
+      _AddonData('E-commerce', 'ecommerce', context.colors.tertiary, 'Shop crypto', 'Store'),
+      _AddonData('MLM', 'mlm', context.priceDownColor, 'Multi-level marketing', 'Network'),
+      _AddonData('Mail Wizard', 'mailwizard', context.textSecondary, 'Email automation', 'Pro'),
     ];
   }
 
   void _handleAddonTap(BuildContext context, String icon) {
     switch (icon) {
+      case 'forex':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const InstrumentsPage(category: 'forex'),
+          ),
+        );
+        break;
+      case 'stocks':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const InstrumentsPage(category: 'stocks'),
+          ),
+        );
+        break;
+      case 'commodities':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const InstrumentsPage(category: 'commodities'),
+          ),
+        );
+        break;
       case 'p2p':
         Navigator.push(
           context,
