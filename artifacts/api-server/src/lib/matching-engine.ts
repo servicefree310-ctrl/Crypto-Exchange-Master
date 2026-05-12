@@ -238,17 +238,19 @@ export async function tryMatch(takerOrderId: number, opts?: { takerVipTier?: num
           }
         }
 
-        // Insert trades (one row per side for accounting clarity? Use single row with taker side).
-        // TDS only applies on the SELL side — the buy-side row stays at 0.
+        // Insert two trade rows — one per side — for per-user accounting.
+        // isTaker=1 marks the aggressive (incoming) side; isTaker=0 marks the
+        // resting maker. Admin trade tape filters on isTaker=1 so exactly one
+        // row per match appears, even when both sides are real users (not bots).
         const [trade] = await tx.insert(tradesTable).values({
           orderId: taker.id, userId: taker.userId, pairId: pair.id,
           side: taker.side, price: String(tradePrice), qty: String(fillQty),
-          fee: String(takerFee), tds: String(takerTds),
+          fee: String(takerFee), tds: String(takerTds), isTaker: 1,
         }).returning();
         await tx.insert(tradesTable).values({
           orderId: maker.id, userId: maker.userId, pairId: pair.id,
           side: maker.side, price: String(tradePrice), qty: String(fillQty),
-          fee: String(makerFee), tds: String(makerTds),
+          fee: String(makerFee), tds: String(makerTds), isTaker: 0,
         });
 
         // Update orders. avgPrice is the volume-weighted average across

@@ -297,16 +297,18 @@ export class Settler {
         });
       }
 
-      // Insert two trade rows (taker + maker) for accounting symmetry.
+      // Insert two trade rows (taker + maker) for per-user accounting.
+      // isTaker=1 on the aggressive side; isTaker=0 on the resting maker.
+      // Admin trade tape filters on isTaker=1 to show exactly 1 row per match.
       await tx.insert(tradesTable).values({
         orderId: taker.id, userId: taker.userId, pairId: rule.pairId,
         side: taker.side, price: String(tradePrice), qty: String(fillQty),
-        fee: String(takerFee), tds: String(takerTds),
+        fee: String(takerFee), tds: String(takerTds), isTaker: 1,
       });
       await tx.insert(tradesTable).values({
         orderId: maker.id, userId: maker.userId, pairId: rule.pairId,
         side: maker.side, price: String(tradePrice), qty: String(fillQty),
-        fee: String(makerFee), tds: String(makerTds),
+        fee: String(makerFee), tds: String(makerTds), isTaker: 0,
       });
 
       // Update orders. avgPrice is volume-weighted so a sweep across many

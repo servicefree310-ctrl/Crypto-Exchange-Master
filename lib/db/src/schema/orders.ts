@@ -37,6 +37,11 @@ export const tradesTable = pgTable("trades", {
   // 1 % TDS (or whatever rate the admin sets in `tds.percent`) deducted on
   // the seller's quote proceeds for this fill. Always 0 on the buy-side row.
   tds: numeric("tds", { precision: 28, scale: 8 }).notNull().default("0"),
+  // true = this row is the aggressive (taker) side of the match;
+  // false = resting (maker) side. Each matched trade produces exactly two rows —
+  // one taker + one maker — so filtering isTaker=true gives exactly 1 row per
+  // match for the trade tape / admin history without any duplicates.
+  isTaker: integer("is_taker").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

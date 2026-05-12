@@ -564,8 +564,14 @@ router.get("/admin/trades", supportPlus, async (req, res): Promise<void> => {
   // (the real-user side). Pass ?includeBotTrades=1 to see both sides (debugging).
   const conds: any[] = [];
   if (q.includeBotTrades !== "1") {
+    // Show only the taker-side row per match (is_taker = 1).
+    // Each match inserts exactly 2 rows — taker (is_taker=1) + maker (is_taker=0).
+    // Filtering on is_taker guarantees exactly 1 row per match regardless of
+    // whether the counterparty is a bot or a real user.
+    // Legacy rows (before migration 010) have is_taker=0 on both sides, so we
+    // fall back to the old bot-filter for them via the OR clause.
     conds.push(
-      sql`NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)`,
+      sql`(${tradesTable.isTaker} = 1 OR (${tradesTable.isTaker} = 0 AND NOT EXISTS (SELECT 1 FROM ${ordersTable} WHERE ${ordersTable.id} = ${tradesTable.orderId} AND ${ordersTable.isBot} = 1)))`,
     );
   }
   if (q.pairId) conds.push(eq(tradesTable.pairId, Number(q.pairId)));
