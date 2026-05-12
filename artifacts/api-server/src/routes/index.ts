@@ -41,6 +41,7 @@ import p2pRouter from "./p2p";
 import convertRouter from "./convert";
 import pushRouter from "./push";
 import instrumentsRouter from "./instruments";
+import brokerAccountsRouter from "./broker-accounts";
 
 const router: IRouter = Router();
 
@@ -94,6 +95,7 @@ router.use(p2pRouter);
 router.use(convertRouter);
 router.use(pushRouter);
 router.use(instrumentsRouter);
+router.use(brokerAccountsRouter);
 router.use(v1Router);
 
 export default router;

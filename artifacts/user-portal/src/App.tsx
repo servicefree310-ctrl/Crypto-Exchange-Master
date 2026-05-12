@@ -57,6 +57,8 @@ import Leagues from "@/pages/Leagues";
 import Forex from "@/pages/Forex";
 import Stocks from "@/pages/Stocks";
 import Commodities from "@/pages/Commodities";
+import BrokerOnboarding from "@/pages/BrokerOnboarding";
+import BrokerDashboard from "@/pages/BrokerDashboard";
 import SupportChatWidget from "@/components/SupportChatWidget";
 import NotFound from "@/pages/not-found";
 
@@ -156,6 +158,12 @@ function App() {
                 <Route path="/forex" component={Forex} />
                 <Route path="/stocks" component={Stocks} />
                 <Route path="/commodities" component={Commodities} />
+                <Route path="/broker/onboarding">
+                  {() => <RequireAuth><BrokerOnboarding /></RequireAuth>}
+                </Route>
+                <Route path="/broker/dashboard">
+                  {() => <RequireAuth><BrokerDashboard /></RequireAuth>}
+                </Route>
 
                 <Route path="/login" component={Login} />
                 <Route path="/signup" component={Signup} />

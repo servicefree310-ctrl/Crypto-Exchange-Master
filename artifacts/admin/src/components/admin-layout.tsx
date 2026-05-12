@@ -80,6 +80,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/broker-config", label: "Broker Config (Angel One)", icon: Globe, roles: ["admin", "superadmin"] as Role[] },
       { href: "/instruments-admin", label: "Forex / Stocks / Commodities", icon: Gem, roles: ["admin", "superadmin"] as Role[] },
+      { href: "/broker-applications", label: "Broker Applications", icon: FileText, roles: ["admin", "superadmin"] as Role[] },
     ],
   },
   {

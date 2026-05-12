@@ -54,6 +54,7 @@ import TDSReportPage from "@/pages/tds";
 import PushNotificationsPage from "@/pages/push-notifications";
 import BrokerConfigPage from "@/pages/broker-config";
 import InstrumentsAdminPage from "@/pages/instruments-admin";
+import BrokerApplicationsPage from "@/pages/broker-applications";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -157,6 +158,7 @@ function Protected() {
         <Route path="/push-notifications" component={PushNotificationsPage} />
         <Route path="/broker-config" component={BrokerConfigPage} />
         <Route path="/instruments-admin" component={InstrumentsAdminPage} />
+        <Route path="/broker-applications" component={BrokerApplicationsPage} />
         <Route component={NotFound} />
       </Switch>
     </AdminLayout>

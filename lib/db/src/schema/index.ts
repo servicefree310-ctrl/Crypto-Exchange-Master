@@ -26,3 +26,4 @@ export * from "./dashboard";
 export * from "./p2p";
 export * from "./convert";
 export * from "./instruments";
+export * from "./broker-accounts";
