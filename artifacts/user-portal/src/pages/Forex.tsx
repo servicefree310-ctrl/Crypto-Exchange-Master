@@ -774,15 +774,17 @@ type MT5OrderRow = {
   mt5Ticket: string | null; status: string; comment: string | null; openedAt: string | null; createdAt: string;
 };
 
-function MT5Dashboard({ accounts, positions, orders, onDisconnect, onAddAccount, onRefresh }: {
+function MT5Dashboard({ accounts, positions, orders, onDisconnect, onAddAccount, onRefresh, onClosePosition }: {
   accounts: MT5Account[];
   positions: MT5Position[];
   orders: MT5OrderRow[];
   onDisconnect: (id: number) => void;
   onAddAccount: () => void;
   onRefresh: () => void;
+  onClosePosition: (ticket: string) => void;
 }) {
   const [subTab, setSubTab] = useState<"positions" | "accounts" | "history">("positions");
+  const [closingTicket, setClosingTicket] = useState<string | null>(null);
   const totalPnl = positions.reduce((s, p) => s + p.pnl, 0);
   const connected = accounts.filter(a => a.status === "connected");
 
@@ -841,41 +843,73 @@ function MT5Dashboard({ accounts, positions, orders, onDisconnect, onAddAccount,
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-white/25 border-b border-white/5 text-[10px]">
-                    {["Ticket", "Account", "Symbol", "Side", "Vol", "Open", "Current", "SL", "TP", "Pips", "P&L"].map(h => (
+                    {["Ticket", "Account", "Symbol", "Side", "Vol", "Open Price", "Current", "SL", "TP", "Pips", "Profit / Loss", ""].map(h => (
                       <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {positions.map(pos => (
-                    <tr key={pos.ticket} className="border-b border-white/4 hover:bg-white/3">
-                      <td className="px-2 py-1.5 font-mono text-white/40 text-[10px]">{pos.ticket?.slice(-8)}</td>
-                      <td className="px-2 py-1.5">
+                    <tr key={pos.ticket}
+                      className={cn("border-b border-white/4 hover:bg-white/3 transition-colors",
+                        closingTicket === pos.ticket && "opacity-50")}>
+                      <td className="px-2 py-2 font-mono text-white/30 text-[10px]">{pos.ticket?.slice(-8)}</td>
+                      <td className="px-2 py-2">
                         <div className="flex items-center gap-1">
                           <span className={cn("text-[9px] px-1 py-0.5 rounded font-bold",
                             pos.isDemo ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-400")}>
                             {pos.isDemo ? "D" : "L"}
                           </span>
-                          <span className="text-white/40 text-[10px] font-mono">{pos.accountLogin}</span>
+                          <span className="text-white/35 text-[10px] font-mono">{pos.accountLogin}</span>
                         </div>
                       </td>
-                      <td className="px-2 py-1.5 font-semibold text-white">{pos.symbol}</td>
-                      <td className={cn("px-2 py-1.5 font-bold text-[11px]",
-                        pos.side === "buy" ? "text-emerald-400" : "text-red-400")}>
-                        {pos.side.toUpperCase()}
+                      <td className="px-2 py-2 font-bold text-white">{pos.symbol}</td>
+                      <td className="px-2 py-2">
+                        <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold",
+                          pos.side === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400")}>
+                          {pos.side.toUpperCase()}
+                        </span>
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums text-white/60">{pos.volume}</td>
-                      <td className="px-2 py-1.5 tabular-nums font-mono text-white/50">{pos.openPrice.toFixed(5)}</td>
-                      <td className="px-2 py-1.5 tabular-nums font-mono text-white">{pos.currentPrice.toFixed(5)}</td>
-                      <td className="px-2 py-1.5 tabular-nums font-mono text-red-400/60">{pos.stopLoss?.toFixed(5) ?? "—"}</td>
-                      <td className="px-2 py-1.5 tabular-nums font-mono text-emerald-400/60">{pos.takeProfit?.toFixed(5) ?? "—"}</td>
-                      <td className={cn("px-2 py-1.5 tabular-nums font-mono text-[11px]",
-                        pos.pips >= 0 ? "text-emerald-400" : "text-red-400")}>
-                        {pos.pips >= 0 ? "+" : ""}{pos.pips}
+                      <td className="px-2 py-2 tabular-nums text-white/60">{pos.volume}</td>
+                      <td className="px-2 py-2 tabular-nums font-mono text-white/50 text-[10px]">{pos.openPrice.toFixed(5)}</td>
+                      <td className="px-2 py-2 tabular-nums font-mono text-white text-[10px]">{pos.currentPrice.toFixed(5)}</td>
+                      <td className="px-2 py-2 tabular-nums font-mono text-red-400/50 text-[10px]">{pos.stopLoss?.toFixed(5) ?? <span className="text-white/15">—</span>}</td>
+                      <td className="px-2 py-2 tabular-nums font-mono text-emerald-400/50 text-[10px]">{pos.takeProfit?.toFixed(5) ?? <span className="text-white/15">—</span>}</td>
+
+                      {/* Pips */}
+                      <td className="px-2 py-2">
+                        <span className={cn("text-[11px] font-semibold tabular-nums",
+                          pos.pips >= 0 ? "text-emerald-400" : "text-red-400")}>
+                          {pos.pips >= 0 ? "+" : ""}{pos.pips}
+                        </span>
                       </td>
-                      <td className={cn("px-2 py-1.5 tabular-nums font-bold text-[11px]",
-                        pos.pnl >= 0 ? "text-emerald-400" : "text-red-400")}>
-                        {pos.pnl >= 0 ? "+" : ""}{pos.pnl.toFixed(2)}
+
+                      {/* P&L — most important cell */}
+                      <td className="px-2 py-2">
+                        <div className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-lg font-bold tabular-nums text-[12px]",
+                          pos.pnl >= 0
+                            ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25"
+                            : "bg-red-500/15 text-red-400 ring-1 ring-red-500/25")}>
+                          {pos.pnl >= 0
+                            ? <TrendingUp size={10} />
+                            : <TrendingDown size={10} />}
+                          {pos.pnl >= 0 ? "+" : ""}{pos.pnl.toFixed(2)}
+                        </div>
+                      </td>
+
+                      {/* Close button */}
+                      <td className="px-2 py-2">
+                        <button
+                          onClick={() => {
+                            setClosingTicket(pos.ticket);
+                            onClosePosition(pos.ticket);
+                          }}
+                          disabled={closingTicket === pos.ticket}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 hover:border-red-500/40 text-red-400 text-[10px] font-semibold transition-all disabled:opacity-40 whitespace-nowrap">
+                          {closingTicket === pos.ticket
+                            ? <><RefreshCw size={9} className="animate-spin" /> Closing...</>
+                            : <><X size={9} /> Close</>}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -1084,8 +1118,34 @@ export default function Forex() {
     },
     onSuccess: (data) => {
       toast({ title: "MT5 Order Placed", description: `Ticket: ${data.ticket}` });
+      qc.invalidateQueries({ queryKey: ["mt5-positions"] });
+      qc.invalidateQueries({ queryKey: ["mt5-orders"] });
     },
     onError: (e: Error) => toast({ title: "MT5 Order Failed", description: e.message, variant: "destructive" }),
+  });
+
+  const mt5CloseMutation = useMutation({
+    mutationFn: async (ticket: string) => {
+      const r = await fetch("/api/mt5/positions/close", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Close failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      const pnl = data.realizedPnl ?? 0;
+      toast({
+        title: pnl >= 0 ? `Position Closed +${pnl.toFixed(2)}` : `Position Closed ${pnl.toFixed(2)}`,
+        description: `Close price: ${data.closePrice} · Ticket: ${data.ticket?.slice(-8)}`,
+        variant: pnl >= 0 ? "default" : "destructive",
+      });
+      qc.invalidateQueries({ queryKey: ["mt5-positions"] });
+      qc.invalidateQueries({ queryKey: ["mt5-orders"] });
+    },
+    onError: (e: Error) => toast({ title: "Close Failed", description: e.message, variant: "destructive" }),
   });
 
   const instruments = instrData?.instruments ?? [];
@@ -1580,6 +1640,7 @@ export default function Forex() {
                     onDisconnect={id => mt5DisconnectMutation.mutate(id)}
                     onAddAccount={() => setShowMt5Modal(true)}
                     onRefresh={() => { refetchMt5(); refetchMt5Pos(); }}
+                    onClosePosition={ticket => mt5CloseMutation.mutate(ticket)}
                   />
                 )
               )}

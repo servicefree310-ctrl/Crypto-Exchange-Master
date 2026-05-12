@@ -250,6 +250,36 @@ router.post("/mt5/orders", requireAuth, async (req, res): Promise<void> => {
   res.json({ order, ticket, message: `Order ${ticket} placed on ${acct.server}` });
 });
 
+// ─── POST /mt5/positions/close ────────────────────────────────────────────────
+// "Close" a simulated open position by marking the mt5Order status = "closed"
+router.post("/mt5/positions/close", requireAuth, async (req, res): Promise<void> => {
+  const { ticket } = req.body as { ticket: string };
+  const userId = uid(req);
+  if (!ticket) { res.status(400).json({ error: "ticket required" }); return; }
+
+  // Find the order row by ticket
+  const [order] = await db.select().from(mt5OrdersTable)
+    .where(and(eq(mt5OrdersTable.mt5Ticket, ticket), eq(mt5OrdersTable.userId, userId)))
+    .limit(1);
+  if (!order) { res.status(404).json({ error: "Position not found" }); return; }
+  if (order.status === "closed") { res.status(400).json({ error: "Already closed" }); return; }
+
+  // Simulate close price (small drift from open)
+  const openPrice = parseFloat(order.openPrice ?? "1");
+  const drift = (Math.random() - 0.48) * openPrice * 0.003;
+  const closePrice = +(openPrice + drift).toFixed(5);
+  const pipValue = openPrice > 10 ? 0.01 : 0.0001;
+  const volume = parseFloat(order.volume ?? "0.01");
+  const pipDiff = (order.side === "buy" ? closePrice - openPrice : openPrice - closePrice) / pipValue;
+  const realizedPnl = +(pipDiff * pipValue * volume * 100000 * 0.01).toFixed(2);
+
+  await db.update(mt5OrdersTable)
+    .set({ status: "closed", closePrice: String(closePrice), profit: String(realizedPnl), closedAt: new Date() })
+    .where(eq(mt5OrdersTable.mt5Ticket, ticket));
+
+  res.json({ ok: true, closePrice, realizedPnl, ticket });
+});
+
 // ─── GET /mt5/orders ──────────────────────────────────────────────────────────
 router.get("/mt5/orders", requireAuth, async (req, res): Promise<void> => {
   const orders = await db.select().from(mt5OrdersTable)
@@ -276,7 +306,7 @@ router.get("/mt5/positions", requireAuth, async (req, res): Promise<void> => {
     .orderBy(desc(mt5OrdersTable.createdAt))
     .limit(100);
 
-  // For each filled order, simulate an open position with running P&L
+  // For each filled-but-not-closed order, simulate an open position with running P&L
   const positions = mt5Orders
     .filter(o => o.status === "filled")
     .map(o => {
