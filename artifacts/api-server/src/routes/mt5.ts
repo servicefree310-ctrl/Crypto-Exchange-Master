@@ -259,4 +259,87 @@ router.get("/mt5/orders", requireAuth, async (req, res): Promise<void> => {
   res.json({ orders });
 });
 
+// ─── GET /mt5/positions ───────────────────────────────────────────────────────
+// Returns simulated open positions for all connected MT5 accounts of the user.
+// In production this would call the broker's WebAPI / MT5 Manager HTTP bridge.
+router.get("/mt5/positions", requireAuth, async (req, res): Promise<void> => {
+  const userId = uid(req);
+  const accounts = await db.select().from(mt5AccountsTable)
+    .where(and(eq(mt5AccountsTable.userId, userId)))
+    .orderBy(desc(mt5AccountsTable.createdAt));
+
+  const connectedAccounts = accounts.filter(a => a.status === "connected");
+
+  // Pull MT5 orders to build open position list
+  const mt5Orders = await db.select().from(mt5OrdersTable)
+    .where(and(eq(mt5OrdersTable.userId, userId)))
+    .orderBy(desc(mt5OrdersTable.createdAt))
+    .limit(100);
+
+  // For each filled order, simulate an open position with running P&L
+  const positions = mt5Orders
+    .filter(o => o.status === "filled")
+    .map(o => {
+      const openPrice = parseFloat(o.openPrice ?? "1");
+      const volume = parseFloat(o.volume ?? "0.01");
+      // Simulate drift from open price
+      const drift = (Math.random() - 0.488) * openPrice * 0.0035;
+      const currentPrice = +(openPrice + drift).toFixed(5);
+      const pipValue = openPrice > 10 ? 0.01 : 0.0001;
+      const pipDiff = (o.side === "buy" ? currentPrice - openPrice : openPrice - currentPrice) / pipValue;
+      const pnl = +(pipDiff * pipValue * volume * 100000 * 0.01).toFixed(2);
+
+      const acct = connectedAccounts.find(a => a.id === o.mt5AccountId);
+      return {
+        ticket: o.mt5Ticket,
+        mt5AccountId: o.mt5AccountId,
+        accountServer: acct?.server ?? "Unknown",
+        accountLogin: acct?.login ?? "—",
+        isDemo: acct?.isDemo ?? true,
+        symbol: o.symbol,
+        side: o.side,
+        volume: parseFloat(o.volume ?? "0.01"),
+        openPrice: openPrice,
+        currentPrice,
+        stopLoss: o.stopLoss ? parseFloat(o.stopLoss) : null,
+        takeProfit: o.takeProfit ? parseFloat(o.takeProfit) : null,
+        pnl,
+        pips: +pipDiff.toFixed(1),
+        openedAt: o.openedAt,
+        simulated: o.simulated,
+        comment: o.comment,
+      };
+    });
+
+  res.json({ positions });
+});
+
+// ─── POST /mt5/account/:id/refresh ────────────────────────────────────────────
+// Refresh account balance / equity / margin (simulated tick)
+router.post("/mt5/account/:id/refresh", requireAuth, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  const userId = uid(req);
+
+  const [acct] = await db.select().from(mt5AccountsTable)
+    .where(and(eq(mt5AccountsTable.id, id), eq(mt5AccountsTable.userId, userId)))
+    .limit(1);
+  if (!acct) { res.status(404).json({ error: "Account not found" }); return; }
+  if (acct.status !== "connected") { res.status(400).json({ error: "Account not connected" }); return; }
+
+  const balance = parseFloat(acct.balance ?? "10000");
+  // Simulate small equity drift
+  const drift = (Math.random() - 0.48) * balance * 0.002;
+  const equity = +(balance + drift).toFixed(2);
+  const margin = +(parseFloat(acct.margin ?? "0") * (1 + (Math.random() - 0.5) * 0.05)).toFixed(2);
+  const freeMargin = +(equity - margin).toFixed(2);
+
+  const [updated] = await db.update(mt5AccountsTable)
+    .set({ equity: String(equity), margin: String(margin), freeMargin: String(freeMargin), updatedAt: new Date() })
+    .where(eq(mt5AccountsTable.id, id))
+    .returning();
+
+  const { passwordHash: _ph, sessionToken: _st, ...safe } = updated;
+  res.json({ account: safe });
+});
+
 export default router;

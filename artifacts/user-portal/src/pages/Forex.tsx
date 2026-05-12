@@ -200,34 +200,56 @@ function CandlestickChart({ bars, symbol, tf, pp }: {
   );
 }
 
-// ─── MT5 Connect Modal ────────────────────────────────────────────────────────
-const KNOWN_MT5_SERVERS = [
-  "ICMarkets-Demo", "ICMarkets-Live01", "Pepperstone-MT5", "Pepperstone-Demo",
-  "XM.COM-Demo", "XM.COM-Real", "Exness-MT5Trial", "Exness-MT5Real",
-  "FXTM-MT5", "FXTM-Demo", "Alpari-MT5Demo", "Alpari-MT5Real",
-  "FusionMarkets-MT5Demo", "FusionMarkets-MT5", "Admiral-MT5Demo",
-  "ZerodhaFX-Demo", "AngelOne-MT5Demo", "AngelOne-MT5Live",
-  "Zebvix-MT5Demo", "Zebvix-MT5Live",
+// ─── MT5 Broker Catalog ───────────────────────────────────────────────────────
+const MT5_BROKERS = [
+  { id: "zebvix",    label: "Zebvix",        demo: "Zebvix-MT5Demo",    live: "Zebvix-MT5Live",      region: "IN", color: "#F59E0B", popular: true },
+  { id: "icmarkets", label: "IC Markets",     demo: "ICMarkets-Demo",    live: "ICMarkets-Live01",    region: "AU", color: "#1E88E5", popular: true },
+  { id: "peppers",   label: "Pepperstone",    demo: "Pepperstone-Demo",  live: "Pepperstone-MT5",     region: "AU", color: "#EF5350", popular: true },
+  { id: "exness",    label: "Exness",         demo: "Exness-MT5Trial",   live: "Exness-MT5Real",      region: "CY", color: "#26A69A", popular: true },
+  { id: "xm",        label: "XM",             demo: "XM.COM-Demo",       live: "XM.COM-Real",         region: "CY", color: "#FF7043", popular: true },
+  { id: "fxtm",      label: "FXTM",           demo: "FXTM-Demo",         live: "FXTM-MT5",            region: "CY", color: "#5C6BC0", popular: false },
+  { id: "angelone",  label: "Angel One",      demo: "AngelOne-MT5Demo",  live: "AngelOne-MT5Live",    region: "IN", color: "#AB47BC", popular: false },
+  { id: "zerodha",   label: "ZerodhaFX",      demo: "ZerodhaFX-Demo",    live: "ZerodhaFX-Live",      region: "IN", color: "#66BB6A", popular: false },
+  { id: "admiral",   label: "Admiral",        demo: "Admiral-MT5Demo",   live: "Admiral-MT5Live",     region: "EU", color: "#42A5F5", popular: false },
+  { id: "alpari",    label: "Alpari",         demo: "Alpari-MT5Demo",    live: "Alpari-MT5Real",      region: "UK", color: "#FF5722", popular: false },
+  { id: "fusion",    label: "Fusion Markets", demo: "FusionMarkets-MT5Demo", live: "FusionMarkets-MT5", region: "AU", color: "#00BCD4", popular: false },
+  { id: "custom",    label: "Other Broker",   demo: "",                  live: "",                    region: "  ", color: "#78909C", popular: false },
 ];
 
+const ALL_MT5_SERVERS = MT5_BROKERS.flatMap(b => [b.demo, b.live].filter(Boolean));
+
+// ─── MT5 Connect Modal ────────────────────────────────────────────────────────
 function MT5ConnectModal({ onClose, onConnected }: {
   onClose: () => void;
   onConnected: (acct: MT5Account) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  // Step 1 = choose broker, Step 2 = enter credentials
+  const [step, setStep] = useState<1 | 2>(1);
+  const [isDemo, setIsDemo] = useState(true);
+  const [selectedBroker, setSelectedBroker] = useState<typeof MT5_BROKERS[0] | null>(null);
   const [server, setServer] = useState("");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [connType, setConnType] = useState<"investor" | "master">("investor");
+  const [connType, setConnType] = useState<"investor" | "master">("master");
   const [serverSuggest, setServerSuggest] = useState(false);
+
+  const filtered = ALL_MT5_SERVERS.filter(s => s.toLowerCase().includes(server.toLowerCase()) && server.length > 1);
+
+  function pickBroker(b: typeof MT5_BROKERS[0]) {
+    setSelectedBroker(b);
+    setServer(isDemo ? b.demo : b.live);
+    if (b.id !== "custom") setStep(2);
+    else setStep(2);
+  }
 
   const connectMutation = useMutation({
     mutationFn: async () => {
       const r = await fetch("/api/mt5/connect", {
-        method: "POST",
-        credentials: "include",
+        method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ server, login, password, connectionType: connType }),
       });
@@ -236,7 +258,7 @@ function MT5ConnectModal({ onClose, onConnected }: {
       return data;
     },
     onSuccess: (data) => {
-      toast({ title: "MT5 Connected", description: `${data.account.server} · ${data.account.login} (${data.account.isDemo ? "Demo" : "Live"})` });
+      toast({ title: "MT5 Connected ✓", description: `${data.account.server} · ${data.account.login} (${data.account.isDemo ? "Demo" : "Live"})` });
       qc.invalidateQueries({ queryKey: ["mt5-accounts"] });
       onConnected(data.account);
       onClose();
@@ -244,183 +266,336 @@ function MT5ConnectModal({ onClose, onConnected }: {
     onError: (e: Error) => toast({ title: "MT5 Connection Failed", description: e.message, variant: "destructive" }),
   });
 
-  const filtered = KNOWN_MT5_SERVERS.filter(s => s.toLowerCase().includes(server.toLowerCase()) && server.length > 0);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-[#111827] border border-white/12 rounded-2xl w-[440px] shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0f1623] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+        style={{ width: step === 1 ? 560 : 440 }}
+        onClick={e => e.stopPropagation()}>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
-              <Terminal size={16} className="text-blue-400" />
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/8 bg-[#111827]">
+          <div className="flex items-center gap-3">
+            {step === 2 && (
+              <button onClick={() => setStep(1)} className="text-white/30 hover:text-white transition-colors mr-1">
+                <ChevronDown size={18} className="rotate-90" />
+              </button>
+            )}
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 flex items-center justify-center">
+              <Terminal size={17} className="text-blue-400" />
             </div>
             <div>
-              <div className="font-semibold text-sm">Connect MetaTrader 5</div>
-              <div className="text-[10px] text-white/30">Live & demo accounts supported</div>
+              <div className="font-bold text-sm text-white">Connect MetaTrader 5</div>
+              <div className="text-[10px] text-white/30">
+                {step === 1 ? "Step 1 of 2 — Choose your broker" : `Step 2 of 2 — ${selectedBroker?.label ?? "Enter credentials"}`}
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Demo / Live toggle */}
+            <div className="flex bg-white/5 rounded-lg p-0.5 gap-0.5">
+              <button onClick={() => setIsDemo(true)}
+                className={cn("px-3 py-1 text-[11px] font-semibold rounded-md transition-colors",
+                  isDemo ? "bg-amber-500/20 text-amber-400" : "text-white/25 hover:text-white/50")}>
+                Demo
+              </button>
+              <button onClick={() => setIsDemo(false)}
+                className={cn("px-3 py-1 text-[11px] font-semibold rounded-md transition-colors",
+                  !isDemo ? "bg-blue-500/20 text-blue-400" : "text-white/25 hover:text-white/50")}>
+                Live
+              </button>
+            </div>
+            <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
-        <div className="p-6 space-y-4">
-          {/* Info banner */}
-          <div className="bg-blue-500/8 border border-blue-500/20 rounded-xl p-3 flex gap-2.5 text-xs">
-            <Info size={13} className="text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="text-white/50 leading-relaxed">
-              Enter your MT5 broker server, account login, and <span className="text-blue-300">investor (read-only)</span> or master password.
-              Your credentials are encrypted with bcrypt — never stored in plaintext.
+        {/* Step 1 — Broker Grid */}
+        {step === 1 && (
+          <div className="p-5 space-y-4">
+            <div className="text-[11px] text-white/35 font-medium uppercase tracking-wide">
+              Popular Brokers
             </div>
-          </div>
-
-          {/* Connection type */}
-          <div>
-            <div className="text-[10px] text-white/35 mb-1.5 font-medium">Connection Type</div>
-            <div className="flex gap-1.5">
-              {(["investor", "master"] as const).map(t => (
-                <button key={t} onClick={() => setConnType(t)}
-                  className={cn("flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all border",
-                    connType === t
-                      ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
-                      : "border-white/8 text-white/30 hover:text-white/50")}>
-                  {t === "investor" ? "🔍 Investor (Read-only)" : "⚡ Master (Full access)"}
+            <div className="grid grid-cols-4 gap-2.5">
+              {MT5_BROKERS.filter(b => b.popular).map(b => (
+                <button key={b.id} onClick={() => pickBroker(b)}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl border border-white/8 bg-white/3 hover:bg-white/8 hover:border-white/15 transition-all group">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                    style={{ background: b.color + "22", color: b.color }}>
+                    {b.label.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="text-center">
+                    <div className="text-[11px] font-semibold text-white/80 group-hover:text-white leading-tight">{b.label}</div>
+                    <div className="text-[9px] text-white/25 mt-0.5">
+                      {b.region === "IN" ? "🇮🇳" : b.region === "AU" ? "🇦🇺" : b.region === "UK" ? "🇬🇧" : "🌐"} {isDemo ? "Demo" : "Live"}
+                    </div>
+                  </div>
                 </button>
               ))}
             </div>
-            {connType === "master" && (
-              <div className="mt-1.5 text-[10px] text-amber-400/70 flex items-center gap-1">
-                <AlertTriangle size={10} /> Master password gives full trade access. Use with caution.
-              </div>
-            )}
-          </div>
 
-          {/* Server */}
-          <div className="relative">
-            <div className="text-[10px] text-white/35 mb-1 font-medium">Broker Server</div>
-            <input value={server} onChange={e => { setServer(e.target.value); setServerSuggest(true); }}
-              onBlur={() => setTimeout(() => setServerSuggest(false), 200)}
-              placeholder="e.g. ICMarkets-Demo, Pepperstone-MT5"
-              className="w-full bg-white/5 border border-white/10 px-3 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none" />
-            {serverSuggest && filtered.length > 0 && (
-              <div className="absolute top-full mt-1 left-0 right-0 bg-[#1a2035] border border-white/12 rounded-xl overflow-hidden z-10 shadow-xl">
-                {filtered.slice(0, 6).map(s => (
-                  <button key={s} onClick={() => { setServer(s); setServerSuggest(false); }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-white/8 transition-colors text-white/70 flex items-center gap-2">
-                    <Terminal size={10} className="text-blue-400" />
-                    {s}
-                    {s.toLowerCase().includes("demo") && <span className="ml-auto text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded">DEMO</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            <div className="text-[11px] text-white/35 font-medium uppercase tracking-wide mt-2">
+              More Brokers
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {MT5_BROKERS.filter(b => !b.popular).map(b => (
+                <button key={b.id} onClick={() => pickBroker(b)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/6 bg-white/3 hover:bg-white/7 hover:border-white/12 transition-all text-left">
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                    style={{ background: b.color + "22", color: b.color }}>
+                    {b.label.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="text-[11px] text-white/60 truncate">{b.label}</div>
+                </button>
+              ))}
+            </div>
 
-          {/* Login */}
-          <div>
-            <div className="text-[10px] text-white/35 mb-1 font-medium">Account Login (Number)</div>
-            <input value={login} onChange={e => setLogin(e.target.value)}
-              placeholder="e.g. 12345678"
-              className="w-full bg-white/5 border border-white/10 px-3 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none font-mono" />
-          </div>
-
-          {/* Password */}
-          <div>
-            <div className="text-[10px] text-white/35 mb-1 font-medium">Password</div>
-            <div className="relative">
-              <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                placeholder="Investor or master password"
-                className="w-full bg-white/5 border border-white/10 px-3 pr-10 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none" />
-              <button onClick={() => setShowPw(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/60">
-                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+            <div className="bg-blue-500/6 border border-blue-500/15 rounded-xl p-3 flex gap-2 text-[11px] text-white/40">
+              <Info size={12} className="text-blue-400 flex-shrink-0 mt-0.5" />
+              <span>
+                Your Zebvix account works with any MT5 broker. Demo accounts are free — no real funds required.
+                Credentials are <span className="text-blue-300">bcrypt-encrypted</span> and never stored in plaintext.
+              </span>
             </div>
           </div>
+        )}
 
-          {/* Connect button */}
-          <button onClick={() => connectMutation.mutate()}
-            disabled={!server || !login || !password || connectMutation.isPending}
-            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
-            {connectMutation.isPending ? (
-              <>
-                <RefreshCw size={14} className="animate-spin" /> Connecting...
-              </>
-            ) : (
-              <>
-                <PlugZap size={14} /> Connect MT5 Account
-              </>
+        {/* Step 2 — Credentials */}
+        {step === 2 && (
+          <div className="p-6 space-y-4">
+            {/* Broker badge */}
+            {selectedBroker && (
+              <div className="flex items-center gap-2.5 p-2.5 bg-white/5 rounded-xl">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                  style={{ background: selectedBroker.color + "22", color: selectedBroker.color }}>
+                  {selectedBroker.label.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-white">{selectedBroker.label}</div>
+                  <div className="text-[10px] text-white/30">{server}</div>
+                </div>
+                <span className={cn("ml-auto text-[9px] px-2 py-0.5 rounded-full font-bold",
+                  isDemo ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-400")}>
+                  {isDemo ? "DEMO" : "LIVE"}
+                </span>
+              </div>
             )}
-          </button>
 
-          <div className="text-[10px] text-white/20 text-center leading-relaxed">
-            Demo accounts: Use server names containing "Demo" or "Trial" · 
-            Supports all MT5 brokers with WebAPI/HTTP bridge
+            {/* Server (editable if custom) */}
+            <div className="relative">
+              <div className="flex justify-between mb-1">
+                <div className="text-[10px] text-white/35 font-medium">Broker Server Address</div>
+              </div>
+              <input value={server} onChange={e => { setServer(e.target.value); setServerSuggest(true); }}
+                onBlur={() => setTimeout(() => setServerSuggest(false), 200)}
+                placeholder="e.g. ICMarkets-Demo, Pepperstone-MT5"
+                className="w-full bg-white/5 border border-white/10 px-3 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none font-mono text-xs" />
+              {serverSuggest && filtered.length > 0 && (
+                <div className="absolute top-full mt-1 left-0 right-0 bg-[#1a2035] border border-white/12 rounded-xl overflow-hidden z-10 shadow-2xl max-h-40 overflow-y-auto">
+                  {filtered.slice(0, 8).map(s => (
+                    <button key={s} onClick={() => { setServer(s); setServerSuggest(false); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-white/8 transition-colors text-white/70 flex items-center gap-2">
+                      <Terminal size={10} className="text-blue-400 flex-shrink-0" />
+                      <span className="flex-1 truncate">{s}</span>
+                      {s.toLowerCase().includes("demo") || s.toLowerCase().includes("trial")
+                        ? <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded">DEMO</span>
+                        : <span className="text-[9px] bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded">LIVE</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Login */}
+            <div>
+              <div className="text-[10px] text-white/35 mb-1 font-medium">MT5 Account Login Number</div>
+              <input value={login} onChange={e => setLogin(e.target.value)}
+                placeholder="e.g. 12345678"
+                className="w-full bg-white/5 border border-white/10 px-3 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none font-mono" />
+            </div>
+
+            {/* Password */}
+            <div>
+              <div className="flex justify-between mb-1">
+                <div className="text-[10px] text-white/35 font-medium">Password</div>
+                <div className="flex bg-white/5 rounded-md overflow-hidden">
+                  {(["investor", "master"] as const).map(t => (
+                    <button key={t} onClick={() => setConnType(t)}
+                      className={cn("px-2 py-0.5 text-[9px] font-semibold transition-colors",
+                        connType === t ? "bg-blue-500/25 text-blue-300" : "text-white/25 hover:text-white/50")}>
+                      {t === "investor" ? "Investor" : "Master"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="relative">
+                <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder={connType === "investor" ? "Investor (read-only) password" : "Master password"}
+                  className="w-full bg-white/5 border border-white/10 px-3 pr-10 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none" />
+                <button onClick={() => setShowPw(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/60">
+                  {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {connType === "master" && (
+                <div className="mt-1 text-[10px] text-amber-400/60 flex items-center gap-1">
+                  <AlertTriangle size={9} /> Master password allows full trade execution via Zebvix.
+                </div>
+              )}
+            </div>
+
+            {/* Connect button */}
+            <button onClick={() => connectMutation.mutate()}
+              disabled={!server || !login || !password || connectMutation.isPending}
+              className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+              {connectMutation.isPending ? (
+                <><RefreshCw size={14} className="animate-spin" /> Authenticating with MT5...</>
+              ) : (
+                <><PlugZap size={14} /> Connect {selectedBroker?.label ?? "MT5"} Account</>
+              )}
+            </button>
+
+            <div className="text-[10px] text-white/20 text-center">
+              {isDemo
+                ? "Demo: No real funds. Free practice account from your broker."
+                : "Live: Connects to real broker account. All trades are real."}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ─── MT5 Account Card ─────────────────────────────────────────────────────────
-function MT5AccountCard({ account, onDisconnect }: { account: MT5Account; onDisconnect: () => void }) {
+function MT5AccountCard({ account, onDisconnect, compact = false }: {
+  account: MT5Account; onDisconnect: () => void; compact?: boolean;
+}) {
   const isConnected = account.status === "connected";
   const balance = parseFloat(account.balance ?? "0");
   const equity = parseFloat(account.equity ?? "0");
+  const margin = parseFloat(account.margin ?? "0");
   const freeMargin = parseFloat(account.freeMargin ?? "0");
-  const marginPct = account.equity && account.margin
-    ? (parseFloat(account.margin) / parseFloat(account.equity)) * 100 : 0;
+  const marginLevel = equity > 0 ? (equity / margin) * 100 : 0;
+  const marginUsedPct = equity > 0 ? (margin / equity) * 100 : 0;
+  const floatingPnl = equity - balance;
+  const cur = account.currency ?? "USD";
+  const broker = MT5_BROKERS.find(b => b.live === account.server || b.demo === account.server);
+  const brokerColor = broker?.color ?? "#1E88E5";
+
+  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className={cn("rounded-xl border p-3 text-xs",
+    <div className={cn("rounded-xl border text-xs transition-all",
       isConnected
-        ? account.isDemo ? "bg-amber-500/6 border-amber-500/20" : "bg-blue-500/6 border-blue-500/20"
+        ? account.isDemo
+          ? "bg-amber-500/5 border-amber-500/20"
+          : "bg-blue-500/5 border-blue-500/20"
         : "bg-white/3 border-white/8")}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <Terminal size={10} className={isConnected ? (account.isDemo ? "text-amber-400" : "text-blue-400") : "text-white/20"} />
-          <span className={cn("font-semibold text-[11px]", isConnected ? "text-white" : "text-white/30")}>
-            MT5 · {account.login}
-          </span>
-          <span className={cn("px-1 py-0.5 rounded text-[9px] font-bold",
-            !isConnected ? "bg-white/5 text-white/20" :
-            account.isDemo ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-300")}>
-            {!isConnected ? "OFF" : account.isDemo ? "DEMO" : "LIVE"}
-          </span>
+
+      {/* Account header */}
+      <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+            style={{ background: brokerColor + "22", color: brokerColor }}>
+            {(broker?.label ?? account.server).slice(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-[11px] text-white">{account.login}</span>
+              <span className={cn("px-1.5 py-0.5 rounded text-[8px] font-bold uppercase",
+                !isConnected ? "bg-white/5 text-white/20" :
+                account.isDemo ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-400")}>
+                {!isConnected ? "Offline" : account.isDemo ? "Demo" : "Live"}
+              </span>
+            </div>
+            <div className="text-[9px] text-white/30 mt-0.5 truncate max-w-[160px]">{account.server}</div>
+          </div>
         </div>
-        <button onClick={onDisconnect}
-          className="text-[10px] text-white/20 hover:text-red-400 transition-colors flex items-center gap-1">
-          <X size={9} /> Disconnect
-        </button>
+        <div className="flex items-center gap-2">
+          {isConnected && (
+            <div className="flex items-center gap-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[9px] text-emerald-400">Connected</span>
+            </div>
+          )}
+          <button onClick={onDisconnect}
+            className="text-white/15 hover:text-red-400 transition-colors p-1 rounded">
+            <X size={11} />
+          </button>
+        </div>
       </div>
 
-      {isConnected && (
-        <>
-          <div className="text-[10px] text-white/25 mb-1.5 truncate">{account.server}</div>
-          <div className="grid grid-cols-3 gap-1.5 mb-2">
+      {/* Stats grid */}
+      {isConnected && !compact && (
+        <div className="px-3 pb-3 space-y-2.5">
+          {/* Balance / Equity / Free Margin */}
+          <div className="grid grid-cols-3 gap-1.5">
             {[
-              ["Balance", balance.toFixed(2)],
-              ["Equity", equity.toFixed(2)],
-              ["Free", freeMargin.toFixed(2)],
-            ].map(([k, v]) => (
-              <div key={k} className="bg-white/5 rounded-lg p-1.5 text-center">
-                <div className="text-white/25 text-[9px]">{k}</div>
-                <div className="font-mono font-semibold mt-0.5 text-[10px]">{v}</div>
+              { label: "Balance", value: fmt(balance), sub: cur },
+              { label: "Equity", value: fmt(equity), sub: floatingPnl >= 0 ? `+${fmt(floatingPnl)}` : fmt(floatingPnl), subColor: floatingPnl >= 0 ? "text-emerald-400" : "text-red-400" },
+              { label: "Free Margin", value: fmt(freeMargin), sub: cur },
+            ].map(stat => (
+              <div key={stat.label} className="bg-white/5 rounded-lg p-2 text-center">
+                <div className="text-white/30 text-[9px] mb-0.5">{stat.label}</div>
+                <div className="font-mono font-bold text-[11px] text-white">{stat.value}</div>
+                {stat.sub && <div className={cn("text-[9px] mt-0.5", stat.subColor ?? "text-white/25")}>{stat.sub}</div>}
               </div>
             ))}
           </div>
-          <div className="flex justify-between text-[9px] text-white/25 mb-1">
-            <span>Margin used</span>
-            <span>{marginPct.toFixed(1)}% · {account.leverage}× leverage</span>
+
+          {/* Margin / Leverage / Level */}
+          <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+            <div className="bg-white/3 rounded-lg p-1.5">
+              <div className="text-white/25 text-[9px]">Margin Used</div>
+              <div className="font-mono font-semibold text-white mt-0.5">{fmt(margin)}</div>
+            </div>
+            <div className="bg-white/3 rounded-lg p-1.5">
+              <div className="text-white/25 text-[9px]">Leverage</div>
+              <div className="font-semibold text-white mt-0.5">1:{account.leverage ?? "—"}</div>
+            </div>
+            <div className="bg-white/3 rounded-lg p-1.5">
+              <div className="text-white/25 text-[9px]">Margin Level</div>
+              <div className={cn("font-semibold mt-0.5", marginLevel > 200 ? "text-emerald-400" : marginLevel > 100 ? "text-amber-400" : "text-red-400")}>
+                {margin > 0 ? marginLevel.toFixed(0) + "%" : "—"}
+              </div>
+            </div>
           </div>
-          <div className="w-full bg-white/8 rounded-full h-1">
-            <div className={cn("h-1 rounded-full transition-all",
-              marginPct > 80 ? "bg-red-500" : marginPct > 50 ? "bg-amber-500" : "bg-blue-500")}
-              style={{ width: `${Math.min(marginPct, 100)}%` }} />
+
+          {/* Margin bar */}
+          <div>
+            <div className="flex justify-between text-[9px] text-white/25 mb-1">
+              <span>Margin utilization</span>
+              <span>{marginUsedPct.toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-white/8 rounded-full h-1.5">
+              <div className={cn("h-1.5 rounded-full transition-all",
+                marginUsedPct > 80 ? "bg-red-500" : marginUsedPct > 50 ? "bg-amber-500" : "bg-blue-500")}
+                style={{ width: `${Math.min(marginUsedPct, 100)}%` }} />
+            </div>
           </div>
-        </>
+
+          {/* Floating P&L */}
+          {floatingPnl !== 0 && (
+            <div className={cn("flex items-center justify-between rounded-lg px-2 py-1.5",
+              floatingPnl >= 0 ? "bg-emerald-500/8" : "bg-red-500/8")}>
+              <span className="text-white/40 text-[10px]">Floating P&L</span>
+              <span className={cn("font-mono font-bold text-[11px]", floatingPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {floatingPnl >= 0 ? "+" : ""}{fmt(floatingPnl)} {cur}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Compact mode: just balance + equity inline */}
+      {isConnected && compact && (
+        <div className="px-3 pb-2.5 flex items-center justify-between">
+          <span className="text-white/30 text-[10px]">Balance <span className="text-white font-mono font-semibold">{fmt(balance)} {cur}</span></span>
+          <span className={cn("text-[10px] font-mono font-semibold", floatingPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+            {floatingPnl >= 0 ? "+" : ""}{fmt(floatingPnl)}
+          </span>
+        </div>
       )}
     </div>
   );
@@ -586,6 +761,193 @@ function AnalysisPanel({ inst, ltp }: { inst: Instrument | null; ltp: number }) 
   );
 }
 
+// ─── MT5 Dashboard (bottom panel) ─────────────────────────────────────────────
+type MT5Position = {
+  ticket: string; mt5AccountId: number; accountServer: string; accountLogin: string;
+  isDemo: boolean; symbol: string; side: string; volume: number;
+  openPrice: number; currentPrice: number; stopLoss: number | null; takeProfit: number | null;
+  pnl: number; pips: number; openedAt: string | null; simulated: boolean; comment: string | null;
+};
+type MT5OrderRow = {
+  id: number; mt5AccountId: number; symbol: string; orderType: string; side: string;
+  volume: string; openPrice: string | null; stopLoss: string | null; takeProfit: string | null;
+  mt5Ticket: string | null; status: string; comment: string | null; openedAt: string | null; createdAt: string;
+};
+
+function MT5Dashboard({ accounts, positions, orders, onDisconnect, onAddAccount, onRefresh }: {
+  accounts: MT5Account[];
+  positions: MT5Position[];
+  orders: MT5OrderRow[];
+  onDisconnect: (id: number) => void;
+  onAddAccount: () => void;
+  onRefresh: () => void;
+}) {
+  const [subTab, setSubTab] = useState<"positions" | "accounts" | "history">("positions");
+  const totalPnl = positions.reduce((s, p) => s + p.pnl, 0);
+  const connected = accounts.filter(a => a.status === "connected");
+
+  return (
+    <div className="flex h-full">
+      {/* Sub-tab sidebar */}
+      <div className="flex flex-col border-r border-white/8 px-1.5 py-2 gap-0.5 w-24 flex-shrink-0">
+        {([
+          { id: "positions", label: "Positions", count: positions.length },
+          { id: "accounts", label: "Accounts", count: connected.length },
+          { id: "history", label: "History", count: orders.length },
+        ] as const).map(tab => (
+          <button key={tab.id} onClick={() => setSubTab(tab.id)}
+            className={cn("flex flex-col items-center gap-0.5 py-1.5 px-1 rounded-lg text-center transition-colors",
+              subTab === tab.id ? "bg-blue-500/15 text-blue-300" : "text-white/25 hover:text-white/50 hover:bg-white/5")}>
+            <span className="text-[10px] font-semibold">{tab.label}</span>
+            {tab.count > 0 && (
+              <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full font-bold",
+                subTab === tab.id ? "bg-blue-500/25 text-blue-300" : "bg-white/10 text-white/30")}>
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <button onClick={onRefresh} className="p-1.5 rounded-lg text-white/20 hover:text-white/50 hover:bg-white/5 transition-colors">
+          <RefreshCw size={12} />
+        </button>
+        <button onClick={onAddAccount} className="p-1.5 rounded-lg text-blue-400/40 hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
+          <PlugZap size={12} />
+        </button>
+      </div>
+
+      {/* Content area */}
+      <div className="flex-1 overflow-auto">
+
+        {/* ── Positions sub-tab ── */}
+        {subTab === "positions" && (
+          <>
+            {/* Summary strip */}
+            {positions.length > 0 && (
+              <div className="flex items-center gap-4 px-3 py-1.5 border-b border-white/5 bg-white/2">
+                <div className="text-[10px] text-white/30">{positions.length} open position{positions.length !== 1 ? "s" : ""}</div>
+                <div className={cn("text-[10px] font-bold tabular-nums ml-auto", totalPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                  Float P&L: {totalPnl >= 0 ? "+" : ""}{totalPnl.toFixed(2)}
+                </div>
+              </div>
+            )}
+            {positions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-28 gap-2 text-white/20">
+                <Activity size={20} />
+                <div className="text-xs">No open MT5 positions</div>
+                <div className="text-[10px] text-white/15">Place a trade to see positions here</div>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-white/25 border-b border-white/5 text-[10px]">
+                    {["Ticket", "Account", "Symbol", "Side", "Vol", "Open", "Current", "SL", "TP", "Pips", "P&L"].map(h => (
+                      <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map(pos => (
+                    <tr key={pos.ticket} className="border-b border-white/4 hover:bg-white/3">
+                      <td className="px-2 py-1.5 font-mono text-white/40 text-[10px]">{pos.ticket?.slice(-8)}</td>
+                      <td className="px-2 py-1.5">
+                        <div className="flex items-center gap-1">
+                          <span className={cn("text-[9px] px-1 py-0.5 rounded font-bold",
+                            pos.isDemo ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-400")}>
+                            {pos.isDemo ? "D" : "L"}
+                          </span>
+                          <span className="text-white/40 text-[10px] font-mono">{pos.accountLogin}</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-1.5 font-semibold text-white">{pos.symbol}</td>
+                      <td className={cn("px-2 py-1.5 font-bold text-[11px]",
+                        pos.side === "buy" ? "text-emerald-400" : "text-red-400")}>
+                        {pos.side.toUpperCase()}
+                      </td>
+                      <td className="px-2 py-1.5 tabular-nums text-white/60">{pos.volume}</td>
+                      <td className="px-2 py-1.5 tabular-nums font-mono text-white/50">{pos.openPrice.toFixed(5)}</td>
+                      <td className="px-2 py-1.5 tabular-nums font-mono text-white">{pos.currentPrice.toFixed(5)}</td>
+                      <td className="px-2 py-1.5 tabular-nums font-mono text-red-400/60">{pos.stopLoss?.toFixed(5) ?? "—"}</td>
+                      <td className="px-2 py-1.5 tabular-nums font-mono text-emerald-400/60">{pos.takeProfit?.toFixed(5) ?? "—"}</td>
+                      <td className={cn("px-2 py-1.5 tabular-nums font-mono text-[11px]",
+                        pos.pips >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {pos.pips >= 0 ? "+" : ""}{pos.pips}
+                      </td>
+                      <td className={cn("px-2 py-1.5 tabular-nums font-bold text-[11px]",
+                        pos.pnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {pos.pnl >= 0 ? "+" : ""}{pos.pnl.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+
+        {/* ── Accounts sub-tab ── */}
+        {subTab === "accounts" && (
+          <div className="p-3 space-y-2.5 overflow-auto">
+            {accounts.map(acct => (
+              <MT5AccountCard key={acct.id} account={acct}
+                onDisconnect={() => onDisconnect(acct.id)} />
+            ))}
+            <button onClick={onAddAccount}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-blue-500/25 text-blue-400/60 hover:text-blue-400 hover:border-blue-500/40 text-xs transition-colors">
+              <PlugZap size={11} /> Add another MT5 account
+            </button>
+          </div>
+        )}
+
+        {/* ── History sub-tab ── */}
+        {subTab === "history" && (
+          orders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-28 gap-2 text-white/20">
+              <BookOpen size={20} />
+              <div className="text-xs">No MT5 order history yet</div>
+            </div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-white/25 border-b border-white/5 text-[10px]">
+                  {["Ticket", "Symbol", "Side", "Type", "Vol", "Open Price", "SL", "TP", "Status", "Time"].map(h => (
+                    <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map(o => (
+                  <tr key={o.id} className="border-b border-white/4 hover:bg-white/3">
+                    <td className="px-2 py-1.5 font-mono text-white/30 text-[10px]">{o.mt5Ticket?.slice(-8) ?? "—"}</td>
+                    <td className="px-2 py-1.5 font-semibold">{o.symbol}</td>
+                    <td className={cn("px-2 py-1.5 font-bold", o.side === "buy" ? "text-emerald-400" : "text-red-400")}>
+                      {o.side.toUpperCase()}
+                    </td>
+                    <td className="px-2 py-1.5 text-white/40 uppercase text-[10px]">{o.orderType}</td>
+                    <td className="px-2 py-1.5 tabular-nums">{o.volume}</td>
+                    <td className="px-2 py-1.5 tabular-nums font-mono">{o.openPrice ? Number(o.openPrice).toFixed(5) : "—"}</td>
+                    <td className="px-2 py-1.5 tabular-nums font-mono text-red-400/60">{o.stopLoss ? Number(o.stopLoss).toFixed(5) : "—"}</td>
+                    <td className="px-2 py-1.5 tabular-nums font-mono text-emerald-400/60">{o.takeProfit ? Number(o.takeProfit).toFixed(5) : "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-semibold",
+                        o.status === "filled" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400")}>
+                        {o.status}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 text-white/25 whitespace-nowrap">
+                      {o.openedAt ? new Date(o.openedAt).toLocaleTimeString() : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Forex Terminal ──────────────────────────────────────────────────────
 export default function Forex() {
   const { user } = useAuth();
@@ -662,12 +1024,35 @@ export default function Forex() {
       return r.json();
     },
     enabled: !!user,
-    staleTime: 30_000,
+    refetchInterval: bottomTab === "mt5" ? 10_000 : 30_000,
+  });
+
+  const { data: mt5PosData, refetch: refetchMt5Pos } = useQuery({
+    queryKey: ["mt5-positions"],
+    queryFn: async () => {
+      const r = await fetch("/api/mt5/positions", { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!user,
+    refetchInterval: 5_000,
+  });
+
+  const { data: mt5OrdersData } = useQuery({
+    queryKey: ["mt5-orders"],
+    queryFn: async () => {
+      const r = await fetch("/api/mt5/orders", { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!user && bottomTab === "mt5",
   });
 
   // Use first connected MT5 account, else activeMt5 from state
   const mt5Accounts: MT5Account[] = mt5Data?.accounts ?? [];
   const connectedMt5 = activeMt5 ?? mt5Accounts.find(a => a.status === "connected") ?? null;
+  const mt5Positions = mt5PosData?.positions ?? [];
+  const mt5OrderHistory = mt5OrdersData?.orders ?? [];
 
   const mt5DisconnectMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -1161,28 +1546,41 @@ export default function Forex() {
               {/* ── MT5 Tab ─────────────────────────────────────────────── */}
               {bottomTab === "mt5" && (
                 !user ? (
-                  <div className="text-center py-8 text-white/20 text-xs">Login to connect MT5</div>
-                ) : (
-                  <div className="p-3 space-y-2">
-                    {/* Connected accounts */}
-                    {mt5Accounts.length > 0 ? mt5Accounts.map(acct => (
-                      <MT5AccountCard key={acct.id} account={acct}
-                        onDisconnect={() => mt5DisconnectMutation.mutate(acct.id)} />
-                    )) : (
-                      <div className="text-center py-4 text-white/20 text-xs">No MT5 accounts connected</div>
-                    )}
-
-                    {/* Add new MT5 account */}
-                    <button onClick={() => setShowMt5Modal(true)}
-                      className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-blue-500/30 text-blue-400/70 hover:text-blue-400 hover:border-blue-500/50 text-xs transition-colors">
-                      <PlugZap size={12} /> Connect another MT5 account
-                    </button>
-
-                    {/* Supported brokers */}
-                    <div className="text-[10px] text-white/20 text-center pt-1">
-                      Supports: IC Markets · Pepperstone · XM · Exness · FXTM · Alpari · Admiral · and more
-                    </div>
+                  <div className="flex flex-col items-center justify-center py-8 gap-3">
+                    <Terminal size={24} className="text-blue-400/30" />
+                    <div className="text-white/20 text-xs">Login to connect MT5</div>
                   </div>
+                ) : mt5Accounts.length === 0 ? (
+                  /* No accounts: show broker grid CTA */
+                  <div className="p-4 space-y-3">
+                    <div className="text-[10px] text-white/30 font-medium uppercase tracking-wide">Popular Brokers — Connect Free Demo</div>
+                    <div className="grid grid-cols-5 gap-2">
+                      {MT5_BROKERS.filter(b => b.popular).map(b => (
+                        <button key={b.id} onClick={() => setShowMt5Modal(true)}
+                          className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border border-white/8 bg-white/3 hover:bg-white/8 transition-all">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold"
+                            style={{ background: b.color + "22", color: b.color }}>
+                            {b.label.slice(0, 2)}
+                          </div>
+                          <div className="text-[10px] text-white/50 text-center leading-tight">{b.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => setShowMt5Modal(true)}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-blue-500/30 text-blue-400 hover:bg-blue-500/8 text-xs transition-colors font-semibold">
+                      <PlugZap size={12} /> Connect MT5 Account
+                    </button>
+                  </div>
+                ) : (
+                  /* Accounts connected: show full dashboard */
+                  <MT5Dashboard
+                    accounts={mt5Accounts}
+                    positions={mt5Positions}
+                    orders={mt5OrderHistory}
+                    onDisconnect={id => mt5DisconnectMutation.mutate(id)}
+                    onAddAccount={() => setShowMt5Modal(true)}
+                    onRefresh={() => { refetchMt5(); refetchMt5Pos(); }}
+                  />
                 )
               )}
             </div>
