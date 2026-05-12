@@ -206,13 +206,14 @@ const navItems: NavEntry[] = [
     id: "trad-markets",
     label: "Markets+",
     icon: Building2,
-    match: (l) => l.startsWith("/forex") || l.startsWith("/stocks") || l.startsWith("/commodities"),
+    match: (l) => l.startsWith("/forex") || l.startsWith("/stocks") || l.startsWith("/commodities") || l.startsWith("/smartapi"),
     priority: 2,
-    width: "w-[400px]",
+    width: "w-[460px]",
     items: [
       { href: "/forex",       label: "Forex",       desc: "Trade 8+ currency pairs with up to 50× leverage (EURINR, USDINR…)", icon: ForexIcon,  badge: "NEW", badgeTone: "new" },
       { href: "/stocks",      label: "Stocks",       desc: "NSE India & US NASDAQ stocks — Reliance, TCS, AAPL, NVDA…",         icon: Building2,  badge: "NEW", badgeTone: "new" },
       { href: "/commodities", label: "Commodities",  desc: "Gold, Silver, Crude Oil, Natural Gas on MCX with leverage",          icon: Gem,        badge: "NEW", badgeTone: "new" },
+      { href: "/smartapi",    label: "SmartAPI",     desc: "Connect Angel One — trade equities, F&O, MCX directly via SmartAPI", icon: Zap,        badge: "LIVE", badgeTone: "new" },
     ],
   },
 ];

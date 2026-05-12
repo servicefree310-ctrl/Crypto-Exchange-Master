@@ -166,3 +166,31 @@ export const mt5OrdersTable = pgTable("mt5_orders", {
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ─── Angel One SmartAPI Accounts ─────────────────────────────────────────────
+export const smartApiAccountsTable = pgTable("smartapi_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  clientCode: text("client_code").notNull(),
+  apiKey: text("api_key").notNull(),
+  // tokens
+  jwtToken: text("jwt_token"),
+  refreshToken: text("refresh_token"),
+  feedToken: text("feed_token"),
+  jwtExpiresAt: timestamp("jwt_expires_at"),
+  // cached profile
+  name: text("name"),
+  email: text("email"),
+  mobile: text("mobile"),
+  pan: text("pan"),
+  brokerName: text("broker_name").default("Angel One"),
+  // funds snapshot
+  availableCash: numeric("available_cash", { precision: 18, scale: 2 }),
+  totalPnl: numeric("total_pnl", { precision: 18, scale: 2 }),
+  // status
+  status: text("status").notNull().default("disconnected"),
+  lastError: text("last_error"),
+  lastConnectedAt: timestamp("last_connected_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

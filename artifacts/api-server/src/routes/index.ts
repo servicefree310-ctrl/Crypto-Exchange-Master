@@ -43,6 +43,7 @@ import pushRouter from "./push";
 import instrumentsRouter from "./instruments";
 import brokerAccountsRouter from "./broker-accounts";
 import mt5Router from "./mt5";
+import smartApiRouter from "./smartapi";
 
 const router: IRouter = Router();
 
@@ -98,6 +99,7 @@ router.use(pushRouter);
 router.use(instrumentsRouter);
 router.use(brokerAccountsRouter);
 router.use(mt5Router);
+router.use(smartApiRouter);
 router.use(v1Router);
 
 export default router;

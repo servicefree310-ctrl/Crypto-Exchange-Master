@@ -55,6 +55,7 @@ import Announcements from "@/pages/Announcements";
 import News from "@/pages/News";
 import Leagues from "@/pages/Leagues";
 import Forex from "@/pages/Forex";
+import SmartAPI from "@/pages/SmartAPI";
 import Stocks from "@/pages/Stocks";
 import Commodities from "@/pages/Commodities";
 import BrokerOnboarding from "@/pages/BrokerOnboarding";
@@ -156,6 +157,9 @@ function App() {
                 <Route path="/news" component={News} />
                 <Route path="/leagues" component={Leagues} />
                 <Route path="/forex" component={Forex} />
+                <Route path="/smartapi">
+                  {() => <RequireAuth><SmartAPI /></RequireAuth>}
+                </Route>
                 <Route path="/stocks" component={Stocks} />
                 <Route path="/commodities" component={Commodities} />
                 <Route path="/broker/onboarding">
