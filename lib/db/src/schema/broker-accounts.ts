@@ -111,3 +111,58 @@ export const brokerPortfolioTable = pgTable("broker_portfolio", {
   realizedPnl: numeric("realized_pnl", { precision: 18, scale: 6 }).default("0"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// ─── MT5 Accounts ─────────────────────────────────────────────────────────────
+export const mt5AccountsTable = pgTable("mt5_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  // Connection details
+  server: text("server").notNull(),                   // e.g. "ICMarkets-Demo", "Pepperstone-MT5"
+  login: text("login").notNull(),                     // MT5 account number
+  passwordHash: text("password_hash"),                // bcrypt hash of investor/master password
+  // Account info (from MT5 terminal on connect)
+  name: text("name"),                                 // account holder name
+  currency: text("currency").default("USD"),
+  leverage: integer("leverage"),
+  balance: numeric("balance", { precision: 18, scale: 2 }).default("0"),
+  equity: numeric("equity", { precision: 18, scale: 2 }).default("0"),
+  margin: numeric("margin", { precision: 18, scale: 2 }).default("0"),
+  freeMargin: numeric("free_margin", { precision: 18, scale: 2 }).default("0"),
+  // Status
+  status: text("status").notNull().default("disconnected"), // connected | disconnected | error
+  isDemo: boolean("is_demo").notNull().default(true),
+  connectionType: text("connection_type").default("investor"), // investor | master
+  lastError: text("last_error"),
+  lastConnectedAt: timestamp("last_connected_at"),
+  // Session token (MT5 HTTP bridge session)
+  sessionToken: text("session_token"),
+  sessionExpiresAt: timestamp("session_expires_at"),
+  // Timestamps
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ─── MT5 Orders (for audit trail) ────────────────────────────────────────────
+export const mt5OrdersTable = pgTable("mt5_orders", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  mt5AccountId: integer("mt5_account_id").references(() => mt5AccountsTable.id),
+  symbol: text("symbol").notNull(),
+  orderType: text("order_type").notNull(),            // market | limit | stop | stop_limit
+  side: text("side").notNull(),                       // buy | sell
+  volume: numeric("volume", { precision: 18, scale: 4 }).notNull(),
+  openPrice: numeric("open_price", { precision: 18, scale: 6 }),
+  closePrice: numeric("close_price", { precision: 18, scale: 6 }),
+  stopLoss: numeric("stop_loss", { precision: 18, scale: 6 }),
+  takeProfit: numeric("take_profit", { precision: 18, scale: 6 }),
+  profit: numeric("profit", { precision: 18, scale: 4 }),
+  commission: numeric("commission", { precision: 18, scale: 4 }),
+  swap: numeric("swap", { precision: 18, scale: 4 }),
+  mt5Ticket: text("mt5_ticket"),                     // MT5 order ticket number
+  status: text("status").notNull().default("pending"), // pending | filled | cancelled | rejected
+  simulated: boolean("simulated").notNull().default(true),
+  comment: text("comment"),
+  openedAt: timestamp("opened_at"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

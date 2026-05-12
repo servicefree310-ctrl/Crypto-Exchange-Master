@@ -42,6 +42,7 @@ import convertRouter from "./convert";
 import pushRouter from "./push";
 import instrumentsRouter from "./instruments";
 import brokerAccountsRouter from "./broker-accounts";
+import mt5Router from "./mt5";
 
 const router: IRouter = Router();
 
@@ -96,6 +97,7 @@ router.use(convertRouter);
 router.use(pushRouter);
 router.use(instrumentsRouter);
 router.use(brokerAccountsRouter);
+router.use(mt5Router);
 router.use(v1Router);
 
 export default router;

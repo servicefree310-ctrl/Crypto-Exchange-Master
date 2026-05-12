@@ -10,6 +10,7 @@ import {
   TrendingUp, TrendingDown, Activity, Clock, Shield, Zap,
   BarChart3, BookOpen, ChevronDown, ChevronUp, X, Settings,
   Calculator, AlertTriangle, CheckCircle2, Wifi, WifiOff,
+  Terminal, Eye, EyeOff, Plug, PlugZap, ExternalLink,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,6 +36,15 @@ type OrderRow = {
   qty: string; price: string | null; filledQty: string; avgFillPrice: string | null;
   status: string; fee: string; pnl: string; createdAt: string;
   assetClass: string; quoteCurrency: string;
+};
+
+type MT5Account = {
+  id: number; server: string; login: string; name: string | null;
+  currency: string | null; leverage: number | null; balance: string | null;
+  equity: string | null; margin: string | null; freeMargin: string | null;
+  status: string; isDemo: boolean; connectionType: string | null;
+  lastError: string | null; lastConnectedAt: string | null;
+  sessionToken?: string; createdAt: string;
 };
 
 type OHLC = { t: number; o: number; h: number; l: number; c: number; v: number };
@@ -187,6 +197,232 @@ function CandlestickChart({ bars, symbol, tf, pp }: {
           y={H + volH - 2} fill="rgba(255,255,255,0.3)" fontSize="8">{fmtTime(b.t)}</text>
       ))}
     </svg>
+  );
+}
+
+// ─── MT5 Connect Modal ────────────────────────────────────────────────────────
+const KNOWN_MT5_SERVERS = [
+  "ICMarkets-Demo", "ICMarkets-Live01", "Pepperstone-MT5", "Pepperstone-Demo",
+  "XM.COM-Demo", "XM.COM-Real", "Exness-MT5Trial", "Exness-MT5Real",
+  "FXTM-MT5", "FXTM-Demo", "Alpari-MT5Demo", "Alpari-MT5Real",
+  "FusionMarkets-MT5Demo", "FusionMarkets-MT5", "Admiral-MT5Demo",
+  "ZerodhaFX-Demo", "AngelOne-MT5Demo", "AngelOne-MT5Live",
+  "Zebvix-MT5Demo", "Zebvix-MT5Live",
+];
+
+function MT5ConnectModal({ onClose, onConnected }: {
+  onClose: () => void;
+  onConnected: (acct: MT5Account) => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [server, setServer] = useState("");
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [connType, setConnType] = useState<"investor" | "master">("investor");
+  const [serverSuggest, setServerSuggest] = useState(false);
+
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      const r = await fetch("/api/mt5/connect", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ server, login, password, connectionType: connType }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Connection failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({ title: "MT5 Connected", description: `${data.account.server} · ${data.account.login} (${data.account.isDemo ? "Demo" : "Live"})` });
+      qc.invalidateQueries({ queryKey: ["mt5-accounts"] });
+      onConnected(data.account);
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "MT5 Connection Failed", description: e.message, variant: "destructive" }),
+  });
+
+  const filtered = KNOWN_MT5_SERVERS.filter(s => s.toLowerCase().includes(server.toLowerCase()) && server.length > 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#111827] border border-white/12 rounded-2xl w-[440px] shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
+              <Terminal size={16} className="text-blue-400" />
+            </div>
+            <div>
+              <div className="font-semibold text-sm">Connect MetaTrader 5</div>
+              <div className="text-[10px] text-white/30">Live & demo accounts supported</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* Info banner */}
+          <div className="bg-blue-500/8 border border-blue-500/20 rounded-xl p-3 flex gap-2.5 text-xs">
+            <Info size={13} className="text-blue-400 flex-shrink-0 mt-0.5" />
+            <div className="text-white/50 leading-relaxed">
+              Enter your MT5 broker server, account login, and <span className="text-blue-300">investor (read-only)</span> or master password.
+              Your credentials are encrypted with bcrypt — never stored in plaintext.
+            </div>
+          </div>
+
+          {/* Connection type */}
+          <div>
+            <div className="text-[10px] text-white/35 mb-1.5 font-medium">Connection Type</div>
+            <div className="flex gap-1.5">
+              {(["investor", "master"] as const).map(t => (
+                <button key={t} onClick={() => setConnType(t)}
+                  className={cn("flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all border",
+                    connType === t
+                      ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                      : "border-white/8 text-white/30 hover:text-white/50")}>
+                  {t === "investor" ? "🔍 Investor (Read-only)" : "⚡ Master (Full access)"}
+                </button>
+              ))}
+            </div>
+            {connType === "master" && (
+              <div className="mt-1.5 text-[10px] text-amber-400/70 flex items-center gap-1">
+                <AlertTriangle size={10} /> Master password gives full trade access. Use with caution.
+              </div>
+            )}
+          </div>
+
+          {/* Server */}
+          <div className="relative">
+            <div className="text-[10px] text-white/35 mb-1 font-medium">Broker Server</div>
+            <input value={server} onChange={e => { setServer(e.target.value); setServerSuggest(true); }}
+              onBlur={() => setTimeout(() => setServerSuggest(false), 200)}
+              placeholder="e.g. ICMarkets-Demo, Pepperstone-MT5"
+              className="w-full bg-white/5 border border-white/10 px-3 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none" />
+            {serverSuggest && filtered.length > 0 && (
+              <div className="absolute top-full mt-1 left-0 right-0 bg-[#1a2035] border border-white/12 rounded-xl overflow-hidden z-10 shadow-xl">
+                {filtered.slice(0, 6).map(s => (
+                  <button key={s} onClick={() => { setServer(s); setServerSuggest(false); }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-white/8 transition-colors text-white/70 flex items-center gap-2">
+                    <Terminal size={10} className="text-blue-400" />
+                    {s}
+                    {s.toLowerCase().includes("demo") && <span className="ml-auto text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded">DEMO</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Login */}
+          <div>
+            <div className="text-[10px] text-white/35 mb-1 font-medium">Account Login (Number)</div>
+            <input value={login} onChange={e => setLogin(e.target.value)}
+              placeholder="e.g. 12345678"
+              className="w-full bg-white/5 border border-white/10 px-3 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none font-mono" />
+          </div>
+
+          {/* Password */}
+          <div>
+            <div className="text-[10px] text-white/35 mb-1 font-medium">Password</div>
+            <div className="relative">
+              <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Investor or master password"
+                className="w-full bg-white/5 border border-white/10 px-3 pr-10 h-10 text-sm rounded-xl text-white placeholder-white/20 focus:border-blue-500/50 focus:outline-none" />
+              <button onClick={() => setShowPw(s => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/60">
+                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Connect button */}
+          <button onClick={() => connectMutation.mutate()}
+            disabled={!server || !login || !password || connectMutation.isPending}
+            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+            {connectMutation.isPending ? (
+              <>
+                <RefreshCw size={14} className="animate-spin" /> Connecting...
+              </>
+            ) : (
+              <>
+                <PlugZap size={14} /> Connect MT5 Account
+              </>
+            )}
+          </button>
+
+          <div className="text-[10px] text-white/20 text-center leading-relaxed">
+            Demo accounts: Use server names containing "Demo" or "Trial" · 
+            Supports all MT5 brokers with WebAPI/HTTP bridge
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MT5 Account Card ─────────────────────────────────────────────────────────
+function MT5AccountCard({ account, onDisconnect }: { account: MT5Account; onDisconnect: () => void }) {
+  const isConnected = account.status === "connected";
+  const balance = parseFloat(account.balance ?? "0");
+  const equity = parseFloat(account.equity ?? "0");
+  const freeMargin = parseFloat(account.freeMargin ?? "0");
+  const marginPct = account.equity && account.margin
+    ? (parseFloat(account.margin) / parseFloat(account.equity)) * 100 : 0;
+
+  return (
+    <div className={cn("rounded-xl border p-3 text-xs",
+      isConnected
+        ? account.isDemo ? "bg-amber-500/6 border-amber-500/20" : "bg-blue-500/6 border-blue-500/20"
+        : "bg-white/3 border-white/8")}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Terminal size={10} className={isConnected ? (account.isDemo ? "text-amber-400" : "text-blue-400") : "text-white/20"} />
+          <span className={cn("font-semibold text-[11px]", isConnected ? "text-white" : "text-white/30")}>
+            MT5 · {account.login}
+          </span>
+          <span className={cn("px-1 py-0.5 rounded text-[9px] font-bold",
+            !isConnected ? "bg-white/5 text-white/20" :
+            account.isDemo ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-300")}>
+            {!isConnected ? "OFF" : account.isDemo ? "DEMO" : "LIVE"}
+          </span>
+        </div>
+        <button onClick={onDisconnect}
+          className="text-[10px] text-white/20 hover:text-red-400 transition-colors flex items-center gap-1">
+          <X size={9} /> Disconnect
+        </button>
+      </div>
+
+      {isConnected && (
+        <>
+          <div className="text-[10px] text-white/25 mb-1.5 truncate">{account.server}</div>
+          <div className="grid grid-cols-3 gap-1.5 mb-2">
+            {[
+              ["Balance", balance.toFixed(2)],
+              ["Equity", equity.toFixed(2)],
+              ["Free", freeMargin.toFixed(2)],
+            ].map(([k, v]) => (
+              <div key={k} className="bg-white/5 rounded-lg p-1.5 text-center">
+                <div className="text-white/25 text-[9px]">{k}</div>
+                <div className="font-mono font-semibold mt-0.5 text-[10px]">{v}</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between text-[9px] text-white/25 mb-1">
+            <span>Margin used</span>
+            <span>{marginPct.toFixed(1)}% · {account.leverage}× leverage</span>
+          </div>
+          <div className="w-full bg-white/8 rounded-full h-1">
+            <div className={cn("h-1 rounded-full transition-all",
+              marginPct > 80 ? "bg-red-500" : marginPct > 50 ? "bg-amber-500" : "bg-blue-500")}
+              style={{ width: `${Math.min(marginPct, 100)}%` }} />
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -363,7 +599,7 @@ export default function Forex() {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [tf, setTf] = useState<TF>("H1");
   const [centerTab, setCenterTab] = useState<"chart" | "depth" | "analysis">("chart");
-  const [bottomTab, setBottomTab] = useState<"positions" | "history">("positions");
+  const [bottomTab, setBottomTab] = useState<"positions" | "history" | "mt5">("positions");
 
   // Order state
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -375,6 +611,10 @@ export default function Forex() {
   const [slMode, setSlMode] = useState<"pips" | "price">("pips");
   const [showCalc, setShowCalc] = useState(false);
   const [oneClick, setOneClick] = useState(false);
+
+  // MT5 state
+  const [showMt5Modal, setShowMt5Modal] = useState(false);
+  const [activeMt5, setActiveMt5] = useState<MT5Account | null>(null);
 
   // Data queries
   const { data: instrData, isLoading } = useQuery({
@@ -412,6 +652,55 @@ export default function Forex() {
     },
     enabled: !!user,
     staleTime: 60_000,
+  });
+
+  const { data: mt5Data, refetch: refetchMt5 } = useQuery({
+    queryKey: ["mt5-accounts"],
+    queryFn: async () => {
+      const r = await fetch("/api/mt5/account", { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+
+  // Use first connected MT5 account, else activeMt5 from state
+  const mt5Accounts: MT5Account[] = mt5Data?.accounts ?? [];
+  const connectedMt5 = activeMt5 ?? mt5Accounts.find(a => a.status === "connected") ?? null;
+
+  const mt5DisconnectMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await fetch("/api/mt5/disconnect", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!r.ok) throw new Error("Disconnect failed");
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "MT5 Disconnected" });
+      setActiveMt5(null);
+      qc.invalidateQueries({ queryKey: ["mt5-accounts"] });
+    },
+  });
+
+  const mt5PlaceMutation = useMutation({
+    mutationFn: async (body: object) => {
+      const r = await fetch("/api/mt5/orders", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Order failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({ title: "MT5 Order Placed", description: `Ticket: ${data.ticket}` });
+    },
+    onError: (e: Error) => toast({ title: "MT5 Order Failed", description: e.message, variant: "destructive" }),
   });
 
   const instruments = instrData?.instruments ?? [];
@@ -493,10 +782,28 @@ export default function Forex() {
     },
   });
 
-  const handlePlace = () => {
+  const handlePlace = (forceSide?: "buy" | "sell") => {
+    const activeSide = forceSide ?? side;
     if (!selectedSymbol || !qty) return;
+
+    // If MT5 connected → route through MT5
+    if (connectedMt5) {
+      mt5PlaceMutation.mutate({
+        mt5AccountId: connectedMt5.id,
+        symbol: selectedSymbol,
+        side: activeSide,
+        orderType: orderType.toLowerCase(),
+        volume: Number(qty),
+        ...(slPrice ? { stopLoss: slPrice } : {}),
+        ...(tpPrice ? { takeProfit: tpPrice } : {}),
+        comment: `Zebvix Forex ${activeSide.toUpperCase()}`,
+      });
+      return;
+    }
+
+    // Default: platform instruments order
     placeMutation.mutate({
-      symbol: selectedSymbol, side, qty: Number(qty),
+      symbol: selectedSymbol, side: activeSide, qty: Number(qty),
       type: orderType,
       ...(orderType !== "MARKET" && limitPrice ? { price: Number(limitPrice) } : {}),
       leverage: 10,
@@ -549,16 +856,35 @@ export default function Forex() {
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2">
           <SessionBadges />
+
+          {/* Angel One badge */}
           {brokerActive && (
             <div className={cn("flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border",
               brokerSimulated ? "text-yellow-400 border-yellow-500/30 bg-yellow-500/10"
                 : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10")}>
               {brokerSimulated ? <WifiOff size={10} /> : <Wifi size={10} />}
-              {brokerSimulated ? "Sim" : "Live"} · {brokerAccount.angelClientId}
+              AO {brokerSimulated ? "Sim" : "Live"} · {brokerAccount.angelClientId}
             </div>
           )}
+
+          {/* MT5 badge */}
+          {connectedMt5 ? (
+            <div className={cn("flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border cursor-pointer hover:opacity-80",
+              connectedMt5.isDemo ? "text-amber-400 border-amber-500/30 bg-amber-500/10"
+                : "text-blue-400 border-blue-500/30 bg-blue-500/10")}
+              onClick={() => setBottomTab("mt5")}>
+              <Terminal size={10} />
+              MT5 {connectedMt5.isDemo ? "Demo" : "Live"} · {connectedMt5.login}
+            </div>
+          ) : user && (
+            <button onClick={() => setShowMt5Modal(true)}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border border-white/15 text-white/30 hover:text-white/60 hover:border-white/30 transition-colors">
+              <PlugZap size={10} /> MT5
+            </button>
+          )}
+
           <button onClick={() => refetchQuote()} className="text-white/30 hover:text-white transition-colors">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
@@ -702,18 +1028,30 @@ export default function Forex() {
           {/* ── Bottom: positions / history ─────────────────────────────── */}
           <div className="border-t border-white/8 bg-[#0c0f1a]" style={{ height: "200px" }}>
             <div className="flex items-center gap-0 border-b border-white/8 px-3">
-              {(["positions", "history"] as const).map(tab => (
-                <button key={tab} onClick={() => setBottomTab(tab)}
-                  className={cn("px-3 py-2 text-[11px] capitalize flex items-center gap-1.5 transition-colors",
-                    bottomTab === tab ? "text-amber-400 border-b-2 border-amber-400" : "text-white/30 hover:text-white/60")}>
-                  {tab === "positions" ? "Open Positions" : "Order History"}
-                  {tab === "positions" && positions.length > 0 && (
-                    <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1.5 py-0.5 rounded-full">
-                      {positions.length}
-                    </span>
-                  )}
-                </button>
-              ))}
+              <button onClick={() => setBottomTab("positions")}
+                className={cn("px-3 py-2 text-[11px] flex items-center gap-1.5 transition-colors",
+                  bottomTab === "positions" ? "text-amber-400 border-b-2 border-amber-400" : "text-white/30 hover:text-white/60")}>
+                Open Positions
+                {positions.length > 0 && (
+                  <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1.5 py-0.5 rounded-full">{positions.length}</span>
+                )}
+              </button>
+              <button onClick={() => setBottomTab("history")}
+                className={cn("px-3 py-2 text-[11px] flex items-center gap-1.5 transition-colors",
+                  bottomTab === "history" ? "text-amber-400 border-b-2 border-amber-400" : "text-white/30 hover:text-white/60")}>
+                Order History
+              </button>
+              <button onClick={() => setBottomTab("mt5")}
+                className={cn("px-3 py-2 text-[11px] flex items-center gap-1.5 transition-colors",
+                  bottomTab === "mt5" ? "text-blue-400 border-b-2 border-blue-400" : "text-white/30 hover:text-white/60")}>
+                <Terminal size={10} /> MT5
+                {connectedMt5 && (
+                  <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full",
+                    connectedMt5.isDemo ? "bg-amber-500/20 text-amber-400" : "bg-blue-500/20 text-blue-400")}>
+                    {connectedMt5.isDemo ? "Demo" : "Live"}
+                  </span>
+                )}
+              </button>
               {totalUnrealizedPnl !== 0 && (
                 <div className={cn("ml-auto text-xs font-bold tabular-nums",
                   totalUnrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
@@ -817,6 +1155,34 @@ export default function Forex() {
                       ))}
                     </tbody>
                   </table>
+                )
+              )}
+
+              {/* ── MT5 Tab ─────────────────────────────────────────────── */}
+              {bottomTab === "mt5" && (
+                !user ? (
+                  <div className="text-center py-8 text-white/20 text-xs">Login to connect MT5</div>
+                ) : (
+                  <div className="p-3 space-y-2">
+                    {/* Connected accounts */}
+                    {mt5Accounts.length > 0 ? mt5Accounts.map(acct => (
+                      <MT5AccountCard key={acct.id} account={acct}
+                        onDisconnect={() => mt5DisconnectMutation.mutate(acct.id)} />
+                    )) : (
+                      <div className="text-center py-4 text-white/20 text-xs">No MT5 accounts connected</div>
+                    )}
+
+                    {/* Add new MT5 account */}
+                    <button onClick={() => setShowMt5Modal(true)}
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-blue-500/30 text-blue-400/70 hover:text-blue-400 hover:border-blue-500/50 text-xs transition-colors">
+                      <PlugZap size={12} /> Connect another MT5 account
+                    </button>
+
+                    {/* Supported brokers */}
+                    <div className="text-[10px] text-white/20 text-center pt-1">
+                      Supports: IC Markets · Pepperstone · XM · Exness · FXTM · Alpari · Admiral · and more
+                    </div>
+                  </div>
                 )
               )}
             </div>
@@ -989,8 +1355,38 @@ export default function Forex() {
               </div>
             )}
 
-            {/* Angel One status */}
+            {/* ── MT5 section ── */}
             {user && (
+              connectedMt5 ? (
+                <MT5AccountCard account={connectedMt5}
+                  onDisconnect={() => mt5DisconnectMutation.mutate(connectedMt5.id)} />
+              ) : (
+                <button onClick={() => setShowMt5Modal(true)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 transition-colors text-left">
+                  <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+                    <Terminal size={13} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-blue-300">Connect MetaTrader 5</div>
+                    <div className="text-[10px] text-white/25 mt-0.5">Route orders via your MT5 broker account</div>
+                  </div>
+                  <PlugZap size={12} className="ml-auto text-blue-400/50" />
+                </button>
+              )
+            )}
+
+            {/* MT5 active indicator */}
+            {connectedMt5 && (
+              <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg px-3 py-2 flex items-center gap-1.5 text-[10px]">
+                <CheckCircle2 size={10} className="text-blue-400" />
+                <span className="text-blue-300/70">
+                  Orders routing via MT5 · {connectedMt5.server}
+                </span>
+              </div>
+            )}
+
+            {/* Angel One status */}
+            {user && !connectedMt5 && (
               brokerActive ? (
                 <div className={cn("rounded-xl p-2.5 border text-xs",
                   brokerSimulated ? "bg-yellow-500/8 border-yellow-500/25" : "bg-emerald-500/8 border-emerald-500/25")}>
@@ -1052,22 +1448,31 @@ export default function Forex() {
               </a>
             ) : (
               <div className="space-y-1.5">
-                <button onClick={() => { setSide("sell"); handlePlace(); }}
-                  disabled={!selectedSymbol || !qty || placeMutation.isPending}
+                {/* Sell button */}
+                <button onClick={() => handlePlace("sell")}
+                  disabled={!selectedSymbol || !qty || placeMutation.isPending || mt5PlaceMutation.isPending}
                   className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
                   <TrendingDown size={14} />
-                  Sell {qty} {selectedSymbol ?? "—"}
+                  {connectedMt5 ? "MT5 " : ""}Sell {qty} {selectedSymbol ?? "—"}
                   <span className="font-mono text-xs opacity-80">{p(bid, pp)}</span>
                 </button>
-                <button onClick={() => { setSide("buy"); handlePlace(); }}
-                  disabled={!selectedSymbol || !qty || placeMutation.isPending}
+
+                {/* Buy button */}
+                <button onClick={() => handlePlace("buy")}
+                  disabled={!selectedSymbol || !qty || placeMutation.isPending || mt5PlaceMutation.isPending}
                   className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
                   <TrendingUp size={14} />
-                  Buy {qty} {selectedSymbol ?? "—"}
+                  {connectedMt5 ? "MT5 " : ""}Buy {qty} {selectedSymbol ?? "—"}
                   <span className="font-mono text-xs opacity-80">{p(ask, pp)}</span>
                 </button>
-                {placeMutation.isPending && (
-                  <div className="text-center text-xs text-amber-400 animate-pulse">Placing order...</div>
+
+                {(placeMutation.isPending || mt5PlaceMutation.isPending) && (
+                  <div className="text-center text-xs animate-pulse flex items-center justify-center gap-1.5">
+                    <RefreshCw size={10} className={connectedMt5 ? "text-blue-400" : "text-amber-400"} />
+                    <span className={connectedMt5 ? "text-blue-400" : "text-amber-400"}>
+                      {connectedMt5 ? "Sending to MT5..." : "Placing order..."}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
@@ -1076,14 +1481,24 @@ export default function Forex() {
             <div className="flex items-start gap-1.5 text-[10px] text-white/20 pb-2">
               <AlertTriangle size={10} className="flex-shrink-0 mt-0.5 text-amber-500/40" />
               <span>
-                {brokerActive && !brokerSimulated
+                {connectedMt5
+                  ? `${connectedMt5.isDemo ? "Demo" : "Live"} execution via MT5 · ${connectedMt5.server}. CFDs carry risk.`
+                  : brokerActive && !brokerSimulated
                   ? `Live execution via Angel One (${brokerAccount.angelClientId}). CFDs carry risk.`
-                  : "CFDs carry significant risk. 74% of retail investors lose money. Simulated mode active."}
+                  : "CFDs carry significant risk. 74% of retail investors lose money."}
               </span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* ── MT5 Connect Modal ──────────────────────────────────────────────── */}
+      {showMt5Modal && (
+        <MT5ConnectModal
+          onClose={() => setShowMt5Modal(false)}
+          onConnected={(acct) => setActiveMt5(acct)}
+        />
+      )}
     </div>
   );
 }
