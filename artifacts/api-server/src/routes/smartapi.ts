@@ -25,10 +25,8 @@
 
 import { Router } from "express";
 import { eq, and } from "drizzle-orm";
-import { db } from "../lib/db";
-import { requireAuth } from "../middleware/auth";
-import { smartApiAccountsTable } from "../lib/db/schema/broker-accounts";
-import { brokerConfigTable } from "../lib/db/schema/instruments";
+import { db, smartApiAccountsTable, brokerConfigTable } from "@workspace/db";
+import { requireAuth } from "../middlewares/auth";
 
 const router = Router();
 

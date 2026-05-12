@@ -79,7 +79,7 @@ function statusBadge(status: string) {
 // User provides only their Angel One credentials.
 // The platform API Key is configured by the admin — users never need to enter it.
 function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
-  const [form, setForm] = useState({ clientCode: "", password: "", totp: "" });
+  const [form, setForm] = useState({ clientCode: "", password: "", totp: "", otpMode: "totp" as "totp" | "sms" });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -176,13 +176,49 @@ function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnect
             </div>
           </div>
           <div>
-            <label className="text-[11px] text-white/40 mb-1 block">
-              TOTP <span className="text-white/25">(6-digit code from Google Authenticator / Angel One App)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] text-white/40">
+                OTP / TOTP <span className="text-red-400/60">*</span>
+              </label>
+              <div className="flex items-center gap-0.5 bg-white/5 rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, otpMode: "totp" }))}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-md transition-colors",
+                    form.otpMode === "totp"
+                      ? "bg-orange-500/20 text-orange-300 font-semibold"
+                      : "text-white/30 hover:text-white/60"
+                  )}
+                >
+                  Authenticator App
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, otpMode: "sms" }))}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-md transition-colors",
+                    form.otpMode === "sms"
+                      ? "bg-blue-500/20 text-blue-300 font-semibold"
+                      : "text-white/30 hover:text-white/60"
+                  )}
+                >
+                  SMS OTP
+                </button>
+              </div>
+            </div>
             <input value={form.totp} onChange={e => setForm(f => ({ ...f, totp: e.target.value.replace(/\D/g, "") }))}
-              placeholder="123456" maxLength={6} inputMode="numeric"
+              placeholder="6-digit code" maxLength={6} inputMode="numeric"
               className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-orange-500/50 transition-colors font-mono tracking-[0.35em]" />
-            <p className="text-[10px] text-white/20 mt-1">TOTP 30 seconds mein expire hota hai — quickly submit karein</p>
+            {form.otpMode === "totp" ? (
+              <p className="text-[10px] text-white/20 mt-1">
+                Google Authenticator / TOTP app se 6-digit code — 30 sec mein expire hota hai, jaldi submit karein
+              </p>
+            ) : (
+              <p className="text-[10px] text-blue-300/50 mt-1">
+                Angel One ke registered mobile number pe SMS aaya hoga — woh 6-digit OTP yahan enter karein
+              </p>
+            )}
           </div>
         </div>
 
