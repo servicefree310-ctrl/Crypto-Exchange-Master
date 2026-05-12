@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
 import {
   BarChart3, TrendingUp, TrendingDown, Search, Building2,
-  Globe, RefreshCw, Info, Flag,
+  Globe, RefreshCw, Info, Flag, Link2, ChevronRight,
 } from "lucide-react";
 
 type Instrument = {
@@ -99,6 +100,20 @@ export default function Stocks() {
     enabled: !!selectedSymbol,
     refetchInterval: 10000,
   });
+
+  const { data: brokerData } = useQuery({
+    queryKey: ["broker-account"],
+    queryFn: async () => {
+      const r = await fetch("/api/broker/account", { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+  const brokerAccount = brokerData?.account;
+  const brokerActive = brokerAccount?.status === "active" && !!brokerAccount?.angelClientId;
+  const brokerSimulated = brokerActive && brokerAccount?.jwtToken?.startsWith("sim.");
 
   const instruments = instrData?.instruments ?? [];
   const positions = posData?.positions?.filter((p) => p.assetClass === "stock") ?? [];
@@ -439,6 +454,53 @@ export default function Stocks() {
               {selected && selected.maxLeverage > 1 && <div className="flex justify-between"><span className="text-muted-foreground">Margin</span><span>{fmtPrice(marginNeeded, 2, selected.quoteCurrency)}</span></div>}
             </div>
           )}
+          {/* Angel One account status */}
+          {user && (
+            brokerActive ? (
+              <div className={cn(
+                "rounded-lg p-2.5 text-xs border",
+                brokerSimulated
+                  ? "bg-yellow-500/10 border-yellow-500/30"
+                  : "bg-emerald-500/10 border-emerald-500/30",
+              )}>
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <Link2 className={cn("w-3 h-3", brokerSimulated ? "text-yellow-400" : "text-emerald-400")} />
+                    <span className={cn("font-semibold", brokerSimulated ? "text-yellow-300" : "text-emerald-300")}>
+                      {brokerSimulated ? "Simulated" : "Live"} · {brokerAccount.angelClientId}
+                    </span>
+                  </div>
+                  <Link href="/broker/onboarding" className="text-blue-400 hover:underline text-[10px]">Manage</Link>
+                </div>
+                {brokerSimulated && (
+                  <div className="text-yellow-500/70 mt-1 text-[10px]">
+                    Add SmartAPI key for live NSE orders →&nbsp;
+                    <Link href="/broker/onboarding" className="text-blue-400 underline">Setup</Link>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                <div className="text-xs font-semibold text-blue-300 mb-1 flex items-center gap-1.5">
+                  <Link2 className="w-3 h-3" /> Connect Angel One
+                </div>
+                <div className="text-[11px] text-muted-foreground mb-2.5">
+                  Link your Angel One demat account to trade NSE, BSE &amp; NASDAQ stocks as an Authorized Person.
+                </div>
+                <div className="flex gap-2">
+                  <Link href="/broker/onboarding"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold transition-colors">
+                    <Link2 className="w-3 h-3" /> Connect
+                  </Link>
+                  <Link href="/broker/onboarding"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-white/10 hover:bg-white/15 text-white text-xs transition-colors">
+                    Open Account <ChevronRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </div>
+            )
+          )}
+
           {!user ? (
             <Button className="bg-blue-500 hover:bg-blue-600 text-white font-bold" asChild><a href="/login">Login to Trade</a></Button>
           ) : (
@@ -449,7 +511,11 @@ export default function Stocks() {
           )}
           <div className="text-[10px] text-muted-foreground/60 flex items-start gap-1">
             <Info className="w-3 h-3 flex-shrink-0 mt-0.5" />
-            <span>Stock trading via Angel One API. Currently in simulation mode. Connect credentials in Admin → Broker Config.</span>
+            <span>
+              {brokerActive && !brokerSimulated
+                ? `Live trading via Angel One · ${brokerAccount.angelClientId} · NSE/BSE`
+                : "NSE/BSE stocks via Angel One AP. Connect your account for live execution."}
+            </span>
           </div>
         </div>
       </div>

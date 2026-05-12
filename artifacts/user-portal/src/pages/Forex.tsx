@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
 import {
   TrendingUp, TrendingDown, Globe, ArrowUpDown, RefreshCw,
-  ChevronDown, X, AlertCircle, Info, Zap, BarChart3,
+  ChevronDown, X, AlertCircle, Info, Zap, BarChart3, Link2, ChevronRight,
 } from "lucide-react";
 
 type Instrument = {
@@ -98,6 +99,20 @@ export default function Forex() {
     enabled: !!selectedSymbol,
     refetchInterval: 5000,
   });
+
+  const { data: brokerData } = useQuery({
+    queryKey: ["broker-account"],
+    queryFn: async () => {
+      const r = await fetch("/api/broker/account", { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+  const brokerAccount = brokerData?.account;
+  const brokerActive = brokerAccount?.status === "active" && !!brokerAccount?.angelClientId;
+  const brokerSimulated = brokerActive && brokerAccount?.jwtToken?.startsWith("sim.");
 
   const instruments = instrData?.instruments ?? [];
   const positions = posData?.positions?.filter((p) => p.assetClass === "forex") ?? [];
@@ -498,6 +513,52 @@ export default function Forex() {
             </div>
           )}
 
+          {/* Angel One account status */}
+          {user && (
+            brokerActive ? (
+              <div className={cn(
+                "rounded-lg p-2.5 text-xs border",
+                brokerSimulated
+                  ? "bg-yellow-500/10 border-yellow-500/30"
+                  : "bg-emerald-500/10 border-emerald-500/30",
+              )}>
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <Link2 className={cn("w-3 h-3", brokerSimulated ? "text-yellow-400" : "text-emerald-400")} />
+                    <span className={cn("font-semibold", brokerSimulated ? "text-yellow-300" : "text-emerald-300")}>
+                      {brokerSimulated ? "Simulated" : "Live"} · {brokerAccount.angelClientId}
+                    </span>
+                  </div>
+                  <Link href="/broker/onboarding" className="text-amber-400 hover:underline text-[10px]">Manage</Link>
+                </div>
+                {brokerSimulated && (
+                  <div className="text-yellow-500/70 mt-1">Add SmartAPI key for live orders →&nbsp;
+                    <Link href="/broker/onboarding" className="text-amber-400 underline">Setup</Link>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <div className="text-xs font-semibold text-amber-300 mb-1 flex items-center gap-1.5">
+                  <Link2 className="w-3 h-3" /> Connect Angel One
+                </div>
+                <div className="text-[11px] text-muted-foreground mb-2.5">
+                  Link your Angel One demat account to execute real Forex orders via our AP license.
+                </div>
+                <div className="flex gap-2">
+                  <Link href="/broker/onboarding"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold transition-colors">
+                    <Link2 className="w-3 h-3" /> Connect
+                  </Link>
+                  <Link href="/broker/onboarding"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-white/10 hover:bg-white/15 text-white text-xs transition-colors">
+                    Open Account <ChevronRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </div>
+            )
+          )}
+
           {!user ? (
             <Button className="bg-amber-500 hover:bg-amber-600 text-black font-bold" asChild>
               <a href="/login">Login to Trade</a>
@@ -517,7 +578,11 @@ export default function Forex() {
 
           <div className="text-[10px] text-muted-foreground/60 flex items-start gap-1">
             <Info className="w-3 h-3 flex-shrink-0 mt-0.5" />
-            <span>CFD trading involves risk. Currently in {selected ? selected.exchange : "—"} simulated mode. Connect Angel One for live execution.</span>
+            <span>
+              {brokerActive && !brokerSimulated
+                ? `Live Forex via Angel One · ${brokerAccount.angelClientId}`
+                : "CFD trading involves risk. Connect Angel One for live execution."}
+            </span>
           </div>
         </div>
       </div>
