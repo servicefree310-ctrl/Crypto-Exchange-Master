@@ -19,7 +19,9 @@ export function decryptSecret(blob: string | null | undefined): string {
   const iv = Buffer.from(parts[1], "base64");
   const tag = Buffer.from(parts[2], "base64");
   const data = Buffer.from(parts[3], "base64");
-  const decipher = createDecipheriv("aes-256-gcm", KEY, iv);
+  // authTagLength: 16 explicitly enforces the full 128-bit GCM authentication
+  // tag so a truncated/forged tag is rejected before decryption begins.
+  const decipher = createDecipheriv("aes-256-gcm", KEY, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   const dec = Buffer.concat([decipher.update(data), decipher.final()]);
   return dec.toString("utf8");

@@ -4,10 +4,23 @@
  * Also manages device_tokens table (registered via /api/push/register-token).
  */
 import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
+import { pgTable, serial, integer, text, boolean, timestamp } from "drizzle-orm/pg-core";
 import { logger } from "./logger";
 
 const FCM_ENDPOINT = "https://fcm.googleapis.com/fcm/send";
+
+// Inline table definition — device_tokens is created via raw migration (push setup),
+// not yet in the shared @workspace/db schema. Using a local pgTable avoids sql.raw.
+const deviceTokensTable = pgTable("device_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  token: text("token").notNull(),
+  platform: text("platform").notNull().default("web"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export type PushPayload = {
   title: string;
@@ -55,7 +68,9 @@ export async function sendPushToToken(token: string, payload: PushPayload): Prom
       const err = json.results?.[0]?.error;
       // Remove invalid/unregistered tokens
       if (err === "NotRegistered" || err === "InvalidRegistration") {
-        await db.execute(sql`UPDATE device_tokens SET is_active = false WHERE token = ${token}`);
+        await db.update(deviceTokensTable)
+          .set({ isActive: false })
+          .where(eq(deviceTokensTable.token, token));
       }
       return { ok: false, error: err };
     }
@@ -67,8 +82,10 @@ export async function sendPushToToken(token: string, payload: PushPayload): Prom
 
 /** Send push to all active tokens for a user */
 export async function sendPushToUser(userId: number, payload: PushPayload): Promise<{ sent: number; failed: number }> {
-  const tokens = await db.execute(sql`SELECT token FROM device_tokens WHERE user_id = ${userId} AND is_active = true LIMIT 10`);
-  const rows = (tokens as any).rows ?? (tokens as any);
+  const rows = await db.select({ token: deviceTokensTable.token })
+    .from(deviceTokensTable)
+    .where(and(eq(deviceTokensTable.userId, userId), eq(deviceTokensTable.isActive, true)))
+    .limit(10);
   let sent = 0, failed = 0;
   for (const row of rows) {
     const r = await sendPushToToken(row.token, payload);
@@ -82,17 +99,27 @@ export async function broadcastPush(payload: PushPayload, opts?: { platform?: st
   const fcmKey = await getFcmKey();
   if (!fcmKey) return { sent: 0, failed: 0, total: 0 };
 
-  let whereClause = "is_active = true";
-  if (opts?.platform) whereClause += ` AND platform = '${opts.platform.replace(/'/g, "''")}'`;
+  // Build WHERE conditions using Drizzle ORM (no sql.raw — eliminates SQL injection risk).
+  const ALLOWED_PLATFORMS = ["web", "android", "ios"] as const;
+  const conds: any[] = [eq(deviceTokensTable.isActive, true)];
+  if (opts?.platform) {
+    const plat = opts.platform as typeof ALLOWED_PLATFORMS[number];
+    if (ALLOWED_PLATFORMS.includes(plat)) {
+      conds.push(eq(deviceTokensTable.platform, plat));
+    }
+  }
 
-  const tokens = await db.execute(sql.raw(`SELECT token FROM device_tokens WHERE ${whereClause} LIMIT 1000`));
-  const rows = (tokens as any).rows ?? (tokens as any);
+  const rows = await db.select({ token: deviceTokensTable.token })
+    .from(deviceTokensTable)
+    .where(and(...conds))
+    .limit(1000);
   const total = rows.length;
 
   // FCM supports up to 1000 tokens per multicast request
+  const allTokens = rows.map((r) => r.token);
   const chunks: string[][] = [];
-  for (let i = 0; i < rows.length; i += 1000) {
-    chunks.push(rows.slice(i, i + 1000).map((r: any) => r.token));
+  for (let i = 0; i < allTokens.length; i += 1000) {
+    chunks.push(allTokens.slice(i, i + 1000));
   }
 
   let sent = 0, failed = 0;
@@ -123,7 +150,9 @@ export async function broadcastPush(payload: PushPayload, opts?: { platform?: st
         for (let i = 0; i < json.results.length; i++) {
           const e = json.results[i]?.error;
           if (e === "NotRegistered" || e === "InvalidRegistration") {
-            await db.execute(sql`UPDATE device_tokens SET is_active = false WHERE token = ${chunk[i]}`);
+            await db.update(deviceTokensTable)
+              .set({ isActive: false })
+              .where(eq(deviceTokensTable.token, chunk[i]));
           }
         }
       }
@@ -147,5 +176,7 @@ export async function registerDeviceToken(userId: number, token: string, platfor
 
 /** Deregister a device token (logout) */
 export async function deregisterDeviceToken(userId: number, token: string): Promise<void> {
-  await db.execute(sql`UPDATE device_tokens SET is_active = false WHERE user_id = ${userId} AND token = ${token}`);
+  await db.update(deviceTokensTable)
+    .set({ isActive: false })
+    .where(and(eq(deviceTokensTable.userId, userId), eq(deviceTokensTable.token, token)));
 }

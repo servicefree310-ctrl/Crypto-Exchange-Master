@@ -20,7 +20,7 @@
  * realistic prices and fees, while keeping zero on-chain risk.
  */
 import { Router, type IRouter } from "express";
-import { and, eq, desc, sql, asc } from "drizzle-orm";
+import { and, eq, desc, sql, asc, inArray } from "drizzle-orm";
 import { db, web3NetworksTable, web3TokensTable, web3WalletsTable, web3SwapsTable, web3BridgesTable, walletsTable, coinsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { getSwapQuote, getBridgeQuote, fakeTxHash } from "../lib/web3-quote";
@@ -273,7 +273,7 @@ router.get("/web3/swaps", requireAuth, async (req, res): Promise<void> => {
   const tokIds = [...new Set(rows.flatMap((r) => [r.fromTokenId, r.toTokenId]))];
   const toks = tokIds.length
     ? await db.select({ id: web3TokensTable.id, symbol: web3TokensTable.symbol }).from(web3TokensTable)
-        .where(sql`${web3TokensTable.id} = ANY(${sql.raw(`ARRAY[${tokIds.join(",")}]`)})`)
+        .where(inArray(web3TokensTable.id, tokIds))
     : [];
   const symBy = new Map(toks.map((t) => [t.id, t.symbol]));
   res.json({
@@ -297,7 +297,7 @@ router.get("/web3/bridges", requireAuth, async (req, res): Promise<void> => {
   const nets = netIds.length
     ? await db.select({ id: web3NetworksTable.id, name: web3NetworksTable.displayName, key: web3NetworksTable.chainKey })
         .from(web3NetworksTable)
-        .where(sql`${web3NetworksTable.id} = ANY(${sql.raw(`ARRAY[${netIds.join(",")}]`)})`)
+        .where(inArray(web3NetworksTable.id, netIds))
     : [];
   const nameBy = new Map(nets.map((n) => [n.id, n]));
   res.json({
@@ -323,7 +323,8 @@ router.get("/web3/portfolio", requireAuth, async (req, res): Promise<void> => {
   );
   const symbols = [...new Set(tokens.map((t) => t.priceCoinSymbol.toUpperCase()))];
   if (!symbols.length) { res.json({ holdings: [] }); return; }
-  const coins = await db.select().from(coinsTable).where(sql`upper(${coinsTable.symbol}) = ANY(${sql.raw(`ARRAY[${symbols.map((s) => `'${s.replace(/'/g, "''")}'`).join(",")}]`)})`);
+  // Use inArray with pre-validated uppercase symbols (sourced from DB rows, not user input).
+  const coins = await db.select().from(coinsTable).where(inArray(coinsTable.symbol, symbols));
   const coinBySym = new Map(coins.map((c) => [c.symbol.toUpperCase(), c]));
 
   const wRows = await db.select().from(walletsTable).where(
